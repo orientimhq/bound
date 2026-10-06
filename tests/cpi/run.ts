@@ -19,7 +19,7 @@
 import { signTransaction } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@orientim/core';
+import { MAX_ROUTE_KEPT_LAMPORTS, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@orientim/core';
 import {
   approve, balancesOf, CLOSE_ACCOUNT, deliver, invariants, IX, MIN_OUT, MIN_OUT_SOL, OUT_DECIMALS, protectedSwap, requireProgram,
   send, setAuthority, setup, SOL, SWAP_AMOUNT, takeFrom, transfer, transferChecked, transferSol,
@@ -356,24 +356,35 @@ const CASES: Case[] = [
     inners: () => [takeFrom(SWAP_AMOUNT), deliver(MIN_OUT)],
   },
   {
-    // PumpSwap charges each new buyer an account's rent, so Orientim sends E exactly that. A hostile
-    // route may pocket it instead: that is the most it can take on top of the approved amount.
+    // A market may charge its rent to the buyer, which here is E, so Orientim sends E exactly that. With
+    // nothing closed again in the same transaction, the route may keep at most MAX_ROUTE_KEPT_LAMPORTS
+    // of it. A hostile route may pocket that instead: it is the most it can take on top of the approved amount.
     name: 'route rent: takes the rent Orientim sent the temporary key, and the approved amount',
-    variant: 'C', takerRent: 1_346_200n, expect: 'succeeds',
+    variant: 'C', takerRent: MAX_ROUTE_KEPT_LAMPORTS, expect: 'succeeds',
     proves: "the SOL a route can reach is the stated rent and nothing more; the wallet's own SOL stays out of reach",
     extra: w => [w.attacker],
     inners: w => [
-      { program: IX.system, metas: [{ key: IX.E, w: true, s: true }, { key: w.attacker, w: true }], data: transferSol(1_346_200n) },
+      { program: IX.system, metas: [{ key: IX.E, w: true, s: true }, { key: w.attacker, w: true }], data: transferSol(MAX_ROUTE_KEPT_LAMPORTS) },
       takeFrom(SWAP_AMOUNT), deliver(MIN_OUT),
     ],
   },
   {
     name: 'route rent: tries to take one lamport more than the rent',
-    variant: 'C', takerRent: 1_346_200n, expect: 'reverts',
+    variant: 'C', takerRent: MAX_ROUTE_KEPT_LAMPORTS, expect: 'reverts',
     proves: 'the temporary key holds exactly the rent, so there is nothing more to take',
     extra: w => [w.attacker],
     inners: w => [
-      { program: IX.system, metas: [{ key: IX.E, w: true, s: true }, { key: w.attacker, w: true }], data: transferSol(1_346_201n) },
+      { program: IX.system, metas: [{ key: IX.E, w: true, s: true }, { key: w.attacker, w: true }], data: transferSol(MAX_ROUTE_KEPT_LAMPORTS + 1n) },
+      takeFrom(SWAP_AMOUNT), deliver(MIN_OUT),
+    ],
+  },
+  {
+    name: 'route rent: keeps more rent than the limit, with nothing closed again',
+    variant: 'C', takerRent: 1_346_200n, expect: 'refused before signing',
+    proves: 'rent above MAX_ROUTE_KEPT_LAMPORTS that no closed account returns is refused (R4) before the wallet is ever asked',
+    extra: w => [w.attacker],
+    inners: w => [
+      { program: IX.system, metas: [{ key: IX.E, w: true, s: true }, { key: w.attacker, w: true }], data: transferSol(1_346_200n) },
       takeFrom(SWAP_AMOUNT), deliver(MIN_OUT),
     ],
   },

@@ -23,7 +23,7 @@
 import { signTransaction } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@orientim/core';
+import { MAX_ROUTE_KEPT_LAMPORTS, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@orientim/core';
 import {
   approve, balancesOf, CLOSE_ACCOUNT, deliver, freshKey, invariants, IX, protectedSwap, requireProgram, send, setAuthority, setup,
   takeFrom, transfer, transferChecked, transferSol,
@@ -73,7 +73,7 @@ function plan(w: World): Plan {
   const minOut = variant === 'A' ? 1n + amount(11) : 1n + amount(14);
   // Orientim's fee is 0.5% of the amount in these worlds; the rest is what the route may take.
   const swapAmount = amountIn - (amountIn * 50n) / 10_000n;
-  const takerRent = random() < 0.2 ? 1_346_200n : 0n;
+  const takerRent = random() < 0.2 ? MAX_ROUTE_KEPT_LAMPORTS : 0n;
   const menu: Step[] = [
     { what: 'take', inner: () => takeFrom(near(swapAmount, 13)) },
     { what: 'deliver', inner: () => deliver(near(minOut, 15)) },
@@ -101,7 +101,7 @@ function plan(w: World): Plan {
   const steps: Step[] = honest
     ? [{ what: 'take', inner: () => takeFrom(swapAmount) }, { what: 'deliver', inner: () => deliver(minOut + BigInt(int(0, 3))) }]
     : Array.from({ length: int(1, 4) }, () => pick(menu));
-  // A market that charges the key rent (PumpSwap) spends all of it, as a real route does: rent left
+  // A market that charges the key rent spends all of it, as a real route does: rent left
   // in the key would keep it alive, which the promise does not allow.
   if (takerRent > 0n) steps.unshift({ what: 'spend key rent', inner: () => ({ program: IX.system, metas: [{ key: IX.E, w: true, s: true }, { key: IX.attackerIn, w: true }], data: transferSol(takerRent) }) });
   const extra = w.multisig && random() < 0.7 ? 'multisig' : pick(['none', 'none', 'attacker', 'walletInput'] as const);
