@@ -119,3 +119,18 @@ export function swapState(now = Date.now(), fetchImpl?: typeof fetch): Promise<S
   lastState = { at: now, state };
   return state;
 }
+
+/**
+ * What /api/health answers: checkHealth at most once every 15 seconds per instance. Each check builds a
+ * swap on Jupiter and reads the RPC, so callers that poll it cannot spend the quota real swaps need.
+ */
+const HEALTH_FRESH_MS = 15_000;
+let lastHealth: { at: number; health: Promise<Health> } | null = null;
+export function recentHealth(now = Date.now(), fetchImpl?: typeof fetch): Promise<Health> {
+  if (lastHealth && now - lastHealth.at < HEALTH_FRESH_MS) return lastHealth.health;
+  const health = checkHealth(fetchImpl);
+  lastHealth = { at: now, health };
+  // A check that threw is not kept: the next caller asks again.
+  health.catch(() => { if (lastHealth?.health === health) lastHealth = null; });
+  return health;
+}

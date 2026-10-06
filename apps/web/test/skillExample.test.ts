@@ -2134,11 +2134,13 @@ describe('the skill holds its own limits and its state against what it is handed
     expect(readdirSync(dir).filter(f => f.startsWith('spend-'))).toEqual(['spend-new.json']);
   });
 
-  it('a daily limit needs one absolute state directory; the policy may name it', () => {
+  it('a daily limit needs the policy to name its one state directory; no run may choose another', () => {
     const daily = { maxAmountIn: { [USDC]: '1' }, maxAmountInPerDay: { [USDC]: '2' } };
-    expect(() => stateDirFor(daily, undefined)).toThrow('absolute');
-    expect(() => stateDirFor(daily, 'relative/state')).toThrow('absolute');
-    expect(stateDirFor(daily, '/var/orientim').dir).toBe('/var/orientim');
+    expect(() => stateDirFor(daily, undefined)).toThrow('no stateDir');
+    expect(() => stateDirFor(daily, 'relative/state')).toThrow('no stateDir');
+    // A fresh absolute directory per run would be an empty record each time, and a new day's allowance.
+    expect(() => stateDirFor(daily, '/var/orientim')).toThrow('no stateDir');
+    expect(() => stateDirFor(daily, '/tmp/fresh')).toThrow('no stateDir');
     expect(stateDirFor({ ...daily, stateDir: '/srv/state' }, undefined).dir).toBe('/srv/state');
     expect(() => stateDirFor({ ...daily, stateDir: '/srv/state' }, '/elsewhere')).toThrow('/srv/state');
     expect(stateDirFor(undefined, undefined).warning).toContain('ORIENTIM_STATE_DIR');

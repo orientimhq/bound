@@ -7,7 +7,7 @@ import type { Address, FullySignedTransaction, Instruction, KeyPairSigner, Trans
 import {
   ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, buildPolicy, compileProtectedSwap, LEGACY_SIZE_LIMIT,
   MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_ORIENTIM_LAMPORTS,
-  LAMPORTS_PER_SIGNATURE, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, withTakerRent,
+  LAMPORTS_PER_SIGNATURE, MAX_ROUTE_KEPT_LAMPORTS, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, withTakerRent,
   V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, USDC_MINT, USDT_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM,
   PUMP_AMM_PROGRAM, eventAuthorityOf, routeAccountOf, withRouteRefund, FEE_TOKENS, feeSideFor, minimumForReceived, minimumReceived, outputFeeFor,
 } from '@orientim/core';
@@ -72,7 +72,7 @@ export type SwapSettings = OrientimConfig & {
  * $1 refused swaps of about $1 (debugging pass, 25 September 2026).
  */
 export const MIN_FEE = { lamports: 10_000n, stableUnits: 2_500n } as const;
-export const MIN_SWAP_MESSAGE = "This amount is below the smallest swap Orientim takes: about 0.004 SOL, or $1 of USDC or USDT (for two other tokens, their value in SOL). Swap a larger amount. Selling the whole balance of a token is allowed at any size.";
+export const MIN_SWAP_MESSAGE = "This amount is below the smallest swap Orientim takes: about 0.004 SOL, or $1 of USDC or USDT (for two other tokens, their value in SOL). Swap a larger amount. Selling the whole balance of a token (not SOL) is allowed at any size.";
 
 /** Is a fee of `fee` in `feeMint` below the smallest one `minFee` allows? */
 function belowMinFee(fee: bigint, feeMint: Address, minFee: SwapSettings['minFee']): boolean {
@@ -85,7 +85,7 @@ const feeMintOf = (p: Pick<Policy, 'feeSide' | 'inputMint' | 'outputMint'>): Add
   p.feeSide === 'output' ? p.outputMint : p.feeSide === 'input' ? p.inputMint : WSOL_MINT;
 
 export const DEFAULT_SETTINGS: Omit<SwapSettings, 'treasury' | 'jupiterProgram'> = {
-  feeBps: 30n,
+  feeBps: 25n,
   // 0.0005 SOL. Under congestion 0.0002 SOL clipped the priority fee and swaps expired more often
   // than elsewhere; the verifier's own ceiling stays 0.001 SOL.
   maxNetworkFeeLamports: 500_000n,
@@ -229,6 +229,9 @@ export const FEE_UNPRICED_MESSAGE = "Orientim's fee for this pair can't be price
 export const AMOUNT_TOO_SMALL_MESSAGE = "This amount is too small to carry Orientim's fee. Swap a larger amount.";
 /** A route that would leave lamports or tokens under the one-time key, which is discarded after the swap. */
 export const LEFT_UNDER_KEY_MESSAGE = "This swap's route would leave a market's deposit under the swap's one-time key, where it would be lost, so nothing was built. Another amount or pair may route differently.";
+
+export const RENT_MOVED_MESSAGE = "The rent this market asks of a new buyer could not be measured exactly: it moved while Orientim measured it, or it is close to the 0.005 SOL Orientim allows. No funds were moved; try again in a moment.";
+export const ROUTE_KEEPS_RENT_MESSAGE = "This swap's route would keep more than 0.001 SOL of rent for accounts it opens and does not close, so nothing was built. Another amount or pair may route differently.";
 
 /** What the user reads when Jupiter is overloaded or silent; the swap itself was never at fault. */
 export const BUSY_MESSAGE = 'Too many swaps are being priced right now. Wait a few seconds and try again. Nothing was signed.';
@@ -978,6 +981,7 @@ export async function prepareProtectedSwap(deps: {
   const learned: string[] = [];
   const attempts: Attempt[] = [];
   let floorMisses = 0;
+  let rentMisses = 0;
   // The narrowest route level still worth trying: raised when a route fits only without closing the
   // account a market opened under E, so that the next attempt looks for one that fits with it.
   let minLevel = 0;
@@ -1032,23 +1036,33 @@ export async function prepareProtectedSwap(deps: {
         return null;
       }
     };
-    const probe = attempt(MAX_TAKER_RENT_LAMPORTS);
-    if (!probe) { set(0n); return null; }
-    const probed = await measuredSimulation(rpc, probe.transaction, [E, ...watch]);
-    // With the lamports it lacked, the route failed for another reason, usually a price that moved.
-    // That reason is the one to act on; nothing is built on this probe, so it carries no rent.
-    if (!probed.ok) { set(0n); return { trial: probe, sim: probed }; }
-    const spent = MAX_TAKER_RENT_LAMPORTS - (probed.lamportsAfter[0] ?? MAX_TAKER_RENT_LAMPORTS);
-    if (spent <= 0n) { set(0n); return null; }
-    const exact = attempt(spent);
-    if (!exact) { set(0n); return null; }
-    const sim = await measuredSimulation(rpc, exact.transaction, [E, ...watch]);
-    // Funded with exactly what it spends, E must end with nothing: no SOL stays behind under a key
-    // that is about to be discarded.
-    if (!sim.ok || sim.lamportsAfter[0] !== 0n) { set(0n); return null; }
-    return { trial: exact, sim };
+    // A bonding curve's price moves with every buy, and what its market takes from E moves with it:
+    // a second measurement that disagrees with the first is measured once more, from the start.
+    let last: { trial: ReturnType<typeof compileProtectedSwap>; sim: Simulation } | null = null;
+    for (let round = 0; round < 2; round++) {
+      const probe = attempt(MAX_TAKER_RENT_LAMPORTS);
+      if (!probe) { set(0n); return null; }
+      const probed = await measuredSimulation(rpc, probe.transaction, [E, ...watch]);
+      // With the lamports it lacked, the route failed for another reason, usually a price that moved.
+      // That reason is the one to act on; nothing is built on this probe, so it carries no rent.
+      if (!probed.ok) { set(0n); return { trial: probe, sim: probed }; }
+      const spent = MAX_TAKER_RENT_LAMPORTS - (probed.lamportsAfter[0] ?? MAX_TAKER_RENT_LAMPORTS);
+      if (spent <= 0n) { set(0n); return null; }
+      const exact = attempt(spent);
+      if (!exact) { set(0n); return null; }
+      const sim = await measuredSimulation(rpc, exact.transaction, [E, ...watch]);
+      // Funded with exactly what it spends, E must end with nothing: no SOL stays behind under a key
+      // that is about to be discarded.
+      if (sim.ok && sim.lamportsAfter[0] === 0n) return { trial: exact, sim };
+      last = { trial: exact, sim };
+    }
+    set(0n);
+    // Still left rent-paying: that is the reason to act on, not a route short of lamports.
+    return last && rentOnE(last.sim) ? last : null;
   };
 
+  /** E (account 1, the only signer besides W) left with less than an empty account's rent. */
+  const rentOnE = (s: Simulation) => !s.ok && /InsufficientFundsForRent/.test(s.error ?? '') && /"account_index":"?1"?[,}]/.test(s.error ?? '');
   const failedInSwap = (s: Simulation, tx: Transaction, lookups: Record<string, string[]> | null) =>
     programAt(tx, s.failedInstruction, lookups) === settings.jupiterProgram;
   /**
@@ -1271,6 +1285,14 @@ export async function prepareProtectedSwap(deps: {
     if (walletShortOfSol(sim, trial.transaction, lookups)) {
       throw await insufficientSol(chosen.intermediates.length, probedForRent && takerRent === 0n ? MAX_TAKER_RENT_LAMPORTS : takerRent);
     }
+    // E (account 1, the only signer besides W) left with less than an empty account's rent: the rent
+    // the market charges moved while Orientim measured it, a fault of neither the route nor the wallet.
+    // Asked once more; no DEX is blamed for it.
+    if (rentOnE(sim)) {
+      attempts.push({ excluded, route, simulation: 'the rent the market charges moved while it was measured', blamed: null });
+      if (++rentMisses >= 2) throw new OrientimError('simulation-failed', RENT_MOVED_MESSAGE);
+      continue;
+    }
     // The account the market opened in E's name holds most of that rent. It is closed after the swap,
     // once E owns no token account, and its lamports go on to W. What it holds comes
     // from the simulation that measured the rent; the swap with the close is simulated once more and
@@ -1315,6 +1337,14 @@ export async function prepareProtectedSwap(deps: {
           continue;
         }
       }
+    }
+    // Rent the route would keep beyond what the verifier allows (MAX_ROUTE_KEPT_LAMPORTS): this route
+    // cannot be offered; a narrower one may open less.
+    if (sim.ok && takerRent - (routeRefund?.lamports ?? 0n) > MAX_ROUTE_KEPT_LAMPORTS) {
+      attempts.push({ excluded, route, simulation: `the route keeps ${takerRent - (routeRefund?.lamports ?? 0n)} lamports of rent`, blamed: null });
+      if (chosen.level + 1 >= MAX_ACCOUNTS_LEVELS.length) throw new OrientimError('no-route', ROUTE_KEEPS_RENT_MESSAGE);
+      minLevel = chosen.level + 1;
+      continue;
     }
     attempts.push({ excluded, route, simulation: sim.ok ? 'ok' : simulationReason(sim), blamed: sim.blame ? labels[sim.blame] ?? sim.blame : null });
 
@@ -1543,6 +1573,10 @@ export async function prepareProtectedSwap(deps: {
   // a failed simulation.
   if (attempts.length && attempts.every(a => a.simulation.startsWith("the market's account under the one-time key"))) {
     throw new OrientimError('no-route', LEFT_UNDER_KEY_MESSAGE);
+  }
+  // Every route tried would keep more rent than the rules allow: that is the reason.
+  if (attempts.length && attempts.every(a => a.simulation.startsWith('the route keeps'))) {
+    throw new OrientimError('no-route', ROUTE_KEEPS_RENT_MESSAGE);
   }
   throw new OrientimError('simulation-failed', `Every route failed in simulation. No funds were moved. ${why(attempts)}`);
 }

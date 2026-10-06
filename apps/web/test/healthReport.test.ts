@@ -1,6 +1,6 @@
 /** /api/health for uptime monitors. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { checkHealth, swapState, swapStateOf } from '../lib/server/health.ts';
+import { checkHealth, recentHealth, swapState, swapStateOf } from '../lib/server/health.ts';
 
 afterEach(() => {
   delete process.env.RPC_URL;
@@ -46,6 +46,27 @@ describe('health', () => {
     expect((await checkHealth(hosts(down, down, tokens))).ok).toBe(false);
     expect((await checkHealth(hosts(height, height, () => new Response('no', { status: 401 })))).ok).toBe(false);
     expect((await checkHealth(hosts(() => Response.json({ jsonrpc: '2.0', id: 1, error: { code: -1 } }), down, tokens))).ok).toBe(false);
+  });
+
+  it('the kill switch pauses for 1, true, yes or on, and for nothing else', async () => {
+    for (const value of ['1', 'true', 'TRUE', 'yes', 'on', ' 1 ']) {
+      process.env.ORIENTIM_DISABLED = value;
+      expect((await checkHealth(hosts(height, height, tokens))).paused, value).toBe(true);
+    }
+    for (const value of ['', '0', 'false', 'no', 'off']) {
+      process.env.ORIENTIM_DISABLED = value;
+      expect((await checkHealth(hosts(height, height, tokens))).paused, value).toBe(false);
+    }
+  });
+
+  it('/api/health asks the RPC and Jupiter at most every 15 seconds, whoever calls', async () => {
+    const f = hosts(height, height, tokens);
+    const t = 20_000_000;
+    expect((await recentHealth(t, f)).ok).toBe(true);
+    const asked = vi.mocked(f).mock.calls.length;
+    expect((await recentHealth(t + 14_000, f)).ok).toBe(true);
+    expect(vi.mocked(f).mock.calls.length).toBe(asked);
+    expect((await recentHealth(t + 16_000, hosts(down, down, tokens))).ok).toBe(false);
   });
 
   it('paused by the kill switch is said, not counted as down; no URL or key in the answer', async () => {

@@ -21,7 +21,7 @@ const PROCESSING: [string, string, string][] = [
   ['The swap: tokens, amounts, your minimum, and the transaction you signed', 'The same.', 'Providing the service you request'],
   ['Your IP address', 'To limit how often requests can be made, by our servers in memory and by our hosting provider\'s firewall, and to protect the service from abuse.', 'Our legitimate interest in security'],
   [
-    'Logs kept by our hosting provider: for each request, its time, the address requested (which can name a wallet or a token account), IP address and browser type; for each swap request, one line naming the wallet the API key belongs to, the outcome (its error code, why a check refused it, with every address removed), which routes built it, the side of the fee and how long it took; and, when our servers fail, the error',
+    'Logs kept by our hosting provider: for each request, its time, the address requested (which can name a wallet or a token account), IP address and browser type; for each swap request, a few lines that together name the wallet the API key belongs to, the outcome (its error code, why a check refused it, with every address removed), which routes built it, the side of the fee and how long it took; and, when our servers fail, the error',
     'Running, securing and troubleshooting the service, and counting errors and delays.',
     'Our legitimate interest in security',
   ],
@@ -32,6 +32,7 @@ const PROCESSING: [string, string, string][] = [
 const RECIPIENTS: [string, string, string][] = [
   ['Vercel Inc.', 'Hosting; keeps the request logs', 'United States'],
   ['Helius', 'Solana RPC provider: chain reads, simulations and your signed transaction, which include your wallet address', 'United States'],
+  ['Alchemy', 'Backup Solana RPC provider, asked only when Helius does not answer: the same data', 'United States'],
   ['Jupiter', 'Building the route, or pricing the swap when your agent brings its own routes: the tokens, the amount and, for a route, your receiving token account', 'Outside the EU'],
   ['The Solana network', 'Executes your signed transaction, which becomes public', 'Global and public'],
 ];

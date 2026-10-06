@@ -23,6 +23,16 @@ export function maskedReason(text: string, max = 160): string {
 }
 
 /**
+ * An unexpected error as one log entry: its stack or message, with every URL cut to its host (an RPC
+ * URL may carry the provider's key in its path or query) and every address masked.
+ */
+export function loggableError(e: unknown): string {
+  const text = e instanceof Error ? `${e.stack ?? `${e.name}: ${e.message}`}${e.cause ? `\ncause: ${loggableCause(e.cause)}` : ''}` : String(e);
+  return maskedReason(text.replace(/\b(https?|wss?):\/\/([^\s/'"?#]+)[^\s'"]*/g, '$1://$2/…'), 4_000);
+}
+const loggableCause = (c: unknown) => (c instanceof Error ? `${c.name}: ${c.message}` : String(c));
+
+/**
  * Why a refusal was refused, for the log: the rules the check named (R1–R7), and the first reason
  * in its own words, with every address and signature in it replaced by "…". Nothing else.
  */

@@ -10,8 +10,8 @@ The API is off unless the deployment sets `ORIENTIM_API_SECRET` and `ORIENTIM_AP
 each key is stored). Keys issued by hand keep working beside self-serve keys.
 
 Optional: `ORIENTIM_API_SECRET_PREVIOUS` while rotating the secret, `ORIENTIM_API_FEE_BPS`,
-`ORIENTIM_API_PER_MINUTE` (60 by default). The kill switch `ORIENTIM_DISABLED=1` stops both
-endpoints. A prepare with `version: 1` is served only where `NEXT_PUBLIC_ORIENTIM_ENABLE_V1=1`.
+`ORIENTIM_API_PER_MINUTE` (60 by default). The kill switch `ORIENTIM_DISABLED=1` (or `true`) stops
+prepare, finalize and the key endpoints. A prepare with `version: 1` is served only where `NEXT_PUBLIC_ORIENTIM_ENABLE_V1=1`.
 Every setting is listed in `apps/web/lib/server/agent/config.ts`.
 Keep `ORIENTIM_API_FEE_BPS` at or below 30 and no higher than `NEXT_PUBLIC_ORIENTIM_FEE_BPS`;
 the API fails closed otherwise. The public fee setting also has a 30 bps maximum.
@@ -26,7 +26,8 @@ wallet's owner can sign again for a new one).
 
 ## Pausing, revoking and rotating
 
-The kill switch `ORIENTIM_DISABLED=1` refuses both agent endpoints, prepare and finalize. **On Vercel
+The kill switch `ORIENTIM_DISABLED=1` (or `true`) refuses prepare, finalize's first send, and new API
+keys (`/api/v1/keys` and its challenge), each with `503 paused`. **On Vercel
 an environment change reaches only new deployments**, so flipping it in the dashboard does nothing
 until a redeploy. The runbook:
 

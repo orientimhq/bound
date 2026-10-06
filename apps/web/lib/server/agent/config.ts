@@ -194,7 +194,7 @@ export function accessDeps(): AccessDeps | null {
     sayOnce(`ORIENTIM_KEY_MIN_LAMPORTS is ${min}: raised to ${KEY_MIN_LAMPORTS_FLOOR}, so that wallets made by the thousand still cost something.`, 'warn');
     minLamports = KEY_MIN_LAMPORTS_FLOOR;
   }
-  return { rpc: deps.rpc, keySecrets: secrets, minLamports, origin };
+  return { rpc: deps.rpc, keySecrets: secrets, minLamports, origin, disabled: deps.disabled };
 }
 
 export const notEnabled = () =>

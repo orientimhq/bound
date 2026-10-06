@@ -22,7 +22,7 @@ const feeText = TREASURY ? `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { 
 /** Why an agent needs this, before the docs: what a developer gets, in their words. */
 const PITCH: [string, string][] = [
   ['Refuses what it didn’t ask for', 'An extra instruction, another token, a worse price: the agent sees it in the transaction and does not sign.'],
-  ['Your limits, not ours', 'Set an amount per swap, a daily budget, a fee cap and a price floor. Enforce unattended limits at a separate signer.'],
+  ['Your limits, not ours', 'Set an amount per swap and a daily budget in the owner’s policy, and a price floor and fee ceiling per swap. Enforce unattended limits at a separate signer.'],
   ['Safe after a crash', 'The skill records each order and settles it after a restart. Direct API bots must provide their own durable order book.'],
   ['No sign-up', 'Your agent’s wallet signs a message and gets a key. Then ask it: “swap 5 USDC to SOL with Orientim”.'],
 ];
@@ -62,7 +62,7 @@ const ERRORS: [string, string, string][] = [
   ['500', 'internal', 'Something unexpected failed; nothing was signed by Orientim or sent. Retry later.'],
   ['503', 'busy, unavailable', 'The market data or the network is overloaded. Wait Retry-After seconds and retry.'],
   ['503', 'fee-unavailable', 'Orientim cannot collect its fee on this swap right now, so it built nothing. Wait and retry.'],
-  ['503', 'paused', 'Orientim has paused protected swaps. Your funds are not affected.'],
+  ['503', 'paused', 'Orientim has paused protected swaps, and issues no API keys meanwhile. Your funds are not affected.'],
   ['503', 'route-format', 'The route’s format changed and Orientim refuses what it cannot read. Wait at least Retry-After (300 seconds).'],
 ];
 
@@ -110,7 +110,7 @@ const ENV: [string, string][] = [
   ['ORIENTIM_POLICY', 'Optional, recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it. maxAmountIn is the most one swap may spend of each input mint (a mint not listed is refused, selling included: list every token the agent may need to sell); maxAmountInPerDay the most all swaps from the wallet may spend in 24 hours, counting every swap once signed, retries included. Base units, as strings. stateDir, optional, pins the state directory to one absolute path. maxSlippageBps, maxBelowBps and maxPriceImpactBps, optional, are the owner’s ceilings on the tolerance, the floor’s distance below the market and the price impact the agent may choose.'],
   ['ORIENTIM_SEND_RPC_URL', 'Optional: an RPC of yours that sends the swap (a staked connection, a sender service). Orientim then signs it and sends nothing; the skill sends it at once and again until it lands. In code, sendTransaction.'],
   ['ORIENTIM_ARCHIVE_RPC_URL', 'Optional: an RPC that keeps the chain’s full history. When your own RPC missed the moment it could prove a swap expired, the archive proves it from the one-time key’s own history, so an outage near expiry does not stop the wallet at unknown.'],
-  ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system; with a daily limit it must be absolute.'],
+  ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system. A policy with a daily limit names its own stateDir instead, and no other directory is used.'],
   ['ORIENTIM_TREASURY', 'Optional, for a test deployment only: Orientim’s treasury is built into the skill.'],
 ];
 
@@ -252,7 +252,7 @@ curl -s https://orientim.com/skill/SHA256SUMS | sha256sum -c`}</code></pre>
                         </p>
                         <pre tabIndex={0}><code>{`npm ci
 export ORIENTIM_API_URL=https://orientim.com
-echo '{"wallet": "<the agent's address>"}' | node bin/orientim-verify.mjs key-challenge
+echo '{"wallet": "<the agent wallet address>"}' | node bin/orientim-verify.mjs key-challenge
 # sign the bytes of "message" (the same bytes as "messageBase64", decoded) with the agent's key, then
 # send "message" as it came, in plain text, not base64:
 echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bin/orientim-verify.mjs key`}</code></pre>
@@ -316,7 +316,7 @@ const SOL = 'So11111111111111111111111111111111111111112';
 
 // The owner's limits, if set: they hold only when passed to protectedSwap below.
 const policy = process.env.ORIENTIM_POLICY ? loadPolicy(process.env.ORIENTIM_POLICY) : undefined;
-// One state directory for every run of this wallet (absolute with a daily limit).
+// One state directory for every run of this wallet (the policy's own stateDir with a daily limit).
 const { dir } = stateDirFor(policy, process.env.ORIENTIM_STATE_DIR);
 const store = createFileStore(dir);
 
@@ -451,7 +451,7 @@ if code == 0:
                   Simulates the transaction on your RPC: nothing may stay under the one-time key, and no account the route opens
                   may stay open.
                 </li>
-                <li>Accepts rent the route keeps only up to your limit (0.001 SOL unless you set <code>maxRouteCostLamports</code>).</li>
+                <li>Accepts rent the route keeps only up to your limit (0.001 SOL, or less with <code>maxRouteCostLamports</code>).</li>
               </ul>
               <p>
                 Your minimum is required, and it must be a price you got yourself, never Orientim&apos;s: <code>ownMinimum</code> asks
@@ -701,7 +701,7 @@ POST /api/v1/keys
                   <code>Retry-After</code>: the seconds until the count starts again.
                 </li>
                 <li>
-                  At the edge, before Orientim: 120 prepare and finalize requests a minute from one IP address, answered{' '}
+                  At the edge, before Orientim, a firewall rule its operator sets: now 120 prepare and finalize requests a minute from one IP address, answered{' '}
                   <code>429</code> above it.
                 </li>
                 <li>API keys: 30 challenges and 10 keys an hour from one IP address.</li>

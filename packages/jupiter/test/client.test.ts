@@ -55,6 +55,13 @@ describe('Jupiter /build responses are validated', () => {
     ['a setup instruction without data', { ...good, setupInstructions: [{ programId: good.inputMint, accounts: [] }] }],
     ['lookup tables that are not lists of addresses', { ...good, addressesByLookupTableAddress: { x: 'y' } }],
     ['no mints', { ...good, inputMint: undefined }],
+    // Values, not only shapes: what cannot be decoded would crash the build instead of being refused.
+    ['a program that is not an address', { ...good, swapInstruction: { ...good.swapInstruction, programId: 'not-an-address' } }],
+    ['an account that is not an address', { ...good, swapInstruction: { ...good.swapInstruction, accounts: [{ pubkey: '0OIl', isSigner: false, isWritable: true }] } }],
+    ['data that is not base64', { ...good, swapInstruction: { ...good.swapInstruction, data: '***' } }],
+    ['a lookup table key that is not an address', { ...good, addressesByLookupTableAddress: { nope: [good.inputMint] } }],
+    ['a lookup table entry that is not an address', { ...good, addressesByLookupTableAddress: { [good.inputMint]: ['nope'] } }],
+    ['a mint that is not an address', { ...good, outputMint: 'USDC' }],
   ];
   for (const [name, body] of bad) {
     it(`${name} is refused with a JupiterError`, () => {

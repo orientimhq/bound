@@ -45,7 +45,7 @@ so they cannot use Orientim. The API key itself is signed for with any wallet th
 | R1 | W and W's token accounts (except the output account) never reach the external program, including through lookup tables; nor do Orientim's fee accounts. A token account of W that its issuer has frozen is refused, with the reason, instead of failing on chain |
 | R2 | Every trusted instruction matches an exact template: amounts, accounts, order. No `Approve`, `SetAuthority`, stray transfers or closes. The output account's delegate is revoked before the swap, and the minimum output is checked after it. Jupiter's route must deliver into that output account (E's temporary one for SOL), where its own floor is measured. The fee is at most 1% when taken from the input before the swap or from a SOL, USDC or USDT output after the minimum is checked. For a pair neither token of which can carry it, the fee is paid in SOL from the wallet before the swap, priced by Jupiter when it is built: the verifier pins where it goes, and the agent holds it to its own price before the wallet signs |
 | R3 | E and its accounts are fresh |
-| R4 | The network fee paid by W is capped (never above 0.001 SOL) |
+| R4 | The network fee paid by W is capped (never above 0.001 SOL). SOL sent to E is rent for an account the route opens, at most 0.005 SOL, and the route keeps at most 0.001 SOL of it: the rest is returned to W in the same transaction |
 | R5 | One transaction within size limits; every temporary account is closed. Before signing, the exact transaction is simulated: nothing may stay under E, and no account the route opens may stay open |
 | R7 | Input, output and intermediate mints are classic SPL, or Token-2022 carrying only extensions that cannot touch the swap (metadata, groups, close authority, confidential transfers and their fee, an unset transfer hook, accounts initialized by default, a permanent delegate that is an ordinary key, and a transfer fee on the swap's own mints) |
 
@@ -127,7 +127,7 @@ Server only (never sent to the browser):
 | `RPC_URL` | public mainnet RPC | Solana RPC for the server. Use a reliable provider; clients must use their own trusted RPC for independent verification |
 | `RPC_URL_FALLBACK` | none | A backup RPC from another provider, asked only when `RPC_URL` does not answer, is rate-limited or fails. A send takes its answer only when it is a success |
 | `JUPITER_API_KEY` | — | Required for any real use (free at developers.jup.ag/portal): Jupiter asks for a key on every endpoint and throttles keyless requests after one or two, so quotes fail as "busy". `/api/status` says whether it is set |
-| `ORIENTIM_DISABLED` | 0 | Kill switch: `1` makes the server refuse new swaps |
+| `ORIENTIM_DISABLED` | 0 | Kill switch: `1` (or `true`) makes the server refuse new swaps and new API keys |
 | `ORIENTIM_CLIENT_IP_HEADER` | `x-vercel-forwarded-for` | The one header your ingress overwrites with the client address (Cloudflare: `cf-connecting-ip`). The app's rate limit is per instance; add a rule in the hosting firewall too |
 | `ORIENTIM_EXCLUDE_DEXES` | `HumidiFi` | DEXes whose per-taker rent is too high to pay on every swap |
 | `ORIENTIM_MAX_NETWORK_FEE_LAMPORTS` | 500000 | F_max, capped at 1,000,000 by the verifier |

@@ -14,7 +14,7 @@ import { fetchAccounts, httpStatusOf, mintInfoOf, sendOnce } from '@orientim/sol
 import { hasPermanentDelegate } from '@orientim/verifier';
 import type { SolanaRpc } from '@orientim/solana';
 import { readBodyLimited } from '../body';
-import { logEvent, maskedReason } from './events';
+import { loggableError, logEvent, maskedReason } from './events';
 import { rateLimited, secondsUntilReset } from '../rateLimit';
 import { openKey } from './keys';
 import { ephemeralFor, kidOf, newNonce, openSession, openTicket, REFERENCE_FRESH_MS, sealSession, sealTicket, SESSION_TTL_SECONDS } from './ticket';
@@ -64,6 +64,8 @@ export type AgentDeps = {
   minSkillVersion?: string | null;
   /** How long a prepare may take in all (PREPARE_DEADLINE_MS); shorter in tests. */
   prepareDeadlineMs?: number;
+  /** How long a finalize may take in all (FINALIZE_DEADLINE_MS); shorter in tests. */
+  finalizeDeadlineMs?: number;
   /** How long Orientim's own price stays good for the next round (REFERENCE_FRESH_MS); other in tests. */
   referenceFreshMs?: number;
   /**
@@ -149,6 +151,12 @@ const unanswered = (e: unknown) => e instanceof Error
  * built for no one.
  */
 export const PREPARE_DEADLINE_MS = 45_000;
+/**
+ * The most a finalize spends on the network: its reads, the signing, and the one send, within the
+ * route's 30 seconds (finalize/route.ts), so it always answers in words. A send cut short by it is
+ * answered `unknown`, never "nothing was sent".
+ */
+export const FINALIZE_DEADLINE_MS = 24_000;
 
 const LATE_MESSAGE = 'Building this swap took too long: Jupiter or the Solana RPC is slow right now. Nothing was signed; prepare again in a moment.';
 
@@ -264,10 +272,10 @@ function explain(e: unknown): Response {
   if (isSolanaError(e, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND) || isSolanaError(e, SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR) || isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_NODE_UNHEALTHY)
     // A node still behind the slot of an earlier read, after the reads asked it again for a few seconds.
     || isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED)) {
-    console.error("Orientim's Solana RPC could not serve a request:", e);
+    console.error("Orientim's Solana RPC could not serve a request:", loggableError(e));
     return fail(503, 'unavailable', "Orientim's Solana RPC couldn't serve this request. Nothing was sent; try again in a moment.", {}, { 'retry-after': '5' });
   }
-  console.error(e);
+  console.error(loggableError(e));
   return fail(500, 'internal', 'Something went wrong. Nothing was signed by Orientim or sent.');
 }
 
@@ -616,10 +624,14 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
 
   // What the chain knows of this transaction comes before any condition for a first send: a repeated
   // finalize must describe the transaction it repeats, never invite a second swap.
+  // One deadline for the whole finalize: every read, the signing and the send.
+  const deadline = deadlineFor(deps.finalizeDeadlineMs ?? FINALIZE_DEADLINE_MS, deps.rpc, deps.jupiter);
+  const rpc = deadline.rpc;
   let onChain: unknown;
   try {
-    onChain = (await deps.rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: true }).send()).value[0];
+    onChain = (await rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: true }).send()).value[0];
   } catch {
+    deadline.done();
     return refuse(503, 'unavailable', 'Orientim could not read from the network whether this transaction was already sent, so this request sent nothing. Try finalize again in a few seconds.', {}, { 'retry-after': '5' });
   }
 
@@ -627,7 +639,7 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     const E = await ephemeralFor(secret, ticket.nonce);
     const original: Transaction = { messageBytes: returned.messageBytes, signatures: {} } as Transaction;
     const countersign = (landed: boolean) => countersignProtectedSwap({
-      rpc: deps.rpc,
+      rpc,
       prepared: { transaction: original, lifetime: { lastValidBlockHeight: BigInt(ticket.lvbh) }, policy: { owner: ticket.owner as Address } },
       walletSignedBytes: new Uint8Array(bytes),
       ephemeral: E,
@@ -644,7 +656,7 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     // balance moved since (another swap into this token, a transfer), the check could count those
     // tokens: sign nothing. Run one swap per output token until it is confirmed.
     if (ticket.wOut) {
-      const now = tokenAmountOf((await fetchAccounts(deps.rpc, [ticket.wOut as Address])).get(ticket.wOut)?.data);
+      const now = tokenAmountOf((await fetchAccounts(rpc, [ticket.wOut as Address])).get(ticket.wOut)?.data);
       if (now !== BigInt(ticket.b0!)) {
         return refuse(409, 'output-balance-changed', 'The balance of your output account changed since prepare (a transfer in or out, another swap, or the account was closed), so this request signed and sent nothing.', {
           balanceAtPrepare: ticket.b0, balanceNow: now,
@@ -656,7 +668,12 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     if (!sendIt) {
       return json(200, { signature, status: 'signed', signedTransaction: getBase64EncodedWireTransaction(signed), lastValidBlockHeight: ticket.lvbh });
     }
-    const sent = await sendOnce(deps.rpc, signed);
+    // Too late to send and still answer in time: nothing goes out. Once it starts, a send the deadline
+    // cuts short is answered `unknown` (sendOnce), with the bytes to confirm on the agent's own RPC.
+    if (deadline.signal.aborted) {
+      return refuse(503, 'unavailable', "Orientim's Solana RPC was too slow to finish this finalize, so this request sent nothing. Try finalize again in a few seconds.", {}, { 'retry-after': '5' });
+    }
+    const sent = await sendOnce(rpc, signed);
     return json(200, {
       signature: sent.signature,
       status: sent.status,
@@ -673,6 +690,9 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     if (e instanceof OrientimError && e.code === 'expired') {
       return refuse(410, 'expired', 'The transaction reached the end of its lifetime before Orientim signed it now.');
     }
+    if (e instanceof OrientimError && e.code === 'unavailable') {
+      return refuse(503, 'unavailable', "Orientim's Solana RPC was too slow to finish this finalize, so this request sent nothing. Try finalize again in a few seconds.", {}, { 'retry-after': '5' });
+    }
     if (e instanceof OrientimError && e.code === 'wallet-changed-transaction') {
       return refuse(400, e.code, 'Your wallet\'s signature does not match the transaction Orientim built; this request signed and sent nothing.', e.violations.length ? { violations: e.violations } : {});
     }
@@ -681,7 +701,9 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     if ((http !== null && http >= 500) || unanswered(e) || isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED)) {
       return refuse(503, 'unavailable', "Orientim's Solana RPC didn't answer, so this request sent nothing. Try finalize again in a moment.", {}, { 'retry-after': '5' });
     }
-    console.error(e);
+    console.error(loggableError(e));
     return refuse(500, 'internal', 'Something went wrong, and this request sent nothing.');
+  } finally {
+    deadline.done();
   }
 }

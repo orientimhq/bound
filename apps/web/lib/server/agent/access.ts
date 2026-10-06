@@ -22,6 +22,8 @@ export type AccessDeps = {
    * request claims; the request's own when unset, as on a machine of one's own.
    */
   origin?: string | null;
+  /** ORIENTIM_DISABLED: while protected swaps are paused, no key is issued either. */
+  disabled?: boolean;
   now?: () => number;
 };
 
@@ -31,7 +33,10 @@ const fail = (status: number, code: string, message: string, headers: Record<str
   json(status, { error: { code, message } }, headers);
 const seconds = (deps: AccessDeps) => Math.floor((deps.now?.() ?? Date.now()) / 1000);
 
+const PAUSED_MESSAGE = 'Protected swaps are paused, and no API keys are issued meanwhile. Nothing was signed.';
+
 export async function keyChallenge(req: Request, deps: AccessDeps): Promise<Response> {
+  if (deps.disabled) return fail(503, 'paused', PAUSED_MESSAGE);
   const bucket = `keys-challenge:${clientKey(req)}`;
   if (rateLimited(bucket, 30, 3_600_000)) {
     return fail(429, 'rate-limited', 'Too many key challenges from this address. Wait Retry-After seconds and try again.', { 'retry-after': String(secondsUntilReset(bucket)) });
@@ -45,6 +50,7 @@ export async function keyChallenge(req: Request, deps: AccessDeps): Promise<Resp
 }
 
 export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response> {
+  if (deps.disabled) return fail(503, 'paused', PAUSED_MESSAGE);
   const bucket = `keys-issue:${clientKey(req)}`;
   if (rateLimited(bucket, 10, 3_600_000)) {
     return fail(429, 'rate-limited', 'Too many keys requested from this address. Wait Retry-After seconds and try again.', { 'retry-after': String(secondsUntilReset(bucket)) });

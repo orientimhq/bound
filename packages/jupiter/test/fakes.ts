@@ -8,7 +8,7 @@ import {
 } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import {
-  ataOf, ATA_PROGRAM, CLOSE_USER_VOLUME_ACCUMULATOR, JUPITER_PROGRAM, routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM,
+  ataOf, ATA_PROGRAM, CLOSE_USER_VOLUME_ACCUMULATOR, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM,
   TOKEN_PROGRAM, WSOL_MINT,
 } from '@orientim/core';
 import type { SolanaRpc } from '@orientim/solana';
@@ -138,6 +138,13 @@ export function fakeRpc(
   opts: {
     feeFails?: boolean; epochFails?: boolean; takerRent?: bigint; priceMoves?: number; walletShort?: boolean;
     feeLevels?: bigint[] | 'fails'; simulations?: { count: number };
+    /**
+     * The market's rent moves between simulations: this many times, E funded with its measured rent
+     * is left with less than an empty account's rent, and the network refuses the transaction.
+     */
+    rentMoves?: number;
+    /** The route spends so nearly all of the ceiling that E, probed with it, is left rent-paying. */
+    rentDeadBand?: boolean;
     /** The block height the chain reports (the fake blockhash lives until 1,000). */
     height?: bigint;
     /** Every transaction sent, as the wire string. */
@@ -167,6 +174,7 @@ export function fakeRpc(
   const call = (fn: (...a: never[]) => unknown) => (...a: never[]) => ({ send: async () => fn(...a) });
   let moved = 0;
   let pumpMoved = 0;
+  let rentMoved = 0;
   return {
     getMultipleAccounts: call((addresses: string[]) => ({
       context: { slot: 300_000_000n },
@@ -213,6 +221,12 @@ export function fakeRpc(
       }
       if (lamports < need) {
         return { value: { err: { InstructionError: [swapIndex, { Custom: 1 }] }, logs: [`Transfer: insufficient lamports ${lamports}, need ${need}`], unitsConsumed: 90_000n } };
+      }
+      // E (account 1) left rent-paying: a transaction error, with no failing instruction. The rent
+      // moves after the probe (funded with the ceiling), or the route spends nearly all of the ceiling.
+      if ((opts.rentDeadBand && lamports === MAX_TAKER_RENT_LAMPORTS) || (lamports > 0n && lamports < MAX_TAKER_RENT_LAMPORTS && rentMoved < (opts.rentMoves ?? 0))) {
+        rentMoved++;
+        return { value: { err: { InsufficientFundsForRent: { account_index: 1 } }, logs: [], unitsConsumed: 90_000n } };
       }
       if (opts.failBeforeSwap) {
         return {

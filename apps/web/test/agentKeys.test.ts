@@ -126,6 +126,19 @@ describe('the endpoints', () => {
     expect((await ask(await sign(other, c.message), deps(20_000_000n))).status).toBe(400);
   });
 
+  it('issue nothing while protected swaps are paused', async () => {
+    const W = await generateKeyPairSigner();
+    const paused = { ...deps(20_000_000n), disabled: true };
+    const got = await keyChallenge(new Request(`https://orientim.com/api/v1/keys/challenge?wallet=${W.address}`, { headers: from() }), paused);
+    expect(got.status).toBe(503);
+    expect((await got.json() as { error: { code: string } }).error.code).toBe('paused');
+    const c = await newChallenge(secret(5), { domain: 'orientim.com', uri: 'u', wallet: W.address, now: NOW });
+    const res = await keyIssue(new Request('https://orientim.com/api/v1/keys', {
+      method: 'POST', headers: from(), body: JSON.stringify({ ...c, signature: await sign(W, c.message) }),
+    }), paused);
+    expect(res.status).toBe(503);
+  });
+
   it('refuse a challenge for something that is not a wallet', async () => {
     const res = await keyChallenge(new Request('https://orientim.com/api/v1/keys/challenge?wallet=nope', { headers: from() }), deps(0n));
     expect(res.status).toBe(400);

@@ -16,11 +16,11 @@ import { ataOf, feeFor, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
 import { fakeJupiter, fakeRpc, fundedAccounts, mint, OUT, POOL, DEX, tokenAccount, USDC, BONK } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import type { BuildParams } from '../../../packages/jupiter/src/client.ts';
-import { agentFinalize, agentPrepare, olderThan, PREPARE_DEADLINE_MS, withinDeadline } from '../lib/server/agent/api.ts';
+import { agentFinalize, agentPrepare, FINALIZE_DEADLINE_MS, olderThan, PREPARE_DEADLINE_MS, withinDeadline } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { ephemeralFor, kidOf, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
 import { issueKey } from '../lib/server/agent/keys.ts';
-import { maskedReason, observed } from '../lib/server/agent/events.ts';
+import { loggableError, maskedReason, observed } from '../lib/server/agent/events.ts';
 
 const KEY = 'ori_test_key_for_the_agent_api_0001';
 const OTHER_KEY = 'ori_test_key_for_another_agent_0002';
@@ -236,6 +236,62 @@ describe('prepare', () => {
     expect(res.status).toBe(503);
     expect((await res.json()).error.code).toBe('busy');
     expect(res.headers.get('retry-after')).toBe('5');
+  });
+});
+
+describe('a finalize that takes too long', () => {
+  // Every RPC method but the ones named answers only when its request is aborted.
+  const hanging = (real: AgentDeps['rpc'], answering: string[]) => new Proxy(real as object, {
+    get(target, method) {
+      const call = (target as Record<string | symbol, unknown>)[method];
+      if (typeof call !== 'function' || answering.includes(String(method))) return call;
+      return () => ({
+        send: ({ abortSignal }: { abortSignal?: AbortSignal } = {}) => new Promise((_, reject) => {
+          abortSignal?.addEventListener('abort', () => reject(abortSignal.reason));
+        }),
+      });
+    },
+  }) as AgentDeps['rpc'];
+
+  it('ends within its deadline, inside the function limit, and says nothing was sent', async () => {
+    expect(FINALIZE_DEADLINE_MS).toBeLessThan(30_000);
+    const w = await world();
+    const p = await prepared(w);
+    const signed = await signAsWallet(w.W, p.transaction);
+    w.deps.rpc = hanging(w.deps.rpc, ['getSignatureStatuses']);
+    w.deps.finalizeDeadlineMs = 50;
+    const started = Date.now();
+    const res = await finalize(w, p.ticket, signed);
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.error.code).toBe('unavailable');
+    expect(body.error.message).toContain('sent nothing');
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(w.sent).toHaveLength(0);
+  });
+
+  it('a send the deadline cuts short is unknown, with the bytes to confirm, never "nothing was sent"', async () => {
+    const w = await world();
+    const p = await prepared(w);
+    const signed = await signAsWallet(w.W, p.transaction);
+    const real = w.deps.rpc;
+    w.deps.rpc = new Proxy(real as object, {
+      get(target, method) {
+        const call = (target as Record<string | symbol, unknown>)[method];
+        if (method !== 'sendTransaction' || typeof call !== 'function') return call;
+        return () => ({
+          send: ({ abortSignal }: { abortSignal?: AbortSignal } = {}) => new Promise((_, reject) => {
+            abortSignal?.addEventListener('abort', () => reject(abortSignal.reason));
+          }),
+        });
+      },
+    }) as AgentDeps['rpc'];
+    w.deps.finalizeDeadlineMs = 80;
+    const res = await finalize(w, p.ticket, signed);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe('unknown');
+    expect(body.signedTransaction).toBeTruthy();
   });
 });
 
@@ -1038,6 +1094,20 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     const mint = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
     expect(maskedReason(`route delivers to ${mint}, not the wallet`, 200)).toBe('route delivers to …, not the wallet');
     expect(maskedReason('no route. '.repeat(30), 200)).toHaveLength(200);
+  });
+
+  it('an unexpected error is logged with every URL cut to its host and every address masked', () => {
+    const wallet = 'GfGp9SdvbVBPnsbhSBvfLkX7RLigmhXees4Vm6pRSiiA';
+    const e = new Error(`fetch https://mainnet.helius-rpc.com/?api-key=SECRET123 failed for ${wallet}`, {
+      cause: new Error('upstream https://solana-mainnet.g.alchemy.com/v2/KEY456 refused'),
+    });
+    const line = loggableError(e);
+    expect(line).toContain('https://mainnet.helius-rpc.com/…');
+    expect(line).toContain('https://solana-mainnet.g.alchemy.com/…');
+    expect(line).not.toContain('SECRET123');
+    expect(line).not.toContain('KEY456');
+    expect(line).not.toContain(wallet);
+    expect(loggableError('plain text')).toBe('plain text');
   });
 
   it('without Orientim\'s program labels an excluded DEX cannot be checked: the swap is built with its own key', async () => {

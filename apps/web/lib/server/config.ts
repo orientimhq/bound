@@ -45,7 +45,8 @@ export function serverConfig() {
     // A second provider, asked only when the first is down or rate-limited (rpcFailover.ts).
     rpcFallbackUrl: process.env.RPC_URL_FALLBACK || null,
     jupiterApiKey: process.env.JUPITER_API_KEY || null,
-    disabled: process.env.ORIENTIM_DISABLED === '1',
+    // 1, true, yes or on pauses; a pause must not depend on spelling it one way.
+    disabled: /^(1|true|yes|on)$/i.test(process.env.ORIENTIM_DISABLED?.trim() ?? ''),
     excludeDexes: (process.env.ORIENTIM_EXCLUDE_DEXES ?? 'HumidiFi').split(',').map(s => s.trim()).filter(Boolean),
     // Clamped to the verifier's absolute ceiling; the verifier enforces it anyway.
     maxNetworkFeeLamports: maxFee < ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS ? maxFee : ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS,

@@ -102,7 +102,7 @@ export default async function Page() {
         <ul>
           <li>No fee for an API key, or for a swap your agent does not sign.</li>
           <li>A swap that does not run, because less than the minimum would arrive or its time ran out, costs at most the network fee.</li>
-          <li>Swaps smaller than about 0.004 SOL, or $1 of USDC or USDT, are refused: the costs would be larger than the swap. Selling the whole balance of a token is allowed at any size.</li>
+          <li>Swaps smaller than about 0.004 SOL, or $1 of USDC or USDT, are refused: the costs would be larger than the swap. Selling the whole balance of a token (not SOL) is allowed at any size.</li>
         </ul>
       </section>
 

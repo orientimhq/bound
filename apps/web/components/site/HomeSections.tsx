@@ -8,7 +8,7 @@ const CAPSULE_STEPS = [
 
 const AGENT_POINTS = [
   ['Checks before signing', 'With the skill or command line, the exact transaction is checked on your own connection to Solana. Direct API integrations must run the same check.'],
-  ['Limits you set', 'Set an amount per swap, a daily budget, a fee cap, your own price floor and the most slippage a swap may take. Keep unattended limits at the signer.'],
+  ['Limits you set', 'Set an amount per swap, a daily budget and the most slippage a swap may take in the owner’s policy, and your own price floor and fee ceiling per swap. Keep unattended limits at the signer.'],
   ['Recovers an interrupted order', 'The skill keeps an order record across restarts and settles what was in flight before anything new, so an unattended bot that keeps its state directory and one order id per decision never swaps an order twice. Direct bots need durable, shared order records.'],
   ['Works with your stack', 'For coding agents, a skill that checks every swap and asks before a worse price. For bots in any language, a command line: JSON in, JSON out, clear exit codes. Keep the signing key outside the agent.'],
 ];
@@ -31,7 +31,7 @@ const THREATS: [string, string, string][] = [
 ];
 
 const KEEPS_NOTHING = [
-  [NoDatabaseIcon, 'No account. No database.', 'No sign-up and no database: Orientim stores no API keys and no list of your swaps. Each swap request leaves one log line at our host, with your wallet address and the outcome, never a key or a transaction, deleted after a set time.'],
+  [NoDatabaseIcon, 'No account. No database.', 'No sign-up and no database: Orientim stores no API keys and no list of your swaps. Each swap request leaves a few log lines at our host, with your wallet address and the outcome, never a key or a transaction, deleted after a set time.'],
   [ShieldIcon, 'Never your keys or funds.', 'Your agent signs with its own wallet or signing service. Orientim never holds funds or asks for a seed phrase.'],
   [EyeOffIcon, 'No tracking.', 'No cookies, analytics or trackers on this site.'],
 ] as const;
@@ -132,7 +132,11 @@ export function HomeSections() {
           <div className="section-head">
             <p className="eyebrow">What it protects against</p>
             <h2>What your agent can’t be tricked into.</h2>
-            <p className="lead">The attacks that have emptied trading agents and bots, and what happens when the swap goes through Orientim.</p>
+            <p className="lead">
+              The attacks that have emptied trading agents and bots, and what happens when the swap goes through Orientim. These are
+              the checks made before your agent signs; what they cannot cover, such as the market itself, is in the{' '}
+              <a href="/terms#risks">risks</a> of the Terms.
+            </p>
           </div>
           <div className="glass-stage">
             <div className="ambient" aria-hidden="true" />

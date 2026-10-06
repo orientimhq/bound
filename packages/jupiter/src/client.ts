@@ -1,4 +1,4 @@
-import { AccountRole, address } from '@solana/kit';
+import { AccountRole, address, isAddress } from '@solana/kit';
 import type { Address, Instruction } from '@solana/kit';
 
 export type ApiAccount = { pubkey: string; isSigner: boolean; isWritable: boolean };
@@ -85,29 +85,34 @@ export function serverWaitMs(headers: Headers, now = Date.now()): number | null 
  * Jupiter is untrusted: a malformed answer becomes a JupiterError here instead of a confusing
  * crash further down (for example `BigInt` on a non-numeric amount).
  */
+const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+
 export function checkBuildResponse(r: unknown): BuildResponse {
   const b = r as Partial<BuildResponse> | null;
   const ix = b?.swapInstruction;
+  // Values too, not only shapes: a route an agent brings goes through here, and an address or data
+  // that cannot be decoded must be a refusal, not a crash when the instruction is compiled.
+  const isKey = (v: unknown): v is string => typeof v === 'string' && isAddress(v);
   const isAccount = (a: unknown) => {
     const x = a as Partial<ApiAccount> | null;
-    return !!x && typeof x.pubkey === 'string' && typeof x.isSigner === 'boolean' && typeof x.isWritable === 'boolean';
+    return !!x && isKey(x.pubkey) && typeof x.isSigner === 'boolean' && typeof x.isWritable === 'boolean';
   };
   const isInstruction = (i: unknown) => {
     const x = i as Partial<ApiInstruction> | null;
-    return !!x && typeof x.programId === 'string' && Array.isArray(x.accounts) && x.accounts.every(isAccount) && typeof x.data === 'string';
+    return !!x && isKey(x.programId) && Array.isArray(x.accounts) && x.accounts.every(isAccount) && typeof x.data === 'string' && BASE64.test(x.data);
   };
   const tables = b?.addressesByLookupTableAddress;
   // Every part the pipeline reads, down to the labels and the lookup tables, so that a malformed
   // answer is a refusal here and never a crash in the middle of a build (TypeError on a missing label).
   const ok =
     !!b && typeof b === 'object' &&
-    typeof b.inputMint === 'string' && typeof b.outputMint === 'string' &&
+    isKey(b.inputMint) && isKey(b.outputMint) &&
     UINT.test(String(b.inAmount)) && UINT.test(String(b.outAmount)) && UINT.test(String(b.otherAmountThreshold)) &&
     Array.isArray(b.routePlan) && b.routePlan.every(p => typeof p?.swapInfo?.label === 'string') &&
     Array.isArray(b.setupInstructions) && b.setupInstructions.every(isInstruction) &&
     isInstruction(ix) &&
     (tables === null || tables === undefined || (typeof tables === 'object' && !Array.isArray(tables)
-      && Object.values(tables).every(list => Array.isArray(list) && list.every(a => typeof a === 'string'))));
+      && Object.entries(tables).every(([table, list]) => isKey(table) && Array.isArray(list) && list.every(isKey))));
   if (!ok) throw new JupiterError('Jupiter returned a malformed quote', 502);
   return b as BuildResponse;
 }

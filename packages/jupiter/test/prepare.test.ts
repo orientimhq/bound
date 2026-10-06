@@ -48,7 +48,7 @@ async function prepare(output: Address, opts: {
   expectCurve?: boolean; version?: 0 | 1; routingMode?: 'fast'; frozenWOut?: boolean; cashback?: bigint; pumpSlippage?: number;
   wIn?: { amount?: bigint; frozen?: boolean }; failBeforeSwap?: boolean; acceptedMinReceived?: bigint;
   minFee?: SwapSettings['minFee']; leavesOpen?: readonly string[]; chosenSlippageBps?: number;
-  noPostBalances?: boolean; takerKeepsAfter?: bigint;
+  noPostBalances?: boolean; takerKeepsAfter?: bigint; rentMoves?: number; rentDeadBand?: boolean;
   priorityFee?: (writable: readonly Address[]) => Promise<bigint | null>;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
@@ -62,7 +62,7 @@ async function prepare(output: Address, opts: {
         feeFails: opts.feeFails, epochFails: opts.epochFails, takerRent: opts.takerRent, priceMoves: opts.priceMoves,
         walletShort: opts.walletShort, feeLevels: opts.feeLevels, simulations: opts.simulations, cashback: opts.cashback,
         pumpSlippage: opts.pumpSlippage, failBeforeSwap: opts.failBeforeSwap, leavesOpen: opts.leavesOpen,
-        noPostBalances: opts.noPostBalances, takerKeepsAfter: opts.takerKeepsAfter,
+        noPostBalances: opts.noPostBalances, takerKeepsAfter: opts.takerKeepsAfter, rentMoves: opts.rentMoves, rentDeadBand: opts.rentDeadBand,
       }),
       ...(opts.priorityFee ? { priorityFee: opts.priorityFee } : {}),
       jupiter: opts.jupiter ?? fakeJupiter(), settings: {
@@ -334,7 +334,9 @@ describe('a price that moves between the quote and the simulation', () => {
 });
 
 describe("a route that opens an account in the taker's name (PumpSwap, the Pump.fun bonding curve)", () => {
-  const RENT = 1_346_200n;
+  // Rent the route keeps, with no account of its own to close: what a bonding curve takes for growing
+  // its own account, within MAX_ROUTE_KEPT_LAMPORTS.
+  const RENT = 132_080n;
 
   it('the temporary key is sent exactly the rent the route spends, and nothing more', async () => {
     const prepared = await prepare(BONK, { takerRent: RENT });
@@ -428,8 +430,8 @@ describe('a wallet short of SOL', () => {
   });
 
   it("a route short of the taker's rent is still measured and funded, not reported as the wallet's", async () => {
-    const prepared = await prepare(BONK, { takerRent: 1_346_200n });
-    expect(prepared.policy.takerRent).toBe(1_346_200n);
+    const prepared = await prepare(BONK, { takerRent: 132_080n });
+    expect(prepared.policy.takerRent).toBe(132_080n);
   });
 });
 
@@ -473,9 +475,9 @@ describe('latency without weaker protection', () => {
   it('a Pump.fun route goes straight to measuring its rent: two simulations, not three, then the final one', async () => {
     const simulations = { count: 0 };
     const prepared = await prepare(BONK, {
-      jupiter: fakeJupiter({ label: 'Pump.fun', curveProgram: true }), chain: onChain, takerRent: 1_346_200n, simulations,
+      jupiter: fakeJupiter({ label: 'Pump.fun', curveProgram: true }), chain: onChain, takerRent: 132_080n, simulations,
     });
-    expect(prepared.policy.takerRent).toBe(1_346_200n);
+    expect(prepared.policy.takerRent).toBe(132_080n);
     // Measuring the rent takes two; the exact final transaction is simulated once more.
     expect(simulations.count).toBe(3);
   });
@@ -616,9 +618,42 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
   });
 
   it('a route that opens no such account returns nothing and adds nothing', async () => {
-    const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, takerRent: 1_346_200n, jupiter: fakeJupiter({ label: 'Pump.fun Amm' }) });
+    const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, takerRent: 132_080n, jupiter: fakeJupiter({ label: 'Pump.fun Amm' }) });
     expect(prepared.policy.routeRefund).toBe(0n);
     expect(prepared.oneTimeCosts.routeRefund).toBe(0n);
+  });
+
+  it('rent that moves once while it is measured is measured again, and the swap is built', async () => {
+    const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true, rentMoves: 1 });
+    expect(prepared.policy.takerRent).toBe(1_346_200n);
+    expect(prepared.policy.routeRefund).toBe(1_346_200n);
+  });
+
+  it('rent that moves twice is measured afresh on a new quote, and no market is blamed for it', async () => {
+    const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true, rentMoves: 2 });
+    expect(prepared.policy.routeRefund).toBe(1_346_200n);
+    expect(prepared.attempts[0].simulation).toBe('the rent the market charges moved while it was measured');
+    expect(prepared.attempts[0].blamed).toBeNull();
+  });
+
+  it('a route that spends nearly all of the rent ceiling is said as such, not blamed on the market', async () => {
+    const failure = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true, rentDeadBand: true }).catch(e => e);
+    expect((failure as OrientimError).code).toBe('simulation-failed');
+    expect((failure as OrientimError).message).toContain('could not be measured exactly');
+  });
+
+  it('rent that keeps moving is said as such, and no market is blamed for it', async () => {
+    const failure = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true, rentMoves: 99 }).catch(e => e);
+    expect(failure).toBeInstanceOf(OrientimError);
+    expect((failure as OrientimError).code).toBe('simulation-failed');
+    expect((failure as OrientimError).message).toContain('could not be measured exactly');
+  });
+
+  it('a route that would keep more rent than MAX_ROUTE_KEPT_LAMPORTS, with nothing to close, is not built', async () => {
+    const failure = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, takerRent: 1_346_200n, jupiter: fakeJupiter({ label: 'Pump.fun Amm' }) }).catch(e => e);
+    expect(failure).toBeInstanceOf(OrientimError);
+    expect((failure as OrientimError).code).toBe('no-route');
+    expect((failure as OrientimError).message).toContain('keep more than 0.001 SOL of rent');
   });
 
   it("a cashback coin's account holds more than its rent, which no exact refund can return: refused, never left under E", async () => {
