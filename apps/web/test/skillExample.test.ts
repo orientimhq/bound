@@ -29,7 +29,7 @@ import {
   acquireLock, OrientimApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending, resolvePending,
   OrientimOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
   fillAgainstQuote, PriceImpactError, receivedFor, FloorError, prepareChecked, ownFloor, IntentError,
-  ERROR_MEANINGS, exitCodeOf, failureCause, networkCause, outcomeMeaning, LockBusyError, loadPolicy, PolicyError, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keptApproval, temporaryAuthorityOf,
+  ERROR_MEANINGS, exitCodeOf, failureCause, networkCause, outcomeMeaning, LockBusyError, loadPolicy, policyPathFor, PolicyError, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keptApproval, temporaryAuthorityOf,
 } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import type { OrderBook, OrderRecord, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
@@ -2442,6 +2442,54 @@ describe("the owner's ceilings on tolerance, floor and price impact, and the aut
     expect(r.code).toBe(1);
     expect((r.output as { error: unknown }).error).toMatchObject({ code: 'output-not-allowed' });
     expect(d.sent).toHaveLength(0);
+  });
+
+  it("the list of tokens the wallet may buy holds in the example's dry run and again at orientim-verify's finalize", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-out-dry-'));
+    const policy = join(dir, 'policy.json');
+    writeFileSync(policy, JSON.stringify({ maxAmountIn: { [USDC]: '1000000000' }, allowedOutputMints: [BONK] }));
+    const env = { ...process.env, ORIENTIM_API_URL: 'http://127.0.0.1:1', ORIENTIM_API_KEY: 'k', SOLANA_RPC_URL: 'http://127.0.0.1:1', JUPITER_API_KEY: 'j', ORIENTIM_POLICY: policy };
+    const dry = spawnSync(process.execPath, ['skills/orientim-protected-swap/examples/swap.ts', '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--owner', WSOL_MINT, '--dry-run'], {
+      encoding: 'utf8', cwd: join(import.meta.dirname, '../../..'), env,
+    });
+    expect(dry.status).toBe(1);
+    expect(dry.stderr).toContain('output-not-allowed');
+    // Prepared while the policy allowed it; the owner narrowed the list before finalize: nothing is sent.
+    const b = await orientim();
+    const deps = {
+      rpc: b.agentRpc, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl: b.fetchImpl, stateDir: mkdtempSync(join(tmpdir(), 'orientim-out-fin-')),
+      treasury: TREASURY, pollMs: 1, maxWaitMs: 60,
+    };
+    const intent = { owner: b.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', id: 'out-fin' };
+    const ready = await runCli('prepare', { intent }, { ...deps, policy: policyFor({ allowedOutputMints: [WSOL_MINT] }) });
+    expect(ready.code).toBe(0);
+    const out = JSON.parse(JSON.stringify(ready.output)) as { checked: unknown; message: string };
+    const signature = getBase58Decoder().decode(await signBytes(b.wallet.keyPair.privateKey, Buffer.from(out.message, 'base64')));
+    const done = await runCli('finalize', { checked: out.checked, signature }, { ...deps, policy: policyFor({ allowedOutputMints: [BONK] }) });
+    expect(done.code).toBe(1);
+    expect((done.output as { error: unknown }).error).toMatchObject({ code: 'output-not-allowed' });
+    expect(b.sent).toHaveLength(0);
+  });
+
+  it("the owner's policy at the system path is used whatever ORIENTIM_POLICY says, and another file is refused", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-sys-'));
+    const system = join(dir, 'policy.json');
+    const other = join(dir, 'other.json');
+    // No system file: ORIENTIM_POLICY decides, and unset means no policy.
+    expect(policyPathFor(undefined, system)).toBeUndefined();
+    expect(policyPathFor(other, system)).toBe(other);
+    writeFileSync(system, JSON.stringify(policyFor({})));
+    // With it, unsetting ORIENTIM_POLICY does not turn the limits off, and naming another file is refused.
+    expect(policyPathFor(undefined, system)).toBe(system);
+    expect(policyPathFor(system, system)).toBe(system);
+    expect(() => policyPathFor(other, system)).toThrow('which is not used');
+    // Both entry points read it through policyPathFor, never ORIENTIM_POLICY alone.
+    const example = readFileSync(join(import.meta.dirname, '../../../skills/orientim-protected-swap/examples/swap.ts'), 'utf8');
+    const cli = readFileSync(join(import.meta.dirname, '../../../skills/orientim-protected-swap/src/cli.ts'), 'utf8');
+    expect(example).toContain('policyPathFor(process.env.ORIENTIM_POLICY || undefined)');
+    expect(cli).toContain('policyPathFor(process.env.ORIENTIM_POLICY || undefined)');
+    expect(example).not.toContain('loadPolicy(process.env.ORIENTIM_POLICY)');
+    expect(cli).not.toContain('loadPolicy(process.env.ORIENTIM_POLICY)');
   });
 
   it('orientim-verify: "auto" in prepare, a checked answer carries the number, and check asks for the number', async () => {
