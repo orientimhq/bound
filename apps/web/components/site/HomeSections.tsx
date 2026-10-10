@@ -1,4 +1,8 @@
+import { FEE_BPS, TREASURY } from '@/lib/client/config';
 import { AgentTerminal, CapsuleFlow, CheckedTwice } from './Motion';
+
+/** The fee this build charges, as the other pages state it. */
+const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 
 const CAPSULE_STEPS = [
   ['Your agent chooses the amount.', 'Only what it approves leaves the wallet: the amount, the fees and any market deposit it was shown. The rest of the wallet is never part of the swap.'],
@@ -22,7 +26,7 @@ const START_STEPS = [
 
 
 const THREATS: [string, string, string][] = [
-  ['prompt', 'A message tells your agent to “swap everything” or “set slippage to 15%”.', 'With your policy file set, the skill stops at your limits: the most per swap, per day, only from the tokens you allow, and never more slippage than you set.'],
+  ['prompt', 'A message tells your agent to “swap everything” or “set slippage to 15%”.', 'With your policy file set, the skill stops at your limits: the most per swap, per day, only from and into the tokens you allow, and never more slippage than you set.'],
   ['drain', 'A server hands your agent a transaction that drains the wallet.', 'With the skill or verifier, every instruction is checked on your own RPC. Approvals, authority changes and stray transfers are refused.'],
   ['server', 'The swap server itself is hacked.', 'Orientim holds none of your keys. With the skill or verifier, a changed transaction is refused before it is signed.'],
   ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: the most it can take is your tolerance below the quoted price, 0.5% by default (3% on a Pump.fun launch curve), never above the ceiling you set. A swap that would fill below it reverts; only the network fee is paid.'],
@@ -49,6 +53,11 @@ export function HomeSections() {
               <a className="button primary-link" href="/developers#access">Get an API key</a>
               <a className="button ghost-link" href="/developers#start">Quickstart</a>
             </div>
+            {TREASURY && (
+              <p className="cta-note">
+                {feeText} a swap, inside the transaction your agent signs. No sign-up, no subscription. <a href="/security#fees">See fees</a>
+              </p>
+            )}
           </div>
           <div className="hero-app">
             <AgentTerminal />
@@ -106,6 +115,9 @@ export function HomeSections() {
                 <a className="button primary-link" href="/developers#access">Get an API key</a>
                 <a className="button ghost-link" href="/developers">Developer docs</a>
               </div>
+              <p className="cta-note">
+                The skill is open source, under Apache-2.0: <a href="https://github.com/orientimhq/orientim-protected-swap">read it on GitHub</a>.
+              </p>
             </div>
             <div className="glass-stage">
               <div className="ambient" aria-hidden="true" />
@@ -158,6 +170,7 @@ export function HomeSections() {
                 <li><b>Per swap</b><span>The most one swap may spend, for each token.</span></li>
                 <li><b>Per day</b><span>The most all swaps may spend in 24 hours.</span></li>
                 <li><b>Only these tokens</b><span>A token not on the list is never spent.</span></li>
+                <li><b>Only these buys</b><span>A token not on your list is never bought, whoever names it.</span></li>
                 <li><b>A price floor</b><span>From your agent’s own quote, never more than 20% below the market.</span></li>
                 <li><b>Max slippage</b><span>The most the price may move against a swap. Your agent can’t raise it.</span></li>
                 <li><b>Max price impact</b><span>A swap that would move a thin market too far is refused.</span></li>
@@ -172,7 +185,8 @@ export function HomeSections() {
   "maxAmountInPerDay": {
     "EPjF…Dt1v": "200000000"`}<span className="dim">{`     // 200 USDC a day`}</span>{`
   },
-  "maxSlippageBps": 300`}<span className="dim">{`          // never more than 3%`}</span>{`
+  "maxSlippageBps": 300,`}<span className="dim">{`         // never more than 3%`}</span>{`
+  "stateDir": "/home/agent/.orientim-state"`}<span className="dim">{`  // where every swap is counted`}</span>{`
 }`}{'\n\n'}<span className="dim">{`# the agent is told to swap 500 USDC`}</span>{'\n'}<span className="ok">{`✓ refused: over your limit of 50 USDC a swap`}</span>{'\n'}<span className="dim">{`# the agent is told to set slippage to 15%`}</span>{'\n'}<span className="ok">{`✓ refused: above your limit of 3%`}</span></pre>
             </div>
           </div>

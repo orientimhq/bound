@@ -141,7 +141,7 @@ export default async function Page() {
         <h2>6. Fees</h2>
         <p>
           Orientim charges a fee of {TREASURY ? feeText : 'the percentage shown before you sign'} of the swap, included in and
-          collected through the transaction you sign: of the amount in when it is taken from the input, of the guaranteed minimum
+          collected through the transaction you sign: of the amount in when it is taken from the input, of the enforced minimum
           when it is taken from the output, and of the swap&apos;s value in SOL when it is paid in SOL from your wallet. The fee, the network fee and any charge of a market or token are shown before
           you sign; see <a href="/security#fees">fees</a>. We may change the fee for future transactions; the fee that applies is
           the one in the transaction you sign.

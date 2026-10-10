@@ -5,7 +5,7 @@ Three layers, from the fastest to the closest to the real thing:
 | Layer | Runs | Where | Fails when |
 | --- | --- | --- | --- |
 | Unit and scenario tests | every push (`ci.yml`), `npx vitest run` | the files below | any test fails |
-| Fuzz (property tests) | 40 cases each in CI; millions by hand (`fuzz.yml`, `npm run test:fuzz`) | `*.property.test.ts` | a counterexample: fast-check prints the case and its seed |
+| Fuzz (property tests) | 8 to 2,000 cases each in CI (`RUNS` at the top of each file); millions by hand (`fuzz.yml`, `npm run test:fuzz`) | `*.property.test.ts` | a counterexample: fast-check prints the case and its seed |
 | Mainnet simulation matrix | by hand (`sim-matrix.yml`), about 90 minutes | `tools/sim/matrix.sim.ts` | a case marked BUG ("to look at"), or an unhandled error |
 
 Nothing in any layer signs with a real wallet or sends a real transaction: the matrix stops after the

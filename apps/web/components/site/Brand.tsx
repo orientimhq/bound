@@ -61,7 +61,7 @@ export function SiteHeader({ right, menu }: { right: ReactNode; menu?: ReactNode
 
 const FOOTER: [string, [string, string][]][] = [
   ['Product', [['How it works', '/#how'], ['Supported tokens', '/security#supported'], ['Fees', '/security#fees'], ['Security', '/security'], ['Status', '/status']]],
-  ['Developers', [['Overview', '/developers'], ['Quickstart', '/developers#start'], ['API reference', '/developers#api'], ['API keys', '/developers#access']]],
+  ['Developers', [['Overview', '/developers'], ['Quickstart', '/developers#start'], ['API reference', '/developers#api'], ['API keys', '/developers#access'], ['GitHub', 'https://github.com/orientimhq/orientim-protected-swap']]],
   ['Legal', [['Terms of Use', '/terms'], ['Privacy Notice', '/privacy'], ['Contact', '/terms#contact']]],
 ];
 

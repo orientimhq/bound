@@ -2252,7 +2252,7 @@ describe('the skill holds its own limits and its state against what it is handed
     const reference = readFileSync(join(import.meta.dirname, '../../../AGENT-API.md'), 'utf8');
     for (const said of [
       // The fee, by its side, and the check of the client's own routes.
-      'On the input: that share of <code>amountIn</code>', 'that share of the guaranteed minimum', 'within 1%',
+      'On the input: that share of <code>amountIn</code>', 'that share of the enforced minimum', 'within 1%',
       // ownRoutes moves the Jupiter requests; the RPC's use is said apart.
       'id="own-routes"', 'Orientim&apos;s Jupiter key', 'Your RPC', 'ORIENTIM_OWN_ROUTES', 'BudgetSpentError', '110 seconds and 48 asks',
       // sent and unknown are not final; no order database; restart and recovery from the quickstart.

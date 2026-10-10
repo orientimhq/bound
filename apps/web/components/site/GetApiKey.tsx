@@ -7,6 +7,12 @@ import { connectWallet, signsMessages, useWallets, walletSignMessage } from '@/l
 
 type Issued = { key: string; wallet: string; expiresAt: string };
 
+/** A failure this page can explain in its own words; anything else is shown as a short, general message. */
+class Said extends Error {}
+
+/** What went wrong, in a sentence; `detail` is the raw error, kept for someone who wants it. */
+type Failure = { text: string; detail?: string };
+
 /** The skill as one download, public: its path on this site and its version. */
 export type SkillDownload = { href: string; version: string };
 
@@ -18,7 +24,7 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
   const wallets = useWallets().filter(signsMessages);
   const [choosing, setChoosing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Failure | null>(null);
   const [issued, setIssued] = useState<Issued | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -28,14 +34,14 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
     try {
       setBusy('Connecting…');
       const account = await connectWallet(wallet);
-      if (!account) throw new Error('The wallet returned no account.');
+      if (!account) throw new Said('The wallet returned no account.');
       setBusy('Preparing the message…');
       const c = await fetch(`/api/v1/keys/challenge?wallet=${encodeURIComponent(account.address)}`);
       // 404 is this deployment's API being off (not-enabled): before launch, or while it is paused.
-      if (c.status === 404) throw new Error('API keys are not available on this site right now. Try again later.');
+      if (c.status === 404) throw new Said('API keys are not available on this site right now. Try again later.');
       const challenge = await c.json() as { message?: unknown; challenge?: string; error?: { message: string } };
-      if (!c.ok) throw new Error(challenge.error?.message ?? 'Orientim could not prepare the message. Try again.');
-      if (!isKeyMessage(challenge.message, window.location.host, account.address)) throw new Error('The message was not the expected one, so nothing was signed.');
+      if (!c.ok) throw new Said(challenge.error?.message ?? 'Orientim could not prepare the message. Try again.');
+      if (!isKeyMessage(challenge.message, window.location.host, account.address)) throw new Said('The message was not the expected one, so nothing was signed.');
       setBusy('Sign the message in your wallet…');
       const signature = await walletSignMessage(wallet, account, new TextEncoder().encode(challenge.message));
       setBusy('Getting your key…');
@@ -45,11 +51,14 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
         body: JSON.stringify({ message: challenge.message, challenge: challenge.challenge, signature: btoa(String.fromCharCode(...signature)) }),
       });
       const body = await res.json() as Issued & { error?: { message: string } };
-      if (!res.ok) throw new Error(body.error?.message ?? 'Orientim could not issue a key. Try again.');
+      if (!res.ok) throw new Said(body.error?.message ?? 'Orientim could not issue a key. Try again.');
       setIssued(body);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      setError(/reject|denied|cancel|4001/i.test(message) ? 'Cancelled in your wallet. Nothing was signed.' : message);
+      if (e instanceof Said) setError({ text: message });
+      else if (/reject|denied|cancel|4001/i.test(message)) setError({ text: 'Cancelled in your wallet. Nothing was signed.' });
+      // A network failure, a wallet's own error or an answer that is not JSON: said plainly, the detail kept.
+      else setError({ text: 'Something went wrong, and no key was issued. Signing moves nothing. Try again.', detail: message });
     } finally {
       setBusy(null);
     }
@@ -101,16 +110,29 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
                 {w.name}
               </button>
             ))}
+            <button className="ghost key-cancel" onClick={() => setChoosing(false)}>Cancel</button>
           </div>
         ) : (
-          <p className="hint">No wallet in this browser can sign a message. Use the Agent or bot wallet tab instead.</p>
+          <>
+            <p className="hint">No wallet in this browser can sign a message. Use the Agent or bot wallet tab instead.</p>
+            <button className="ghost key-cancel" onClick={() => setChoosing(false)}>Cancel</button>
+          </>
         )
       ) : (
         <button className="button primary-link key-button" onClick={() => setChoosing(true)} disabled={busy !== null}>
           {busy ?? 'Get an API key'}
         </button>
       )}
-      {error && <p className="key-error">{error}</p>}
+      {/* Always in the page, so that a screen reader announces an error when it appears. */}
+      <div aria-live="polite">
+        {error && <p className="key-error">{error.text}</p>}
+        {error?.detail && (
+          <details className="key-detail">
+            <summary>Details</summary>
+            <code>{error.detail}</code>
+          </details>
+        )}
+      </div>
     </div>
   );
 }

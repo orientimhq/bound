@@ -99,6 +99,7 @@ a.ghost { display: inline-flex; align-items: center; }
   background: radial-gradient(closest-side, rgba(76, 189, 133, .20), transparent); filter: blur(24px); }
 .hero-app .terminal { box-shadow: 0 24px 64px rgba(0, 0, 0, .45), 0 0 48px rgba(76, 189, 133, .08); }
 .hero-actions { margin-top: 28px; }
+.cta-note { margin: 14px 0 0; color: var(--faint); font-size: 14px; }
 
 /* ---- home: a grid of blocks behind the page, strongest behind the hero; the wallet and its one
    block are drawn over it (HeroBlocks). All of it is decoration, under the content. */
@@ -315,6 +316,9 @@ a.ghost { display: inline-flex; align-items: center; }
 .key-wallets { display: grid; gap: 8px; }
 .key-wallets .wallet-option { margin-top: 0; }
 .key-error { margin: 10px 0 0; color: var(--bad); font-size: 14px; }
+.key-detail { margin: 6px 0 0; color: var(--faint); font-size: 13px; }
+.key-detail code { word-break: break-all; }
+.key-cancel { justify-self: start; margin-top: 10px; }
 .key-next-title { margin: 18px 0 0; font-weight: 600; }
 .key-next { display: grid; gap: 12px; margin: 10px 0 0; padding-left: 20px; color: var(--muted); font-size: 14px; }
 .key-next li::marker { color: var(--accent); font-weight: 600; }

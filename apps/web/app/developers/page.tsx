@@ -107,7 +107,7 @@ const ENV: [string, string][] = [
   ['JUPITER_API_KEY', 'For the agent’s own price floor and, unless ORIENTIM_OWN_ROUTES is 0, the routes Orientim builds around (Your own Jupiter key). It never leaves your process. Free at developers.jup.ag; a busy bot does well with a paid key.'],
   ['ORIENTIM_OWN_ROUTES', 'Optional: 0 lets Orientim’s key fetch the routes, as without your key. Your key still prices your own floor.'],
   ['ORIENTIM_WALLET_KEYPAIR', 'The example only: the path to the wallet’s key file, or pass a signing service in code. The command line never reads a key; the bot signs. A key file the example can read, the agent that runs it can read too.'],
-  ['ORIENTIM_POLICY', 'Optional, recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it. maxAmountIn is the most one swap may spend of each input mint (a mint not listed is refused, selling included: list every token the agent may need to sell); maxAmountInPerDay the most all swaps from the wallet may spend in 24 hours, counting every swap once signed, retries included. Base units, as strings. allowedOutputMints, optional, lists the tokens the wallet may buy; a swap into any other is refused (output-not-allowed). stateDir, optional, pins the state directory to one absolute path. maxSlippageBps, maxBelowBps and maxPriceImpactBps, optional, are the owner’s ceilings on the tolerance, the floor’s distance below the market and the price impact the agent may choose.'],
+  ['ORIENTIM_POLICY', 'Optional, recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it. maxAmountIn is the most one swap may spend of each input mint (a mint not listed is refused, selling included: list every token the agent may need to sell); maxAmountInPerDay the most all swaps from the wallet may spend in 24 hours, counting every swap once signed, retries included. Base units, as strings. allowedOutputMints, optional, lists the tokens the wallet may buy; a swap into any other is refused (output-not-allowed). stateDir pins the state directory to one absolute path; it is required whenever maxAmountInPerDay is set. maxSlippageBps, maxBelowBps and maxPriceImpactBps, optional, are the owner’s ceilings on the tolerance, the floor’s distance below the market and the price impact the agent may choose.'],
   ['ORIENTIM_SEND_RPC_URL', 'Optional: an RPC of yours that sends the swap (a staked connection, a sender service). Orientim then signs it and sends nothing; the skill sends it at once and again until it lands. In code, sendTransaction.'],
   ['ORIENTIM_ARCHIVE_RPC_URL', 'Optional: an RPC that keeps the chain’s full history. When your own RPC missed the moment it could prove a swap expired, the archive proves it from the one-time key’s own history, so an outage near expiry does not stop the wallet at unknown.'],
   ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system. A policy with a daily limit names its own stateDir instead, and no other directory is used.'],
@@ -207,8 +207,36 @@ curl -s https://orientim.com/skill/SHA256SUMS | sha256sum -c`}</code></pre>
 }`}</code></pre>
                 </li>
                 <li>
-                  <strong>Run it</strong>: <code>npm ci</code>, set the <a href="#env">environment variables</a>, then follow{' '}
-                  <a href="#skill">AI agents</a> or <a href="#cli">Bots</a>.
+                  <strong>Set it up</strong>: in that folder, <code>npm ci</code> and the <a href="#env">environment variables</a>.
+                  <pre tabIndex={0}><code>{`npm ci
+export ORIENTIM_API_URL=https://orientim.com
+export ORIENTIM_API_KEY=ori_...
+export SOLANA_RPC_URL=<your own RPC>
+export JUPITER_API_KEY=<your Jupiter key>
+export ORIENTIM_POLICY=/home/agent/orientim-policy.json`}</code></pre>
+                </li>
+                <li>
+                  <strong>Write the owner&apos;s limits</strong> in that policy file, where the agent cannot edit it: here 50 USDC a
+                  swap, 200 USDC a day, and only SOL to buy. A daily limit needs its own <code>stateDir</code>, an absolute path.
+                  <pre tabIndex={0}><code>{`{
+  "maxAmountIn": { "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": "50000000" },
+  "maxAmountInPerDay": { "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": "200000000" },
+  "allowedOutputMints": ["So11111111111111111111111111111111111111112"],
+  "stateDir": "/home/agent/.orientim-state"
+}`}</code></pre>
+                </li>
+                <li>
+                  <strong>Try it without signing</strong>: 5 USDC to SOL, prepared and verified on your RPC, with what it would cost.
+                  <pre tabIndex={0}><code>{`node examples/swap.ts --in EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \\
+  --out So11111111111111111111111111111111111111112 --amount 5000000 \\
+  --owner <wallet> --dry-run`}</code></pre>
+                </li>
+                <li>
+                  <strong>Swap</strong>, with one order id, the same on every retry. The example signs with the wallet&apos;s key file;
+                  for a signing service, see <a href="#skill">AI agents</a> or <a href="#cli">Bots</a>.
+                  <pre tabIndex={0}><code>{`export ORIENTIM_WALLET_KEYPAIR=/path/to/wallet.json
+node examples/swap.ts --in EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \\
+  --out So11111111111111111111111111111111111111112 --amount 5000000 --id order-1`}</code></pre>
                 </li>
                 <li>
                   <strong>Make restarts safe</strong>, before the first real swap:
@@ -220,7 +248,7 @@ curl -s https://orientim.com/skill/SHA256SUMS | sha256sum -c`}</code></pre>
                       earlier swap may still land: start nothing new for that wallet.
                     </li>
                     <li>
-                      Keep <code>ORIENTIM_STATE_DIR</code> on a disk that outlives the bot. Run one swap per wallet at a time; workers
+                      Keep the state directory (the policy&apos;s <code>stateDir</code>, or <code>ORIENTIM_STATE_DIR</code>) on a disk that outlives the bot. Run one swap per wallet at a time; workers
                       on several machines need one shared store, or a signer that serializes and limits them.
                     </li>
                     <li>
@@ -502,7 +530,7 @@ if code == 0:
                   key: no route sets either.
                 </li>
                 <li>
-                  A fee on the output is 0.25% of the guaranteed minimum, the minimum your route sets. That minimum is checked
+                  A fee on the output is a share of the enforced minimum, the minimum your route sets. That minimum is checked
                   against an independent price of Orientim&apos;s own, with a tolerance of up to 1%. Within it, the fee follows your
                   route&apos;s minimum; further below, or with routes Orientim&apos;s verifier refuses, Orientim builds the swap with its
                   own key instead. Your wallet keeps at least
@@ -745,7 +773,7 @@ POST /api/v1/keys
                   <ul>
                     <li>On the input: that share of <code>amountIn</code>.</li>
                     <li>
-                      On the output: that share of the guaranteed minimum, the minimum the transaction enforces, paid after it is
+                      On the output: that share of the enforced minimum, the minimum the transaction holds to, paid after it is
                       checked; <code>amounts.minOut</code> is what the wallet keeps after it. With <a href="#own-routes">your own
                       routes</a>, that minimum is checked against Orientim&apos;s own price within 1%.
                     </li>
@@ -774,7 +802,7 @@ POST /api/v1/keys
                   (<code>floor-too-low</code>) and Orientim&apos;s fee at 0.3% at most.
                 </li>
                 <li>
-                  The owner&apos;s own limits, per swap and per day for each input mint, in a file (<code>ORIENTIM_POLICY</code>):
+                  The owner&apos;s own limits, per swap and per day for each input mint, and the tokens the wallet may buy, in a file (<code>ORIENTIM_POLICY</code>):
                   a swap outside them is refused before anything is prepared and again before finalize.
                 </li>
                 <li>

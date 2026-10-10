@@ -8,13 +8,17 @@ const inter = Inter({ subsets: ['latin'], variable: '--font-inter', display: 'sw
 const display = Bricolage_Grotesque({ subsets: ['latin'], variable: '--font-bricolage', display: 'swap' });
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', display: 'swap' });
 
+// One title and one description, the same in search results and in shared links (OG and X).
+const TITLE = 'Orientim — Protected swaps on Solana';
+const DESCRIPTION = 'Protected swaps on Solana for AI agents and bots: the swap gets only the amount your agent approves, never the wallet.';
+
 export const metadata: Metadata = {
   metadataBase: new URL('https://orientim.com'),
-  title: 'Orientim — Protected swaps on Solana',
-  description: 'Protected Solana swaps for AI agents and bots. The skill checks each transaction on your own RPC before signing; direct API bots must do the same.',
+  title: TITLE,
+  description: DESCRIPTION,
   openGraph: {
-    title: 'Orientim — Protected swaps on Solana',
-    description: 'Give your agent a safer way to swap with independent verification before signing.',
+    title: TITLE,
+    description: DESCRIPTION,
     url: 'https://orientim.com',
     siteName: 'Orientim',
     type: 'website',
@@ -22,8 +26,8 @@ export const metadata: Metadata = {
   // The image itself is app/opengraph-image.tsx and app/twitter-image.tsx.
   twitter: {
     card: 'summary_large_image',
-    title: 'Orientim — Protected swaps on Solana',
-    description: 'Let your agent trade without handing over its wallet.',
+    title: TITLE,
+    description: DESCRIPTION,
   },
 };
 
