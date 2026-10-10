@@ -93,7 +93,7 @@ const PREPARE_ANSWER: [string, string][] = [
 /** What `orientim-verify` exits with (skills/orientim-protected-swap/src/cli.ts). */
 const EXIT_CODES: [string, string][] = [
   ['0', 'Done. prepare: sign message. finalize: confirmed, with received. recover: all settled. check: safe to sign.'],
-  ['1', 'Refused, or not swapped (failed, expired or rejected), including error.code floor-too-low, price-impact-high, unavailable (a service did not answer: try again after retryAfter) and the owner’s limits (mint-not-allowed, amount-over-limit, daily-limit). Nothing is left to settle.'],
+  ['1', 'Refused, or not swapped (failed, expired or rejected), including error.code floor-too-low, price-impact-high, unavailable (a service did not answer: try again after retryAfter) and the owner’s limits (mint-not-allowed, output-not-allowed, amount-over-limit, daily-limit). Nothing is left to settle.'],
   ['2', 'A usage or configuration error, such as a prepare without an order id, or an intent that names a treasury (it comes only from ORIENTIM_TREASURY): the answer says what is missing.'],
   ['3', 'Settle first: an earlier swap may still land, another finalize from this wallet is still running (busy), or the state directory cannot be made or read (a finalize then answers outcome unknown). Run recover; start nothing new.'],
   ['4', 'Orientim said no: error.code is one of the Errors below.'],
@@ -107,7 +107,7 @@ const ENV: [string, string][] = [
   ['JUPITER_API_KEY', 'For the agent’s own price floor and, unless ORIENTIM_OWN_ROUTES is 0, the routes Orientim builds around (Your own Jupiter key). It never leaves your process. Free at developers.jup.ag; a busy bot does well with a paid key.'],
   ['ORIENTIM_OWN_ROUTES', 'Optional: 0 lets Orientim’s key fetch the routes, as without your key. Your key still prices your own floor.'],
   ['ORIENTIM_WALLET_KEYPAIR', 'The example only: the path to the wallet’s key file, or pass a signing service in code. The command line never reads a key; the bot signs. A key file the example can read, the agent that runs it can read too.'],
-  ['ORIENTIM_POLICY', 'Optional, recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it. maxAmountIn is the most one swap may spend of each input mint (a mint not listed is refused, selling included: list every token the agent may need to sell); maxAmountInPerDay the most all swaps from the wallet may spend in 24 hours, counting every swap once signed, retries included. Base units, as strings. stateDir, optional, pins the state directory to one absolute path. maxSlippageBps, maxBelowBps and maxPriceImpactBps, optional, are the owner’s ceilings on the tolerance, the floor’s distance below the market and the price impact the agent may choose.'],
+  ['ORIENTIM_POLICY', 'Optional, recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it. maxAmountIn is the most one swap may spend of each input mint (a mint not listed is refused, selling included: list every token the agent may need to sell); maxAmountInPerDay the most all swaps from the wallet may spend in 24 hours, counting every swap once signed, retries included. Base units, as strings. allowedOutputMints, optional, lists the tokens the wallet may buy; a swap into any other is refused (output-not-allowed). stateDir, optional, pins the state directory to one absolute path. maxSlippageBps, maxBelowBps and maxPriceImpactBps, optional, are the owner’s ceilings on the tolerance, the floor’s distance below the market and the price impact the agent may choose.'],
   ['ORIENTIM_SEND_RPC_URL', 'Optional: an RPC of yours that sends the swap (a staked connection, a sender service). Orientim then signs it and sends nothing; the skill sends it at once and again until it lands. In code, sendTransaction.'],
   ['ORIENTIM_ARCHIVE_RPC_URL', 'Optional: an RPC that keeps the chain’s full history. When your own RPC missed the moment it could prove a swap expired, the archive proves it from the one-time key’s own history, so an outage near expiry does not stop the wallet at unknown.'],
   ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system. A policy with a daily limit names its own stateDir instead, and no other directory is used.'],
@@ -362,6 +362,21 @@ try {
                 a process the agent does not run: a signing service, or a small signer of your own with its own limits. Either way,
                 give the agent a wallet of its own holding only what it may swap, and set <a href="#env">ORIENTIM_POLICY</a>.
               </p>
+              <h3>Safe setup against a misled agent</h3>
+              <p>
+                A prompt injection, a poisoned page or a token named to deceive can steer an agent. Set up this way, the most it can
+                do is swap within the owner&apos;s limits, and every swap delivers to the wallet itself: nothing leaves it for anyone
+                else.
+              </p>
+              <ul>
+                <li>The key out of the agent&apos;s reach: a signing service with its own policies, a KMS or an HSM, or a signer of your own.</li>
+                <li>
+                  The owner&apos;s policy in a file the agent cannot write, with <code>maxAmountIn</code>,{' '}
+                  <code>maxAmountInPerDay</code>, <code>allowedOutputMints</code> (the tokens it may buy) and <code>stateDir</code>.
+                </li>
+                <li>The skill as the agent&apos;s only way to move funds: no transfer tool, and no direct way to the signer.</li>
+                <li>A wallet of its own, holding only what the agent may swap.</li>
+              </ul>
             </section>
 
             <section id="cli">

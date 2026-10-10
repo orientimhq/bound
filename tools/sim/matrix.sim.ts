@@ -235,6 +235,7 @@ function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
     { group: 'rules', input: 'USDC', output: 'JUP', usd: 1_000, rule: r('impact 10% asked, owner allows 3%', { maxPriceImpactBps: 300 }, { maxPriceImpactBps: 1_000 }), expect: ['impact-over-limit'] },
     { group: 'rules', input: 'USDC', output: 'SOL', usd: 1_000, rule: r('per swap $100', { maxAmountIn: { [T.USDC]: '100000000' } }), expect: ['amount-over-limit'] },
     { group: 'rules', input: 'BONK', output: 'SOL', usd: 100, rule: r('BONK not allowed', { maxAmountIn: { [T.USDC]: '100000000' } }), expect: ['mint-not-allowed'] },
+    { group: 'rules', input: 'USDC', output: 'BONK', usd: 100, rule: r('buying BONK not allowed (misled agent)', { allowedOutputMints: [T.SOL] }), expect: ['output-not-allowed'] },
     { group: 'rules', input: 'USDC', output: 'SOL', usd: 100, rule: r('minimum of 1 (misled agent)', {}, { minOut: '1' }), expect: ['floor-too-low'] },
     { group: 'rules', input: 'USDC', output: 'WIF', usd: 50_000, rule: r('agent raises impact to 20%', {}, { maxPriceImpactBps: 2_000 }) },
     { group: 'rules', input: 'SOL', output: 'USDC', usd: 200, rule: r('everything set, within', { maxSlippageBps: 300, maxBelowBps: 500, maxPriceImpactBps: 300, maxAmountIn: { [T.SOL]: '100000000000' } }), slippage: 'auto', expect: ['PASS'] },
@@ -932,7 +933,7 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
     // As protectedSwap does: the owner's per-swap limits first, then prepare and the full check.
     let outcome: Result;
     try {
-      if (policy) await checkPolicy(policy, { owner, inputMint: input, amountIn: intent.amountIn });
+      if (policy) await checkPolicy(policy, { owner, inputMint: input, outputMint: output, amountIn: intent.amountIn });
       const fetchImpl = c.understate ? understating(w.fetchImpl, owner, c.understate) : w.fetchImpl;
       const prepare = (asked: Omit<Intent, 'owner'>) => prepareChecked({
         apiUrl: API_URL, apiKey: API_KEY, rpc: w.rpc, owner, intent: asked, fetchImpl, jupiterApiKey: JUPITER_API_KEY,

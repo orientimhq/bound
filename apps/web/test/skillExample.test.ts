@@ -2412,6 +2412,38 @@ describe("the owner's ceilings on tolerance, floor and price impact, and the aut
     }
   });
 
+  it("the owner's list of tokens the wallet may buy: any other is refused before anything is prepared, by the library and by orientim-verify", async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'orientim-out-')), 'policy.json');
+    const write = (extra: Record<string, unknown>) => writeFileSync(file, JSON.stringify(policyFor(extra)));
+    write({ allowedOutputMints: [WSOL_MINT] });
+    expect(loadPolicy(file).allowedOutputMints).toEqual([WSOL_MINT]);
+    for (const bad of [{ allowedOutputMints: [] }, { allowedOutputMints: WSOL_MINT }, { allowedOutputMints: ['not-a-mint'] }, { allowedOutputMints: [1] }]) {
+      write(bad);
+      expect(() => loadPolicy(file), JSON.stringify(bad)).toThrow('allowedOutputMints');
+    }
+    // A misled agent asked to buy a token the owner did not list: refused before Orientim is asked.
+    const b = await orientim();
+    const jup = estimating(b, 50);
+    const refused = swapWith(b, jup.fetchImpl, { outputMint: BONK }, policyFor({ allowedOutputMints: [WSOL_MINT] }));
+    await expect(refused).rejects.toBeInstanceOf(PolicyError);
+    await expect(refused).rejects.toMatchObject({ code: 'output-not-allowed' });
+    expect(jup.prepares).toHaveLength(0);
+    expect(b.sent).toHaveLength(0);
+    // A listed token goes through.
+    const c = await orientim();
+    expect((await swapWith(c, c.fetchImpl, {}, policyFor({ allowedOutputMints: [WSOL_MINT] }))).outcome).toBe('confirmed');
+    // The command line holds the same list.
+    const d = await orientim();
+    const deps = {
+      rpc: d.agentRpc, apiUrl: 'http://orientim.test', apiKey: KEY, fetchImpl: d.fetchImpl, stateDir: mkdtempSync(join(tmpdir(), 'orientim-out-cli-')),
+      treasury: TREASURY, pollMs: 1, maxWaitMs: 60, policy: policyFor({ allowedOutputMints: [BONK] }),
+    };
+    const r = await runCli('prepare', { intent: { owner: d.wallet.address, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', id: 'out-1' } }, deps);
+    expect(r.code).toBe(1);
+    expect((r.output as { error: unknown }).error).toMatchObject({ code: 'output-not-allowed' });
+    expect(d.sent).toHaveLength(0);
+  });
+
   it('orientim-verify: "auto" in prepare, a checked answer carries the number, and check asks for the number', async () => {
     const b = await orientim();
     const jup = estimating(b, 120);
