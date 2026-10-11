@@ -25,7 +25,7 @@ import type { Address } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { MAX_ROUTE_KEPT_LAMPORTS, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@orientim/core';
 import {
-  approve, balancesOf, CLOSE_ACCOUNT, deliver, freshKey, invariants, IX, protectedSwap, requireProgram, send, setAuthority, setup,
+  approve, balancesOf, CLOSE_ACCOUNT, deliver, FEE_BPS, freshKey, invariants, IX, protectedSwap, requireProgram, send, setAuthority, setup,
   takeFrom, transfer, transferChecked, transferSol,
 } from './world.ts';
 import type { Inner, IssuerDelegate, Variant, World } from './world.ts';
@@ -71,8 +71,8 @@ function plan(w: World): Plan {
   const variant: Variant = w.tokenProgram === TOKEN_PROGRAM && random() < 0.3 ? 'A' : 'C';
   const amountIn = 1_000n + amount(12);
   const minOut = variant === 'A' ? 1n + amount(11) : 1n + amount(14);
-  // Orientim's fee is 0.5% of the amount in these worlds; the rest is what the route may take.
-  const swapAmount = amountIn - (amountIn * 50n) / 10_000n;
+  // Orientim's fee is 0.25% of the amount in these worlds; the rest is what the route may take.
+  const swapAmount = amountIn - (amountIn * FEE_BPS) / 10_000n;
   const takerRent = random() < 0.2 ? MAX_ROUTE_KEPT_LAMPORTS : 0n;
   const menu: Step[] = [
     { what: 'take', inner: () => takeFrom(near(swapAmount, 13)) },

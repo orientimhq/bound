@@ -27,9 +27,9 @@ export const SO = 'tests/cpi/attacker/target/deploy/orientim_attacker.so';
 
 export const SOL = 1_000_000_000n;
 
-// The swap under test: 100 IN (6 decimals) for at least 10 OUT (9 decimals), Orientim fee 0.5%.
+// The swap under test: 100 IN (6 decimals) for at least 10 OUT (9 decimals), Orientim fee 0.25%.
 export const AMOUNT_IN = 100_000_000n;
-export const FEE_BPS = 50n;
+export const FEE_BPS = 25n; // Orientim's fee; the verifier refuses one above 30
 export const FEE = (AMOUNT_IN * FEE_BPS) / 10_000n;
 export const SWAP_AMOUNT = AMOUNT_IN - FEE;
 export const MIN_OUT = 10_000_000_000n;
