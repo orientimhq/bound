@@ -5,9 +5,9 @@ import { AgentTerminal, CapsuleFlow, CheckedTwice } from './Motion';
 const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 
 const CAPSULE_STEPS = [
-  ['Your agent chooses the amount.', 'Only that amount and the fees it was shown leave the wallet, plus a market deposit when one is stated first.'],
-  ['Only that amount goes into the swap.', 'Orientim finds a route across Solana’s markets and trades just that amount.'],
-  ['At least the minimum, or nothing happens.', 'Your agent sets its minimum before it signs. If less would arrive, the swap cancels and only the network fee is paid.'],
+  ['Your wallet never moves.', 'Your agent names the amount. Only that amount steps out, with the costs shown up front. The rest of your SOL, every other token and every NFT stay exactly where they are.'],
+  ['The trade gets its own wallet.', 'The amount moves into a one-time key built for this swap alone. Orientim routes it across Solana’s markets, and the route never sees your wallet.'],
+  ['Your price, or no trade.', 'Your agent sets the minimum before it signs. If the market can’t meet it, the whole swap reverts on chain: nothing is traded, and only the network fee is paid.'],
 ];
 
 const AGENT_POINTS = [
