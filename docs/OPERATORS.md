@@ -90,7 +90,7 @@ mail and in the notifications: make sure that account receives them.
 
 | Workflow | Every | Fails when | Off with the repository variable |
 | --- | --- | --- | --- |
-| `monitor.yml` (`tools/monitor.ts`) | 10 minutes | `/api/health` is not ok three times 20 s apart; the agent API is off; production runs a commit not on `main`, or one whose CI failed; `/skill/SHA256SUMS` is not the repository's at that commit. A pause and a deploy stuck behind `main` are said as warnings. | `ORIENTIM_MONITOR=0` |
+| `monitor.yml` (`tools/monitor.ts`) | 30 minutes | `/api/health` is not ok three times 20 s apart; the agent API is off; production runs a commit not on `main`, or one whose CI failed; `/skill/SHA256SUMS` is not the repository's at that commit. A pause and a deploy stuck behind `main` are said as warnings. | `ORIENTIM_MONITOR=0` |
 | `canary.yml` (`tools/canary.ts`) | 6 hours | A swap no longer builds on mainnet state (Jupiter's format, a Pump.fun or token program changed), a fee is not taken where it should be, or a promised market could not be proven. | `ORIENTIM_CANARY=0` |
 | `live-check.yml` (`tools/check-live.ts`) | 6 hours | Production runs a tagged release and serves other bytes than its digest. Untagged commits are said and pass. | `ORIENTIM_LIVE_CHECK=0` |
 
