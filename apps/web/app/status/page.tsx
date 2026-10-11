@@ -28,8 +28,7 @@ export default async function Page() {
         </div>
         <p>
           When something is wrong, Orientim stops new swaps first: the agent API prepares and signs nothing while paused. A swap already
-          sent is settled by the Solana network. Uptime monitors can ask <code>/api/health</code>: 200 when a swap could go through now, 503
-          when it could not.
+          sent is settled by the Solana network.
         </p>
       </section>
     </InfoPage>

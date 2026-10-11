@@ -105,7 +105,7 @@ const ENV: [string, string][] = [
   ['JUPITER_API_KEY', 'For the agent’s own price floor and, unless ORIENTIM_OWN_ROUTES is 0, the routes Orientim builds around (Your own Jupiter key). It never leaves your process. Free at developers.jup.ag; a busy bot does well with a paid key.'],
   ['ORIENTIM_OWN_ROUTES', 'Optional: 0 lets Orientim’s key fetch the routes, as without your key. Your key still prices your own floor.'],
   ['ORIENTIM_WALLET_KEYPAIR', 'The example only: the path to the wallet’s key file, or pass a signing service in code. The command line never reads a key; the bot signs. A key file the example can read, the agent that runs it can read too.'],
-  ['ORIENTIM_POLICY', 'Optional, recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it (/etc/orientim/policy.json, when it exists, is used instead, whatever the environment says). maxAmountIn is the most one swap may spend of each input mint (a mint not listed is refused, selling included: list every token the agent may need to sell); maxAmountInPerDay the most all swaps from the wallet may spend in 24 hours, counting every swap once signed, retries included. Base units, as strings. allowedOutputMints, optional, lists the tokens the wallet may buy; a swap into any other is refused (output-not-allowed). stateDir pins the state directory to one absolute path; it is required whenever maxAmountInPerDay is set. maxSlippageBps, maxBelowBps and maxPriceImpactBps, optional, are the owner’s ceilings on the tolerance, the floor’s distance below the market and the price impact the agent may choose.'],
+  ['ORIENTIM_POLICY', 'Recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it (/etc/orientim/policy.json, when it exists, is used whatever the environment says). maxAmountIn: the most one swap may spend of each input mint (a mint not listed is refused). maxAmountInPerDay: the most per 24 hours, which needs stateDir. allowedOutputMints: the tokens it may buy. Optional ceilings: maxSlippageBps, maxBelowBps, maxPriceImpactBps. Base units, as strings; an example is in Quickstart.'],
   ['ORIENTIM_SEND_RPC_URL', 'Optional: an RPC of yours that sends the swap (a staked connection, a sender service). Orientim then signs it and sends nothing; the skill sends it at once and again until it lands. In code, sendTransaction.'],
   ['ORIENTIM_ARCHIVE_RPC_URL', 'Optional: an RPC that keeps the chain’s full history. When your own RPC missed the moment it could prove a swap expired, the archive proves it from the one-time key’s own history, so an outage near expiry does not stop the wallet at unknown.'],
   ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system. A policy with a daily limit names its own stateDir instead, and no other directory is used.'],
@@ -188,12 +188,7 @@ export default async function Page() {
                   <code>shasum -a 256 -c</code>).
                   <pre tabIndex={0}><code>{`cd orientim-protected-swap
 curl -s https://orientim.com/skill/SHA256SUMS | sha256sum -c`}</code></pre>
-                  On Windows, in PowerShell; every line must say OK:
-                  <pre tabIndex={0}><code>{`cd orientim-protected-swap
-(irm https://orientim.com/skill/SHA256SUMS) -split "\`n" | ? { $_.Trim() } | % {
-  $hash, $file = $_.Trim() -split '\\s+', 2
-  if ((Get-FileHash $file -Algorithm SHA256).Hash -eq $hash) { "\${file}: OK" } else { "\${file}: FAILED" }
-}`}</code></pre>
+                  On Windows, see <a href="#downloads">Downloads</a>.
                 </li>
                 <li>
                   <strong>Set it up</strong>: in that folder, <code>npm ci</code> and the <a href="#env">environment variables</a>.
@@ -228,23 +223,9 @@ node examples/swap.ts --in EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \\
   --out So11111111111111111111111111111111111111112 --amount 5000000 --id order-1`}</code></pre>
                 </li>
                 <li>
-                  <strong>Make restarts safe</strong>, before the first real swap:
-                  <ul>
-                    <li>Give every trading decision one order id, and use the same id on every retry of it.</li>
-                    <li>
-                      On every start, settle what a stopped run left before anything new: <code>recoverPending</code> in code,{' '}
-                      <code>node bin/orientim-verify.mjs recover</code> from a bot. Exit 3, or an <code>unknown</code> it cannot settle, means an
-                      earlier swap may still land: start nothing new for that wallet.
-                    </li>
-                    <li>
-                      Keep the state directory (the policy&apos;s <code>stateDir</code>, or <code>ORIENTIM_STATE_DIR</code>) on a disk that outlives the bot. Run one swap per wallet at a time; workers
-                      on several machines need one shared store, or a signer that serializes and limits them.
-                    </li>
-                    <li>
-                      Treat only <code>confirmed</code> as done. <code>sent</code> and <code>unknown</code> are not a final answer (see{' '}
-                      <a href="#recovery">Results and recovery</a>).
-                    </li>
-                  </ul>
+                  <strong>Make restarts safe</strong>, before the first real swap: one order id per trading decision, the same on every
+                  retry; the state directory on a disk that outlives the bot; on every start, <code>recover</code> first (exit 3 means
+                  start nothing new); and only <code>confirmed</code> counts as done. See <a href="#recovery">Results and recovery</a>.
                 </li>
               </ol>
             </section>
@@ -490,68 +471,37 @@ if code == 0:
                 <code>{'{"prepared": ..., "intent": {...}}'}</code> into <code>node bin/orientim-verify.mjs check</code> exits 0 only when it is safe
                 to sign.
               </p>
-              <p>
-                An API key or version header does not prove that this check ran. A direct integration must verify before its signer
-                accepts the transaction; the signer should hold its own spending limits. Keep the signing key outside the agent
-                for funds the agent must not be able to spend independently.
-              </p>
             </section>
 
             <section id="own-routes">
               <h2>Your own Jupiter key</h2>
               <p>
-                With <code>JUPITER_API_KEY</code> set, the skill and the command line fetch the routes Orientim builds around from
-                Jupiter with that key (<code>ownRoutes</code>), which never leaves your process. Orientim answers which builds it needs
-                (<code>409 routes-needed</code>, with a sealed session and the one-time key as taker), your side fetches them and
-                prepares again, usually once or twice; Orientim builds, checks and signs around them as around routes it asked for.{' '}
-                <code>ORIENTIM_OWN_ROUTES=0</code> (or <code>ownRoutes: false</code> in code) lets Orientim&apos;s key fetch them
-                instead. Routes come only from Jupiter: the verifier accepts Jupiter&apos;s program and no other.
+                With <code>JUPITER_API_KEY</code> set, the skill and the command line fetch the swap&apos;s routes from Jupiter with your
+                key, which never leaves your process, and Orientim builds and checks the swap around them.{' '}
+                <code>ORIENTIM_OWN_ROUTES=0</code> (or <code>ownRoutes: false</code> in code) lets Orientim&apos;s key fetch them instead.
               </p>
-              <h3>What your routes can change</h3>
               <ul>
-                <li>Your routes are untrusted, as Jupiter&apos;s own answers are: a made-up route can make your own swap fail or be refused.</li>
+                <li>Your routes are untrusted, as Jupiter&apos;s own answers are: a made-up route can only make your own swap fail or be refused.</li>
                 <li>
-                  Orientim&apos;s fee on the input is a share of <code>amountIn</code>, and a fee in SOL is priced with Orientim&apos;s own
-                  key: no route sets either.
-                </li>
-                <li>
-                  A fee on the output is a share of the enforced minimum, the minimum your route sets. That minimum is checked
-                  against an independent price of Orientim&apos;s own, with a tolerance of up to 1%. Within it, the fee follows your
-                  route&apos;s minimum; further below, or with routes Orientim&apos;s verifier refuses, Orientim builds the swap with its
-                  own key instead. Your wallet keeps at least
-                  that minimum less the fee, and never less than your <code>minOut</code>.
-                </li>
-                <li>
-                  A DEX the swap excludes that Orientim cannot tell by its programs (Jupiter&apos;s labels unavailable): the swap is
-                  built with Orientim&apos;s key too. Either way the answer is the prepared swap as ever.
-                </li>
-              </ul>
-              <h3>Time and requests</h3>
-              <ul>
-                <li>
-                  One preparation, from your own quote to the last check before signing, takes at most 110 seconds and 48 asks of
-                  your Jupiter key, retries included; a swap that needs more than 24 routes or 10 rounds is built with
-                  Orientim&apos;s key. A <code>429</code> from Jupiter is waited out as long as Jupiter says, when that fits. When the
-                  budget is spent, nothing is signed: the command line answers <code>error.code</code> <code>unavailable</code>, code
-                  sees <code>BudgetSpentError</code>; prepare again in a moment.
+                  Orientim&apos;s fee is never set by a route. On the output, it follows your route&apos;s minimum only within 1% of
+                  Orientim&apos;s own price; otherwise Orientim builds the swap with its own key.
                 </li>
                 <li>Every round is one prepare request toward the API&apos;s <a href="#limits">rate limit</a>.</li>
               </ul>
-              <div className="table-wrap">
-                <table className="table-stack">
-                  <thead><tr><th>Who asks</th><th>For what, in one swap</th></tr></thead>
-                  <tbody>
-                    <tr><td>Your Jupiter key</td><td>Your own price (the floor and the price impact), always: one ask. With <code>ownRoutes</code>, the routes: usually two, at most 24. For a fee in SOL, one ask for your own limit on it.</td></tr>
-                    <tr><td>Orientim&apos;s Jupiter key</td><td>Without <code>ownRoutes</code>, the routes. With them: one ask for its own price when the fee is on the output (kept 15 seconds across the rounds), and the price of a fee in SOL.</td></tr>
-                    <tr><td>Orientim&apos;s RPC</td><td>The chain state it builds from, its own simulations, and sending once at finalize (nothing with <code>{'"send": false'}</code>).</td></tr>
-                    <tr><td>Your RPC</td><td>The check before signing: a few account reads, one or two simulations and the token-risk read. After finalize: a status read about every second, and a re-send of the same bytes every few seconds, until the swap confirms or its lifetime passes (about 40 seconds), then one read of the transaction for what arrived. Any Solana RPC of yours works.</td></tr>
-                  </tbody>
-                </table>
-              </div>
+              <p>
+                For a direct API client, the rounds (<code>409 routes-needed</code>, sessions and time budgets) are in{' '}
+                <code>reference/AGENT-API.md</code>.
+              </p>
             </section>
 
             <section id="recovery">
               <h2>Results and recovery</h2>
+              <p>
+                The skill and the command line keep the record and read the result on chain for you. They answer an <code>outcome</code>:{' '}
+                <code>confirmed</code>, <code>failed</code>, <code>expired</code>, <code>unknown</code> (check again before anything new),
+                or <code>rejected</code> (finalize refused, and the transaction can no longer land).
+              </p>
+              <h3>For a direct API client</h3>
               <p>
                 The transaction&apos;s id on chain is your wallet&apos;s signature, known before finalize. Keep it, with the ticket, before
                 you call finalize: whatever finalize answers, or if no answer arrives, that signature is how you find out what
@@ -578,11 +528,6 @@ if code == 0:
                 orders and cannot tell you later what became of a ticket: the chain and your own store are the record. The skill
                 and the command line keep that store for you; a direct API client keeps its own and runs{' '}
                 <a href="#verify">the check</a> before every signature.
-              </p>
-              <p>
-                The skill and the command line read the result on chain for you and answer an <code>outcome</code> instead:{' '}
-                <code>confirmed</code>, <code>failed</code>, <code>expired</code>, <code>unknown</code> (check again before anything new),
-                or <code>rejected</code> (finalize refused, and the transaction can no longer land).
               </p>
               <ul>
                 <li>Finalizing the same ticket again is safe: it answers for the same transaction, which can land only once.</li>
@@ -731,6 +676,7 @@ POST /api/v1/keys
                 <li>API keys: 30 challenges and 10 keys an hour from one IP address.</li>
                 <li>One swap per output token at a time, and one per wallet in the skill.</li>
                 <li>A key used to overload or attack the service is revoked.</li>
+                <li>For uptime monitors, <code>GET /api/health</code> needs no key: 200 when a swap could go through now, 503 when it could not.</li>
               </ul>
             </section>
 
@@ -803,7 +749,15 @@ POST /api/v1/keys
               <h2>Downloads</h2>
               <ul>
                 <li><a href={SKILL_ARCHIVE} download>orientim-protected-swap.zip</a>: the skill, version {SKILL_VERSION}.</li>
-                <li><a href="/skill/SHA256SUMS">SHA256SUMS</a>: the checksum of every file in it.</li>
+                <li>
+                  <a href="/skill/SHA256SUMS">SHA256SUMS</a>: the checksum of every file in it. On Windows, in PowerShell, in the
+                  unzipped folder; every line must say OK:
+                  <pre tabIndex={0}><code>{`cd orientim-protected-swap
+(irm https://orientim.com/skill/SHA256SUMS) -split "\`n" | ? { $_.Trim() } | % {
+  $hash, $file = $_.Trim() -split '\\s+', 2
+  if ((Get-FileHash $file -Algorithm SHA256).Hash -eq $hash) { "\${file}: OK" } else { "\${file}: FAILED" }
+}`}</code></pre>
+                </li>
                 <li><a href={SKILL_SOURCE}>Source on GitHub</a>: the skill and its verifier, Apache-2.0, with a build that gives this same zip, byte for byte.</li>
                 <li>The full API reference, every field and recovery step, is <code>reference/AGENT-API.md</code> in the download.</li>
               </ul>

@@ -347,7 +347,7 @@ export function CheckedTwice() {
         <div className={`ct-st ${view.st[0]}`}>
           <div className="ct-head"><span className="ct-who">Orientim</span><StationBadge /></div>
           <h4>Builds the swap and checks it</h4>
-          <p>Every instruction against the 7 rules, before anything is sent to your agent.</p>
+          <p>Every instruction against its rules, before anything is sent to your agent.</p>
           {rules(view.r1)}
           {view.st[0] === 'warned' && <p className="ct-tag warn">Compromised server: it says the swap is fine.</p>}
         </div>
@@ -355,9 +355,9 @@ export function CheckedTwice() {
         <div className={`ct-st ${view.st[1]}`}>
           <div className="ct-head"><span className="ct-who">Your skill or verifying bot</span><StationBadge /></div>
           <h4>Checks it again, on its own</h4>
-          <p>The same transaction, the same 7 rules, on its own connection to Solana. Only then does its wallet sign.</p>
+          <p>The same transaction, the same rules, on its own connection to Solana. Only then does its wallet sign.</p>
           {rules(view.r2, view.refused)}
-          {view.st[1] === 'fail' && <p className="ct-tag bad">R2: an extra instruction sends your tokens elsewhere. Refused before signing.</p>}
+          {view.st[1] === 'fail' && <p className="ct-tag bad">An extra instruction sends your tokens elsewhere. Refused before signing.</p>}
         </div>
         {link(2)}
         <div className={`ct-st ${view.st[2]}`}>
