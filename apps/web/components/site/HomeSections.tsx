@@ -12,7 +12,7 @@ const CAPSULE_STEPS = [
 
 const AGENT_POINTS = [
   ['Checks before signing', 'With the skill or command line, the exact transaction is checked on your own connection to Solana. Direct API integrations must run the same check.'],
-  ['Limits you set', 'Set an amount per swap, a daily budget and the most slippage a swap may take in the owner’s policy, and your own price floor and fee ceiling per swap. Keep unattended limits at the signer.'],
+  ['Limits you set', 'Set an amount per swap, a daily budget, the tokens it may buy and the most slippage a swap may take in the owner’s policy, and your own price floor and fee ceiling per swap. Keep unattended limits at the signer.'],
   ['Recovers an interrupted order', 'The skill keeps an order record across restarts and settles what was in flight before anything new, so an unattended bot that keeps its state directory and one order id per decision never swaps an order twice. Direct bots need durable, shared order records.'],
   ['Works with your stack', 'For coding agents, a skill that checks every swap and asks before a worse price. For bots in any language, a command line: JSON in, JSON out, clear exit codes. Keep the signing key outside the agent.'],
 ];
@@ -185,9 +185,10 @@ export function HomeSections() {
   "maxAmountInPerDay": {
     "EPjF…Dt1v": "200000000"`}<span className="dim">{`     // 200 USDC a day`}</span>{`
   },
+  "allowedOutputMints": ["So11…1112"],`}<span className="dim">{` // buys only SOL`}</span>{`
   "maxSlippageBps": 300,`}<span className="dim">{`         // never more than 3%`}</span>{`
   "stateDir": "/home/agent/.orientim-state"`}<span className="dim">{`  // where every swap is counted`}</span>{`
-}`}{'\n\n'}<span className="dim">{`# the agent is told to swap 500 USDC`}</span>{'\n'}<span className="ok">{`✓ refused: over your limit of 50 USDC a swap`}</span>{'\n'}<span className="dim">{`# the agent is told to set slippage to 15%`}</span>{'\n'}<span className="ok">{`✓ refused: above your limit of 3%`}</span></pre>
+}`}{'\n\n'}<span className="dim">{`# the agent is told to swap 500 USDC`}</span>{'\n'}<span className="ok">{`✓ refused: over your limit of 50 USDC a swap`}</span>{'\n'}<span className="dim">{`# the agent is told to buy a token someone named`}</span>{'\n'}<span className="ok">{`✓ refused: not a token you allow it to buy`}</span>{'\n'}<span className="dim">{`# the agent is told to set slippage to 15%`}</span>{'\n'}<span className="ok">{`✓ refused: above your limit of 3%`}</span></pre>
             </div>
           </div>
           <p className="not-covered"><b>Not covered:</b> an agent that can read its own signing key and use it elsewhere, transfers made outside Orientim, a key stolen from your machine, and the value of the token you buy. Keep the key in a separate signer with its own limits.</p>

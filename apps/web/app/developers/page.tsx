@@ -22,7 +22,7 @@ const feeText = TREASURY ? `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { 
 /** Why an agent needs this, before the docs: what a developer gets, in their words. */
 const PITCH: [string, string][] = [
   ['Refuses what it didn’t ask for', 'An extra instruction, another token, a worse price: the agent sees it in the transaction and does not sign.'],
-  ['Your limits, not ours', 'Set an amount per swap and a daily budget in the owner’s policy, and a price floor and fee ceiling per swap. Enforce unattended limits at a separate signer.'],
+  ['Your limits, not ours', 'Set an amount per swap, a daily budget and the tokens it may buy in the owner’s policy, and a price floor and fee ceiling per swap. Enforce unattended limits at a separate signer.'],
   ['Safe after a crash', 'The skill records each order and settles it after a restart. Direct API bots must provide their own durable order book.'],
   ['No sign-up', 'Your agent’s wallet signs a message and gets a key. Then ask it: “swap 5 USDC to SOL with Orientim”.'],
 ];
