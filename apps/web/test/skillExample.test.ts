@@ -66,7 +66,7 @@ const jupiterAnswer = async (url: string, market: JupiterClient = fakeJupiter())
  * `market`: what Orientim's server quotes from, which a compromised server chooses. `treasuryWallet`:
  * the treasury's wallet exists, so a sale into SOL pays its fee in SOL, out of the output.
  */
-async function orientim(opts: { market?: JupiterClient; treasuryWallet?: boolean; sendError?: unknown; treasuryUsdc?: boolean; v1?: boolean; ownRoutes?: boolean } = {}) {
+async function orientim(opts: { market?: JupiterClient; treasuryWallet?: boolean; sendError?: unknown; treasuryUsdc?: boolean; v1?: boolean; ownRoutes?: boolean; feeBps?: bigint } = {}) {
   const wallet = await generateKeyPairSigner();
   const accounts = new Map<string, Account>([
     [USDC, mint(6)], [WSOL_MINT, mint(9)], [BONK, mint(5)],
@@ -81,7 +81,8 @@ async function orientim(opts: { market?: JupiterClient; treasuryWallet?: boolean
   const deps: AgentDeps = {
     rpc, jupiter: opts.market ?? fakeJupiter(), secrets: [new Uint8Array(32).fill(3)],
     keys: new Map([[createHash('sha256').update(KEY).digest('hex'), 'skill-test']]),
-    feeBps: 20n, treasury: TREASURY, excludeDexes: ['HumidiFi'], maxNetworkFeeLamports: 200_000n,
+    // Orientim's fee as it is charged, unless a test has the server charge another.
+    feeBps: opts.feeBps ?? 25n, treasury: TREASURY, excludeDexes: ['HumidiFi'], maxNetworkFeeLamports: 200_000n,
     disabled: false, v1: opts.v1 ?? false, perMinute: 1_000, ownRoutes: opts.ownRoutes ?? true,
   };
   // The API as the agent reaches it over HTTP.
@@ -186,7 +187,7 @@ describe("the skill's example", () => {
     });
     expect(result.outcome).toBe('confirmed');
     expect(phases).toEqual(['ownFloor', 'apiPrepare', 'localVerification', 'tokenRisk', 'readyToSign', 'sign', 'finalize']);
-    expect(result.prepared.amounts.fee).toBe('2000');
+    expect(result.prepared.amounts.fee).toBe('2500');
     expect(b.sent).toHaveLength(1);
   });
 
@@ -254,6 +255,19 @@ describe("a server that lies is refused before the wallet signs", () => {
       expect((await checkPrepared(lie, intent, b.agentRpc)).length, name).toBeGreaterThan(0);
     });
   }
+
+  it("a server that charges even 1 bps above Orientim's 0.25% is refused, unless the agent allows up to 0.3% itself", async () => {
+    for (const bps of [26n, 30n]) {
+      const b = await orientim({ feeBps: bps });
+      const answer = await honestAnswer(b);
+      expect(answer.policy.feeBps).toBe(String(bps));
+      expect((await checkPrepared(answer, intentFor(b.wallet), b.agentRpc)).join()).toContain(`the fee of ${bps} bps is above your limit`);
+      expect(await checkPrepared(answer, { ...intentFor(b.wallet), maxFeeBps: 30 }, b.agentRpc)).toEqual([]);
+    }
+    // At the fee charged today, nothing to allow.
+    const b = await orientim();
+    expect(await checkPrepared(await honestAnswer(b), intentFor(b.wallet), b.agentRpc)).toEqual([]);
+  });
 
   it("a fee above Orientim's 0.3% is refused unless the agent raises its limit itself", async () => {
     const b = await orientim();
@@ -1617,10 +1631,10 @@ describe("the agent's own floor for a token that taxes its transfers", () => {
     }) as unknown as typeof fetch;
     const base = { inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000', taker: WSOL_MINT, fetchImpl };
     await ownMinimum(base);
-    expect(asked).toBe('997000');
-    // 2% on every transfer: 997,000 routed, 19,940 of it kept by the token on the way in.
+    expect(asked).toBe('997500');
+    // 2% on every transfer: 997,500 routed, 19,950 of it kept by the token on the way in.
     await ownMinimum({ ...base, inputTax: { bps: 200, maximum: 10n ** 12n } });
-    expect(asked).toBe('977060');
+    expect(asked).toBe('977550');
   });
 
   it("reads the tax from the mint on the agent's own RPC, for the epoch now; none for a classic token", async () => {

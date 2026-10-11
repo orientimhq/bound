@@ -64,7 +64,7 @@ async function server(clients: number, perMinute: number, own = false) {
   const deps: AgentDeps = {
     rpc, jupiter, secrets: [new Uint8Array(32).fill(5)],
     keys: new Map([[createHash('sha256').update(key).digest('hex'), label]]),
-    feeBps: 30n, treasury: TREASURY, excludeDexes: [], maxNetworkFeeLamports: 200_000n, disabled: false, v1: false, perMinute,
+    feeBps: 25n, treasury: TREASURY, excludeDexes: [], maxNetworkFeeLamports: 200_000n, disabled: false, v1: false, perMinute,
     ownRoutes: own,
   };
   const fetchImpl = (async (url: string, init: RequestInit) => {

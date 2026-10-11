@@ -113,6 +113,9 @@ export function agentDeps(): AgentDeps | null {
     console.error(`The agent API is off: its fee is ${feeBps} bps, above the shipped skill's ceiling of 30.`);
     return null;
   }
+  if (feeBps > 25n) {
+    sayOnce(`The agent API's fee is ${feeBps} bps: the shipped skill refuses a fee above 25 bps unless an agent's maxFeeBps allows it.`, 'warn');
+  }
   const siteFee = /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS ?? '') ? BigInt(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS!) : 25n;
   if (feeBps > siteFee) {
     console.error(`The agent API is off: its fee is ${feeBps} bps, above the site's ${siteFee} (NEXT_PUBLIC_ORIENTIM_FEE_BPS).`);

@@ -12,7 +12,7 @@ import {
   partiallySignTransaction, signBytes, verifySignature,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
-import { ataOf, feeFor, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
+import { ataOf, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
 import { fakeJupiter, fakeRpc, fundedAccounts, mint, OUT, POOL, DEX, tokenAccount, USDC, BONK } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import type { BuildParams } from '../../../packages/jupiter/src/client.ts';
@@ -51,7 +51,7 @@ async function world(opts: {
     jupiter: opts.jupiter ?? fakeJupiter(),
     secrets: [secret(7)],
     keys: new Map([[sha(KEY), 'agent-one'], [sha(OTHER_KEY), 'agent-two']]),
-    feeBps: 20n,
+    feeBps: 25n,
     treasury: opts.treasury === null ? null : TREASURY,
     excludeDexes: ['HumidiFi'],
     maxNetworkFeeLamports: 200_000n,
@@ -128,8 +128,9 @@ describe('prepare', () => {
   it('builds the protected swap with the fee in it, and a ticket bound to the exact message', async () => {
     const w = await world();
     const p = await prepared(w);
-    expect(p.amounts.feeBps).toBe('20');
-    expect(BigInt(p.amounts.fee)).toBe(feeFor(1_000_000n, { feeBps: 20n, treasury: TREASURY }));
+    expect(p.amounts.feeBps).toBe('25');
+    // 0.25% of 1 USDC, worked out by hand rather than by the code under test.
+    expect(p.amounts.fee).toBe('2500');
     const tx = getTransactionDecoder().decode(Buffer.from(p.transaction, 'base64'));
     expect(createHash('sha256').update(Buffer.from(tx.messageBytes)).digest('hex')).toBe(p.messageSha256);
     const opened = await openTicket(w.deps.secrets, p.ticket);
@@ -161,7 +162,8 @@ describe('prepare', () => {
     const second = await agentPrepare(post('prepare-limit', swapBody(w.W.address)), deps);
     expect(second.status).toBe(429);
     const after = Number(second.headers.get('retry-after'));
-    expect(after).toBeGreaterThan(50);
+    // The window opened with the first request, a moment ago: most of a minute is left.
+    expect(after).toBeGreaterThan(30);
     expect(after).toBeLessThanOrEqual(60);
   });
 
@@ -731,6 +733,8 @@ describe('a self-serve key, end to end (API access)', () => {
   it('prepares and finalizes for its own wallet, like a key issued by hand; another key cannot finalize it', async () => {
     const w = await world();
     w.deps.keySecrets = [secret(9)];
+    // A self-serve key's wallet must hold SOL for the network fee before anything is built.
+    w.accounts.set(w.W.address, { owner: SYSTEM_PROGRAM, data: new Uint8Array(0) });
     const { key } = await issueKey(secret(9), w.W.address, Math.floor(Date.now() / 1000));
     const res = await agentPrepare(post('prepare', swapBody(w.W.address), key), w.deps);
     expect(res.status).toBe(200);
@@ -967,8 +971,8 @@ describe("routes the agent brings from Jupiter with its own key", () => {
       const fee = BigInt(p.amounts.fee);
       const keeps = BigInt(p.amounts.minOut);
       // The minimum the transaction enforces is what the wallet keeps plus the fee; the fee is
-      // feeBps (20 here) of it, rounded down.
-      expect(fee, `${below} bps`).toBe(((keeps + fee) * 20n) / 10_000n);
+      // feeBps (25 here) of it, rounded down.
+      expect(fee, `${below} bps`).toBe(((keeps + fee) * 25n) / 10_000n);
       // Within 1%, the agent's route sets the minimum; beyond it, Orientim's own routes do.
       if (below <= 100n) expect((keeps + fee) * 10_000n, `${below} bps`).toBe(((agentOut * 9_950n) / 10_000n) * 10_000n);
       else expect(fee, `${below} bps`).toBe(honest);

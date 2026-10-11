@@ -68,7 +68,7 @@ async function world(market: bigint) {
   const deps: AgentDeps = {
     rpc, jupiter, secrets: [new Uint8Array(32).fill(3)],
     keys: new Map([[createHash('sha256').update(KEY).digest('hex'), 'fuzz']]),
-    feeBps: 30n, treasury: TREASURY, excludeDexes: [], maxNetworkFeeLamports: 200_000n, disabled: false, v1: false, perMinute: 1_000_000,
+    feeBps: 25n, treasury: TREASURY, excludeDexes: [], maxNetworkFeeLamports: 200_000n, disabled: false, v1: false, perMinute: 1_000_000,
     ownRoutes: own,
   };
   const fetchImpl = (async (url: string, init: RequestInit) => {
