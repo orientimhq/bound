@@ -13,6 +13,11 @@ import { keyChallenge, keyIssue } from '../lib/server/agent/access.ts';
 import type { AccessDeps } from '../lib/server/agent/access.ts';
 import { agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
+import { address } from '@solana/kit';
+import { SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
+import { DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, USDC } from '../../../packages/jupiter/test/fakes.ts';
+import type { Account } from '../../../packages/jupiter/test/fakes.ts';
+import type { BuildParams } from '../../../packages/jupiter/src/client.ts';
 
 const secret = (fill: number) => new Uint8Array(32).fill(fill);
 const NOW = 1_790_000_000;
@@ -154,7 +159,7 @@ describe('a self-serve key in the agent API', () => {
   const prepare = (key: string, owner: string) => new Request('https://orientim.com/api/v1/prepare', {
     method: 'POST',
     headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ owner, inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', outputMint: 'So11111111111111111111111111111111111111112', amountIn: '1000000' }),
+    body: JSON.stringify({ owner, inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', outputMint: 'So11111111111111111111111111111111111111112', amountIn: '1000000', minOut: '1' }),
   });
 
   it('prepares for its own wallet only: another wallet is refused before anything is built', async () => {
@@ -164,6 +169,25 @@ describe('a self-serve key in the agent API', () => {
     const res = await agentPrepare(prepare(key, other.address), api([secret(6)]));
     expect(res.status).toBe(403);
     expect((await res.json() as { error: { code: string } }).error.code).toBe('wrong-wallet');
+  });
+
+  it('prepares nothing, and asks Jupiter nothing, for a wallet emptied after it got its key', async () => {
+    const W = await generateKeyPairSigner();
+    const { key } = await issueKey(secret(6), W.address, Math.floor(Date.now() / 1000));
+    const accounts = new Map<string, Account>([[USDC, mint(6)], [WSOL_MINT, mint(9)], [DEX, { owner: address('BPFLoaderUpgradeab1e11111111111111111111111'), data: new Uint8Array(36) }], [POOL, { owner: DEX, data: new Uint8Array(300) }]]);
+    const asked: BuildParams[] = [];
+    const deps = (held: Map<string, Account>) => ({ ...api([secret(6)]), rpc: fakeRpc(held), jupiter: fakeJupiter({ asked }) });
+    // Its USDC moved on, and so did its SOL: a key made by the thousand costs Orientim nothing.
+    for (const held of [accounts, new Map([...accounts, ...await fundedAccounts(W.address, USDC, { amount: 999_999n }), [W.address, { owner: SYSTEM_PROGRAM, data: new Uint8Array(0) }] as [string, Account]])]) {
+      const res = await agentPrepare(prepare(key, W.address), deps(held));
+      expect(res.status).toBe(422);
+      expect((await res.json() as { error: { code: string } }).error.code).toBe('insufficient-balance');
+    }
+    expect(asked).toHaveLength(0);
+    // Holding the amount and SOL for the network fee, it prepares.
+    const funded = new Map([...accounts, ...await fundedAccounts(W.address, USDC), [W.address, { owner: SYSTEM_PROGRAM, data: new Uint8Array(0) }] as [string, Account]]);
+    const res = await agentPrepare(prepare(key, W.address), deps(funded));
+    expect(res.status).toBe(200);
   });
 
   it('is refused like a missing key when revoked, or when self-serve keys are off', async () => {

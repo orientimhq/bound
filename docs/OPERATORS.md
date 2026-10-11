@@ -34,7 +34,10 @@ until a redeploy. The runbook:
 1. Keep a paused deployment ready: deploy the current release once more with `ORIENTIM_DISABLED=1`
    and leave it unpromoted. Rebuild it with every release.
 2. To pause: promote that deployment (dashboard, "Promote to Production", or `vercel promote <url>`),
-   which takes seconds. To resume: promote the normal deployment back ("Instant Rollback").
+   which takes seconds. To resume: promote the normal deployment back ("Instant Rollback"). With no
+   paused deployment at hand, a Vercel Firewall rule that denies `/api/v1/` also takes effect in
+   seconds, with no redeploy: prepare, finalize and key requests then answer 403 rather than
+   `503 paused`. Remove the rule to resume.
 3. Revoking an API key or rotating `ORIENTIM_API_SECRET` is a redeploy; for an urgent revocation,
    pause first (step 2), then redeploy with the key removed. A self-serve key is revoked by its
    wallet in `ORIENTIM_API_REVOKED` (section above). Rotating `ORIENTIM_KEY_SECRET` ends every

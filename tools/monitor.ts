@@ -17,7 +17,7 @@
  */
 import { appendFileSync } from 'node:fs';
 
-type Health = { ok?: boolean; paused?: boolean; agentApi?: string; rpc?: { ok: boolean; ms: number }; jupiter?: { ok: boolean; ms: number }; agents?: { rpc: { ok: boolean; ms: number }; build: { ok: boolean; ms: number } } | null };
+type Health = { ok?: boolean; paused?: boolean; agentApi?: string; rpc?: { ok: boolean; ms: number }; rpcFallback?: { ok: boolean; ms: number } | null; jupiter?: { ok: boolean; ms: number }; agents?: { rpc: { ok: boolean; ms: number }; build: { ok: boolean; ms: number } } | null };
 type Status = { enabled?: boolean; build?: string | null; skillVersion?: string };
 
 function arg(name: string, fallback?: string): string | undefined {
@@ -72,6 +72,9 @@ if (health?.ok !== true) {
 }
 rows.push(['health', health ? `${health.ok ? 'ok' : 'DOWN'} in ${healthMs} ms (rpc ${health.rpc?.ms ?? '-'} ms, jupiter ${health.jupiter?.ms ?? '-'} ms, agent build ${health.agents?.build.ms ?? '-'} ms)` : 'no answer']);
 if (health?.paused) notices.push('the kill switch is on: swaps are paused (the operator\'s decision, not an outage)');
+// One RPC only: every swap stops with it. Said, not failed.
+if (health && health.rpcFallback === null) notices.push('no backup RPC (RPC_URL_FALLBACK): swaps stop whenever the main RPC does');
+if (health?.rpcFallback && !health.rpcFallback.ok) notices.push('the backup RPC (RPC_URL_FALLBACK) does not answer');
 if (health && health.agentApi !== 'on') failures.push(`the agent API is ${health.agentApi ?? 'unknown'}`);
 
 // 2. Status: the commit it was built from, and the skill it serves.

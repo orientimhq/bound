@@ -7,7 +7,7 @@ import type { Address, Transaction } from '@solana/kit';
 import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
 import { TOKEN_2022_PROGRAM } from '@orientim/core/constants';
 import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientim/core/constants';
-import type { TxVersion } from '@orientim/core';
+import type { AccountState, TxVersion } from '@orientim/core';
 import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, parseProvidedRoutes, prepareProtectedSwap, providedRoutes, RoutesNeeded, RoutesUntrusted } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel, ReferencePrice, SolValue } from '@orientim/jupiter';
 import { fetchAccounts, httpStatusOf, mintInfoOf, sendOnce } from '@orientim/solana';
@@ -279,7 +279,20 @@ function explain(e: unknown): Response {
   return fail(500, 'internal', 'Something went wrong. Nothing was signed by Orientim or sent.');
 }
 
-const authoritiesOf = (m: { freezeAuthority: boolean; mintAuthority: boolean }) => ({ freezeAuthority: m.freezeAuthority, mintAuthority: m.mintAuthority });
+/**
+ * What a mint's issuer can do: freeze or mint, and, with a Token-2022 permanent delegate, move or burn
+ * any holder's balance.
+ */
+/**
+ * 0.001 SOL: about what a swap's network fee and a new token account need, so that a wallet emptied
+ * after getting its key prepares nothing.
+ */
+const MIN_WALLET_LAMPORTS = 1_000_000n;
+
+const issuerPowers = (s: AccountState) => {
+  const m = mintInfoOf(s);
+  return { freezeAuthority: m.freezeAuthority, mintAuthority: m.mintAuthority, permanentDelegate: s.owner === TOKEN_2022_PROGRAM && hasPermanentDelegate(s.data) };
+};
 
 export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Response> {
   if (deps.disabled) return fail(503, 'paused', 'Protected swaps are paused. Nothing was built.');
@@ -381,16 +394,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   const deadline = deadlineFor(deps.prepareDeadlineMs ?? PREPARE_DEADLINE_MS, deps.rpc, deps.jupiter);
   try {
     const [inMint, outMint] = [inputMint as Address, outputMint as Address];
-    const mintStates = await deadline.within(fetchAccounts(deadline.rpc, [inMint, outMint]));
-    const mints = new Map([inMint, outMint].map(m => [m as string, mintInfoOf(mintStates.get(m))]));
-    // A Token-2022 permanent delegate: its issuer can move or burn any holder's balance.
-    const permanentDelegate = (m: Address) => {
-      const s = mintStates.get(m);
-      return !!s && s.owner === TOKEN_2022_PROGRAM && hasPermanentDelegate(s.data);
-    };
-    for (const m of [inMint, outMint]) {
-      if (!mints.get(m)?.exists) return fail(422, 'unsupported-token', `${m} is not a token Orientim can swap.`);
-    }
+    // The mints are read once, by the build itself, which refuses a token Orientim cannot swap.
     const nonce = sessionNonce ?? newNonce();
     const [secret] = deps.secrets;
     const E = await ephemeralFor(secret, nonce);
@@ -450,10 +454,11 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       },
       {
         owner: owner as Address, ephemeral: E, inputMint: inMint, outputMint: outMint, amountIn,
-        inputDecimals: mints.get(inMint)!.decimals, outputDecimals: mints.get(outMint)!.decimals,
         // The agent's floor is what its wallet keeps; with a fee on the output, Orientim enforces more.
         // A first round without a minimum builds nothing: it ends asking for routes (below).
         acceptedMinReceived: minOut ?? 1n, acceptedCostBps: acceptCostBps, version,
+        // A self-serve key is free to make: its wallet must hold what the swap needs before Jupiter is asked.
+        ...(auth.wallet ? { minWalletLamports: MIN_WALLET_LAMPORTS } : {}),
         ...(body.routingMode === 'fast' ? { routingMode: 'fast' as const } : {}),
       },
     ));
@@ -495,9 +500,9 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     logEvent('prepared', { key, routes: routesFrom, brought: providedCount, feeSide: p.feeSide, version });
     const feeMint = p.feeSide === 'output' ? p.outputMint : p.feeSide === 'sol' ? WSOL_MINT : p.inputMint;
     const solFee = feeMint === WSOL_MINT ? p.fee : 0n;
-    // What the transaction has left to live, in blocks: 150 at most, about 40 s.
-    // Read in the time left: past the deadline it is left out, and the swap is still answered.
-    const height = await deadline.within(deadline.rpc.getBlockHeight({ commitment: 'confirmed' }).send()).catch(() => null);
+    // What the transaction has left to live, in blocks: 150 at most, about 40 s, from the height read
+    // with the last simulation; left out when it could not be read, and the swap is still answered.
+    const height = prepared.blockHeight;
     return json(200, {
       ticket,
       transaction: getBase64EncodedWireTransaction(prepared.transaction),
@@ -547,8 +552,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       // mint more, or move and burn anyone's balance (a permanent delegate). Orientim's word; the skill
       // reads the same on the agent's own RPC (tokenRisk).
       tokens: {
-        input: { ...authoritiesOf(mints.get(inMint)!), permanentDelegate: permanentDelegate(inMint) },
-        output: { ...authoritiesOf(mints.get(outMint)!), permanentDelegate: permanentDelegate(outMint) },
+        input: issuerPowers(prepared.mintAccounts.input),
+        output: issuerPowers(prepared.mintAccounts.output),
       },
       ...(slippageBps !== undefined ? { slippageBps } : {}),
       route: prepared.quote.route,
@@ -627,6 +632,12 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
   // One deadline for the whole finalize: every read, the signing and the send.
   const deadline = deadlineFor(deps.finalizeDeadlineMs ?? FINALIZE_DEADLINE_MS, deps.rpc, deps.jupiter);
   const rpc = deadline.rpc;
+  // The output account's balance and the block height a first send needs are read with it, all at
+  // once; each is still judged in turn, the chain's record of this transaction first.
+  // Each failure is met where its value is awaited, never as an unhandled rejection.
+  const quiet = <T>(p: Promise<T>) => { p.catch(() => undefined); return p; };
+  const outputNow = ticket.wOut ? quiet(fetchAccounts(rpc, [ticket.wOut as Address]).then(a => tokenAmountOf(a.get(ticket.wOut!)?.data))) : null;
+  const blockHeight = quiet(rpc.getBlockHeight({ commitment: 'confirmed' }).send());
   let onChain: unknown;
   try {
     onChain = (await rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: true }).send()).value[0];
@@ -644,6 +655,7 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
       walletSignedBytes: new Uint8Array(bytes),
       ephemeral: E,
       landed,
+      blockHeight,
     });
     // Already on chain: the answer of the finalize that sent it, the same bytes, and no second send.
     // Even while paused, since it reads and sends nothing.
@@ -655,8 +667,8 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     // The minimum-output check is the output account's balance at prepare plus the minimum. If the
     // balance moved since (another swap into this token, a transfer), the check could count those
     // tokens: sign nothing. Run one swap per output token until it is confirmed.
-    if (ticket.wOut) {
-      const now = tokenAmountOf((await fetchAccounts(rpc, [ticket.wOut as Address])).get(ticket.wOut)?.data);
+    if (outputNow) {
+      const now = await outputNow;
       if (now !== BigInt(ticket.b0!)) {
         return refuse(409, 'output-balance-changed', 'The balance of your output account changed since prepare (a transfer in or out, another swap, or the account was closed), so this request signed and sent nothing.', {
           balanceAtPrepare: ticket.b0, balanceNow: now,

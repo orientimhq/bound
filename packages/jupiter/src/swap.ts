@@ -11,7 +11,7 @@ import {
   V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, USDC_MINT, USDT_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM,
   PUMP_AMM_PROGRAM, eventAuthorityOf, routeAccountOf, withRouteRefund, FEE_TOKENS, feeSideFor, minimumForReceived, minimumReceived, outputFeeFor,
 } from '@orientim/core';
-import type { OrientimConfig, IntermediateAta, Lifetime, Policy, RouteRefund, TxVersion, Violation } from '@orientim/core';
+import type { AccountState, OrientimConfig, IntermediateAta, Lifetime, Policy, RouteRefund, TxVersion, Violation } from '@orientim/core';
 import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, simulate } from '@orientim/solana';
 import {
   certify, hasTransferFee, jupiterFloor, jupiterRouteArgs, MAX_ADDED_COMPUTE_UNITS, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension,
@@ -116,10 +116,11 @@ export type SwapRequest = {
   amountIn: bigint;
   /**
    * The decimals the interface used to turn what the user typed into `amountIn` and to show
-   * amounts. They must equal the mints' on-chain decimals, or nothing is built.
+   * amounts. They must equal the mints' on-chain decimals, or nothing is built. Left out when the
+   * amounts came in base units (the agent API): the chain's own are used.
    */
-  inputDecimals: number;
-  outputDecimals: number;
+  inputDecimals?: number;
+  outputDecimals?: number;
   /**
    * The minimum the user saw and accepted before clicking. Orientim enforces at least
    * this on chain. When the market no longer supports it, nothing is built: prepare stops with
@@ -131,6 +132,12 @@ export type SwapRequest = {
    * API's `minOut`). Converted to the minimum the swap must enforce once the fee's side is known.
    */
   acceptedMinReceived?: bigint;
+  /**
+   * The least SOL the wallet must hold for anything to be asked of Jupiter (the agent API, against
+   * keys made by the thousand): with SOL as the input, the amount as well; with a token, the wallet
+   * must hold the amount of it. Read with the first reads, so it costs no round trip.
+   */
+  minWalletLamports?: bigint;
   /**
    * A quote already showed a route through a Pump.fun bonding curve. Jupiter is then asked
    * at the curve tolerance first, which saves the second request (latency). Only a hint: a route
@@ -188,6 +195,10 @@ export type PreparedSwap = {
   priorityFeeCapped: boolean;
   /** The network fee of this exact message, as the cluster prices it. */
   networkFeeLamports: bigint;
+  /** The block height read with the last simulation, for what the transaction has left to live; null if unread. */
+  blockHeight: bigint | null;
+  /** Both mints' accounts as the build read them, once: what their issuers can do is read from these. */
+  mintAccounts: { input: AccountState; output: AccountState };
   /** Side effects the user should be told about before signing. */
   notices: { removesDelegate: boolean };
   /**
@@ -728,6 +739,7 @@ export async function prepareProtectedSwap(deps: {
   const [firstReads, classicRent, extendedRent] = await Promise.all([
     fetchAccounts(rpc, [
       req.inputMint, req.outputMint, ...feeCandidates, ...outputFeeCandidates, ...wOutCandidates, ...wInCandidates, ...treasuryWallet,
+      ...(req.minWalletLamports !== undefined ? [req.owner] : []),
     ]),
     wOutCandidates.length ? rentFor(TOKEN_ACCOUNT_SIZE) : Promise.resolve(0n),
     wOutCandidates.length ? rentFor(TOKEN_2022_ACCOUNT_SIZE) : Promise.resolve(0n),
@@ -764,6 +776,20 @@ export async function prepareProtectedSwap(deps: {
   const inputFee = inputTaxes ? transferFeeOf(firstReads.get(req.inputMint)!.data, epoch) : null;
   const inputTokenProgram = mints.get(req.inputMint)!.program!;
   const outputTokenProgram = mints.get(req.outputMint)!.program!;
+  // A wallet that cannot pay for this swap is refused before Jupiter is asked anything.
+  if (req.minWalletLamports !== undefined) {
+    const lamports = firstReads.get(req.owner)?.lamports ?? 0n;
+    const needs = req.minWalletLamports + (req.inputMint === WSOL_MINT ? req.amountIn : 0n);
+    if (lamports < needs) {
+      throw new OrientimError('insufficient-balance', `Your wallet holds ${tokenText(lamports, 9)} SOL, less than the ${tokenText(needs, 9)} SOL this swap needs, its network fee included.`);
+    }
+    if (req.inputMint !== WSOL_MINT) {
+      const held = tokenAmountOf(firstReads.get(await ataOf(req.owner, req.inputMint, inputTokenProgram))?.data);
+      if (held < req.amountIn) {
+        throw new OrientimError('insufficient-balance', `Your wallet holds ${tokenText(held, mints.get(req.inputMint)!.decimals)} of the input token, less than the ${tokenText(req.amountIn, mints.get(req.inputMint)!.decimals)} this swap needs.`);
+      }
+    }
+  }
   const feeAccount = feeCandidates.length ? await ataOf(settings.treasury!, req.inputMint, inputTokenProgram) : null;
   const wOutAddress = wOutCandidates.length ? await ataOf(req.owner, req.outputMint, outputTokenProgram) : null;
   // A Token-2022 account is larger when its mint needs account-side extensions, so its rent is
@@ -776,7 +802,7 @@ export async function prepareProtectedSwap(deps: {
   // The amount the user typed was converted with `inputDecimals`; if the chain disagrees, the
   // wallet would be asked for a different amount than the one shown.
   for (const [m, shown] of [[req.inputMint, req.inputDecimals], [req.outputMint, req.outputDecimals]] as const) {
-    if (mints.get(m)!.decimals !== shown) {
+    if (shown !== undefined && mints.get(m)!.decimals !== shown) {
       throw new OrientimError('token-data-mismatch', `Two reads of the chain disagree on the decimals of ${m}. Nothing was built; try again in a moment.`);
     }
   }
@@ -860,7 +886,7 @@ export async function prepareProtectedSwap(deps: {
     if (held < req.amountIn) {
       throw new OrientimError(
         'insufficient-balance',
-        `Your wallet holds ${tokenText(held, req.inputDecimals)} of the input token, less than the ${tokenText(req.amountIn, req.inputDecimals)} this swap needs.`,
+        `Your wallet holds ${tokenText(held, mints.get(req.inputMint)!.decimals)} of the input token, less than the ${tokenText(req.amountIn, mints.get(req.inputMint)!.decimals)} this swap needs.`,
       );
     }
   }
@@ -1434,18 +1460,8 @@ export async function prepareProtectedSwap(deps: {
         .send()
         .then(r => r.value)
         .catch(() => null);
-      const clusterFee = (await priceMessage()) ?? (await priceMessage());
-      if (clusterFee === null) {
-        throw new OrientimError('unavailable', "Orientim's RPC did not price the transaction's network fee, so nothing was signed. Try again in a moment.");
-      }
-      if (BigInt(clusterFee) > feeLimit) {
-        throw new OrientimError('verification-failed', 'The network fee would be above the limit.', [
-          { rule: 'R4', detail: `the cluster prices this transaction at ${clusterFee} lamports, above ${feeLimit}` },
-        ]);
-      }
-
+      const pricing = priceMessage().then(fee => fee ?? priceMessage());
       const createsOutputAccount = !!policy.accounts.wOut && !snapshot.accounts.get(policy.accounts.wOut);
-      if (!certification.ok) throw new OrientimError('verification-failed', 'A protected transaction cannot be produced.', certification.violations);
 
       // The exact transaction the wallet will sign, simulated once more: it must execute, and leave
       // nothing under E. A simulation whose balances cannot be matched to the transaction's accounts
@@ -1463,10 +1479,25 @@ export async function prepareProtectedSwap(deps: {
       const opened = [...new Set(swapAccounts)].filter(a => !existed(a) && !kept.has(a) && !underKey.includes(a));
       // On state no older than the snapshot the verifier just read (and the simulation before it).
       const seenAt = (snapshot.slot ?? 0n) > sim.slot ? snapshot.slot! : sim.slot;
-      const last = await measuredSimulation(rpc, final.transaction, [], {
-        ...(seenAt > 0n ? { minContextSlot: seenAt } : {}),
-        balances: { lookupTables: snapshot.lookupTables },
-      });
+      // The price of the message, the simulation and the height the answer counts the lifetime from
+      // are read together; each is judged below in the order they always were.
+      const [clusterFee, last, blockHeight] = await Promise.all([
+        pricing,
+        measuredSimulation(rpc, final.transaction, [], {
+          ...(seenAt > 0n ? { minContextSlot: seenAt } : {}),
+          balances: { lookupTables: snapshot.lookupTables },
+        }),
+        rpc.getBlockHeight({ commitment: 'confirmed' }).send().catch(() => null),
+      ]);
+      if (clusterFee === null) {
+        throw new OrientimError('unavailable', "Orientim's RPC did not price the transaction's network fee, so nothing was signed. Try again in a moment.");
+      }
+      if (BigInt(clusterFee) > feeLimit) {
+        throw new OrientimError('verification-failed', 'The network fee would be above the limit.', [
+          { rule: 'R4', detail: `the cluster prices this transaction at ${clusterFee} lamports, above ${feeLimit}` },
+        ]);
+      }
+      if (!certification.ok) throw new OrientimError('verification-failed', 'A protected transaction cannot be produced.', certification.violations);
       if (!last.ok) {
         attempts.push({ excluded, route, simulation: `final transaction: ${simulationReason(last)}`, blamed: null });
         continue;
@@ -1500,6 +1531,8 @@ export async function prepareProtectedSwap(deps: {
           simulationMs: Math.round(simulationMs), simulationCalls, verificationMs: Math.round(verificationMs),
         },
         networkFeeLamports: BigInt(clusterFee),
+        blockHeight: blockHeight === null ? null : BigInt(blockHeight),
+        mintAccounts: { input: firstReads.get(req.inputMint)!, output: firstReads.get(req.outputMint)! },
         outputBalanceBefore,
         priorityFeeLamports,
         priorityFeeCapped,
@@ -1633,6 +1666,8 @@ export async function countersignProtectedSwap(args: {
    * Phantom may. The agent API signs only exactly what it built.
    */
   acceptAssertions?: boolean;
+  /** The block height, when the caller already asked for it alongside its own reads; read here otherwise. */
+  blockHeight?: Promise<bigint>;
 }): Promise<FullySignedTransaction & Transaction> {
   const { rpc, prepared, ephemeral } = args;
   const check = await verifyWalletReturn(
@@ -1645,7 +1680,7 @@ export async function countersignProtectedSwap(args: {
   if (!check.ok || !check.transaction) {
     throw new OrientimError('wallet-changed-transaction', 'The wallet changed the transaction, so it was stopped for your safety.', check.violations);
   }
-  const height = args.landed ? null : await rpc.getBlockHeight({ commitment: 'confirmed' }).send();
+  const height = args.landed ? null : await (args.blockHeight ?? rpc.getBlockHeight({ commitment: 'confirmed' }).send());
   if (height !== null && height > prepared.lifetime.lastValidBlockHeight) {
     throw new OrientimError('expired', 'The transaction expired before it was signed. Build it again.');
   }

@@ -38,7 +38,7 @@ export function createServerRpc(primary: string, fallback: string | null, times:
   if (!fallback || fallback === primary) return createRetryingRpc(primary);
   // A rate-limited main RPC is retried twice, not five times: the backup is there to take the call.
   const main = retryingTransport(createDefaultRpcTransport({ url: primary as `https://${string}` }), 2, 500, times.attemptMs);
-  const backup = retryingTransport(createDefaultRpcTransport({ url: fallback as `https://${string}` }), 5, 500, times.totalMs);
+  const backup = retryingTransport(createDefaultRpcTransport({ url: fallback as `https://${string}` }), 3, 500, times.totalMs);
   const transport = (async (config: Config) => {
     const deadline = Date.now() + times.totalMs;
     const own = (config as { signal?: AbortSignal }).signal;

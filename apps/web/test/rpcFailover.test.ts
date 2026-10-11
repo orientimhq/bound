@@ -59,16 +59,19 @@ describe('the agent API RPC with a backup', () => {
   const balance = () => ok({ context: { slot: 1 }, value: 42 });
 
   it('the main RPC and the backup share one deadline', async () => {
+    // Long enough apart that a loaded machine cannot blur them: two deadlines in a row would take
+    // attemptMs + totalMs (1 s), one shared deadline totalMs (0.6 s).
+    const SHARED = { totalMs: 600, attemptMs: 400, minSendMs: 150 };
     const asked = network(hangs, balance);
-    const [{ value }, ms] = await timed(() => createServerRpc(MAIN, BACKUP, QUICK).getBalance('11111111111111111111111111111111' as never).send());
+    const [{ value }, ms] = await timed(() => createServerRpc(MAIN, BACKUP, SHARED).getBalance('11111111111111111111111111111111' as never).send());
     expect(value).toBe(42n);
     expect(asked).toEqual(['main', 'backup']);
-    expect(ms).toBeGreaterThanOrEqual(190);
+    expect(ms).toBeGreaterThanOrEqual(390);
 
     network(hangs, hangs);
     const start = Date.now();
-    await expect(createServerRpc(MAIN, BACKUP, QUICK).getBalance('11111111111111111111111111111111' as never).send()).rejects.toThrow();
-    expect(Date.now() - start).toBeLessThan(QUICK.totalMs + 80);
+    await expect(createServerRpc(MAIN, BACKUP, SHARED).getBalance('11111111111111111111111111111111' as never).send()).rejects.toThrow();
+    expect(Date.now() - start).toBeLessThan(SHARED.attemptMs + SHARED.totalMs - 100);
   });
 
   it('a send is not started on the backup with too little time left', async () => {
@@ -82,7 +85,8 @@ describe('the agent API RPC with a backup', () => {
     const start = Date.now();
     await expect(createServerRpc(MAIN, BACKUP, { totalMs: 400, attemptMs: 200, minSendMs: 150 })
       .getBalance('11111111111111111111111111111111' as never).send()).rejects.toThrow();
-    expect(Date.now() - start).toBeLessThan(480);
+    // Its retries alone would wait at least 1.75 s (250, 500 and 1,000 ms at the least jitter).
+    expect(Date.now() - start).toBeLessThan(1_000);
   });
 
   it('a 4xx from the main RPC is its answer, not an outage', async () => {
