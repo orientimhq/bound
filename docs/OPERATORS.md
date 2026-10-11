@@ -12,6 +12,11 @@ each key is stored). Keys issued by hand keep working beside self-serve keys.
 Optional: `ORIENTIM_API_SECRET_PREVIOUS` while rotating the secret, `ORIENTIM_API_FEE_BPS`,
 `ORIENTIM_API_PER_MINUTE` (60 by default). The kill switch `ORIENTIM_DISABLED=1` (or `true`) stops
 prepare, finalize and the key endpoints. A prepare with `version: 1` is served only where `NEXT_PUBLIC_ORIENTIM_ENABLE_V1=1`.
+`ORIENTIM_OWN_ROUTES=0` turns off routes an agent brings with its own Jupiter key: prepare then
+builds with Orientim's key and ignores `ownRoutes`, `routes` and `session`. With them on, Orientim's
+own price for a fee on the output is kept for 15 seconds across a session's rounds. A successful
+prepare carries a `Server-Timing` header (`prepare`, `initial`, `jupiter-build`, `simulation`,
+`verification`, `local`, in milliseconds); these internals are not part of the public reference.
 Every setting is listed in `apps/web/lib/server/agent/config.ts`.
 Keep `ORIENTIM_API_FEE_BPS` at or below 30 and no higher than `NEXT_PUBLIC_ORIENTIM_FEE_BPS`;
 the API fails closed otherwise. The public fee setting also has a 30 bps maximum.
