@@ -5,37 +5,37 @@ import { AgentTerminal, CapsuleFlow, CheckedTwice } from './Motion';
 const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 
 const CAPSULE_STEPS = [
-  ['Your agent chooses the amount.', 'Only what it approves leaves the wallet: the amount, the fees and any market deposit it was shown. The rest of the wallet is never part of the swap.'],
-  ['Only that amount goes into the swap.', 'Orientim finds a route across Solana’s markets and trades just that amount, never the wallet.'],
-  ['At least the minimum, or nothing happens.', 'Your agent sets its own minimum before it signs. If less would arrive, the whole swap cancels and nothing is traded; at most the small network fee is paid.'],
+  ['Your agent chooses the amount.', 'Only that amount and the fees it was shown leave the wallet, plus a market deposit when one is stated first.'],
+  ['Only that amount goes into the swap.', 'Orientim finds a route across Solana’s markets and trades just that amount.'],
+  ['At least the minimum, or nothing happens.', 'Your agent sets its minimum before it signs. If less would arrive, the swap cancels and only the network fee is paid.'],
 ];
 
 const AGENT_POINTS = [
-  ['Checks before signing', 'With the skill or command line, the exact transaction is checked on your own connection to Solana. Direct API integrations must run the same check.'],
-  ['Limits you set', 'Set an amount per swap, a daily budget, the tokens it may buy and the most slippage a swap may take in the owner’s policy, and your own price floor and fee ceiling per swap. Keep unattended limits at the signer.'],
-  ['Recovers an interrupted order', 'The skill keeps an order record across restarts and settles what was in flight before anything new, so an unattended bot that keeps its state directory and one order id per decision never swaps an order twice. Direct bots need durable, shared order records.'],
-  ['Works with your stack', 'For coding agents, a skill that checks every swap and asks before a worse price. For bots in any language, a command line: JSON in, JSON out, clear exit codes. Keep the signing key outside the agent.'],
+  ['Checks before signing', 'The skill and the command line check the exact transaction on your own connection to Solana.'],
+  ['Limits you set', 'An amount per swap, a daily budget, the tokens it may buy and the most slippage it may take, in the owner’s policy.'],
+  ['Recovers an interrupted order', 'After a restart it settles what was in flight before anything new, and never swaps an order twice as long as its state directory is kept.'],
+  ['Works with your stack', 'A skill for coding agents. For bots in any language, a command line: JSON in, JSON out, clear exit codes.'],
 ];
 
 /** How an agent starts: the key, the skill, the first swap (the developer page has each in full). */
 const START_STEPS = [
-  ['Get an API key', 'Sign Orientim’s message with the wallet your agent swaps from, from the skill’s command line or a browser wallet. The wallet needs 0.01 SOL; the key comes at once and lasts 90 days; signing moves nothing.'],
+  ['Get an API key', 'Sign Orientim’s message with your agent’s wallet. The key comes at once and lasts 90 days; signing moves nothing.'],
   ['Download the skill', 'Instructions for your agent, a working example, a command line for bots, and the verifier that checks every swap.'],
   ['Ask for a swap', 'Tell your agent: “swap 5 USDC to SOL with Orientim”. It checks the transaction on its own RPC, then signs.'],
 ];
 
 
 const THREATS: [string, string, string][] = [
-  ['prompt', 'A message tells your agent to “swap everything” or “set slippage to 15%”.', 'With your policy file set, the skill stops at your limits: the most per swap, per day, only from and into the tokens you allow, and never more slippage than you set.'],
+  ['prompt', 'A message tells your agent to “swap everything” or “set slippage to 15%”.', 'With your policy file set, the skill stops at your limits: per swap, per day, the tokens you allow and the slippage you set.'],
   ['drain', 'A server hands your agent a transaction that drains the wallet.', 'With the skill or verifier, every instruction is checked on your own RPC. Approvals, authority changes and stray transfers are refused.'],
   ['server', 'The swap server itself is hacked.', 'Orientim holds none of your keys. With the skill or verifier, a changed transaction is refused before it is signed.'],
-  ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: the most it can take is your tolerance below the quoted price, 0.5% by default (3% on a Pump.fun launch curve), never above the ceiling you set. A swap that would fill below it reverts; only the network fee is paid.'],
-  ['token', 'A token built to trap you.', 'Tokens whose extensions Orientim can’t isolate are refused before anything is signed, with the reason. Powers the issuer keeps, such as a freeze authority (USDC and USDT have one), are shown before your agent signs, not removed.'],
+  ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: a swap that would fill below your tolerance (0.5% by default) reverts, and only the network fee is paid.'],
+  ['token', 'A token built to trap you.', 'Tokens Orientim can’t isolate are refused before anything is signed, with the reason. Powers the issuer keeps, such as a freeze authority, are shown before your agent signs.'],
   ['crash', 'The agent crashes mid-swap and tries again.', 'The skill keeps every order by id: after a restart it settles what was in flight and, as long as its state directory survives, never swaps it twice.'],
 ];
 
 const KEEPS_NOTHING = [
-  [NoDatabaseIcon, 'No account. No database.', 'No sign-up and no database: Orientim stores no API keys and no list of your swaps. Each swap request leaves a few log lines at our host, with your wallet address and the outcome, never a key or a transaction, deleted after a set time.'],
+  [NoDatabaseIcon, 'No account. No database.', 'Orientim stores no API keys and no list of your swaps. Our host keeps short-lived request logs, never a key or a transaction.'],
   [ShieldIcon, 'Never your keys or funds.', 'Your agent signs with its own wallet or signing service. Orientim never holds funds or asks for a seed phrase.'],
   [EyeOffIcon, 'No tracking.', 'No cookies, analytics or trackers on this site.'],
 ] as const;
@@ -145,9 +145,8 @@ export function HomeSections() {
             <p className="eyebrow">What it protects against</p>
             <h2>What your agent can’t be tricked into.</h2>
             <p className="lead">
-              The attacks that have emptied trading agents and bots, and what happens when the swap goes through Orientim. These are
-              the checks made before your agent signs; what they cannot cover, such as the market itself, is in the{' '}
-              <a href="/terms#risks">risks</a> of the Terms.
+              The attacks that can empty a trading agent, and what happens when the swap goes through Orientim. What these checks
+              cannot cover, such as the market itself, is in the <a href="/terms#risks">risks</a>.
             </p>
           </div>
           <div className="glass-stage">

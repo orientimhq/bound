@@ -22,8 +22,8 @@ const feeText = TREASURY ? `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { 
 /** Why an agent needs this, before the docs: what a developer gets, in their words. */
 const PITCH: [string, string][] = [
   ['Refuses what it didn’t ask for', 'An extra instruction, another token, a worse price: the agent sees it in the transaction and does not sign.'],
-  ['Your limits, not ours', 'Set an amount per swap, a daily budget and the tokens it may buy in the owner’s policy, and a price floor and fee ceiling per swap. Enforce unattended limits at a separate signer.'],
-  ['Safe after a crash', 'The skill records each order and settles it after a restart. Direct API bots must provide their own durable order book.'],
+  ['Your limits, not ours', 'An amount per swap, a daily budget and the tokens it may buy, in the owner’s policy, and a price floor per swap.'],
+  ['Safe after a crash', 'The skill records each order and settles it after a restart.'],
   ['No sign-up', 'Your agent’s wallet signs a message and gets a key. Then ask it: “swap 5 USDC to SOL with Orientim”.'],
 ];
 
@@ -73,8 +73,6 @@ const PREPARE_FIELDS: [string, string, string][] = [
   ['minOut', 'required', 'Your own positive floor, as an integer string in output base units: what your wallet must keep. Get a price independently. This field alone does not replace checking the transaction before signing.'],
   ['slippageBps', 'optional', 'How far below the quote the swap may fill: 10 to 1500 (0.1% to 15%). Default 50, or 300 on a Pump.fun launch curve. The skill’s "auto" asks Jupiter for the trade’s own tolerance (0.5% to 3%) and sends that number; the owner’s policy may cap it (maxSlippageBps).'],
   ['acceptCostBps', 'optional', 'Accept a protected route this many bps below the open market (see costs-more): a whole number, as a number or a string. A route up to 50 bps past it is also taken, so that a market drifting by a few bps does not ask again; minOut still holds.'],
-  ['routingMode', 'optional', 'standard (default). fast is not enabled on orientim.com: a request with it is answered 400 bad-request.'],
-  ['version', 'optional', '0 (default). Version 1 transactions are not enabled on orientim.com: a request with 1 is answered 400 bad-request.'],
   ['ownRoutes, session, routes', 'optional', 'Routes your agent brings from Jupiter with its own key, in rounds: see Your own Jupiter key. The skill and the command line do it whenever JUPITER_API_KEY is set.'],
 ];
 
@@ -94,7 +92,7 @@ const PREPARE_ANSWER: [string, string][] = [
 const EXIT_CODES: [string, string][] = [
   ['0', 'Done. prepare: sign message. finalize: confirmed, with received. recover: all settled. check: safe to sign.'],
   ['1', 'Refused, or not swapped (failed, expired or rejected), including error.code floor-too-low, price-impact-high, unavailable (a service did not answer: try again after retryAfter) and the owner’s limits (mint-not-allowed, output-not-allowed, amount-over-limit, daily-limit). Nothing is left to settle.'],
-  ['2', 'A usage or configuration error, such as a prepare without an order id, or an intent that names a treasury (it comes only from ORIENTIM_TREASURY): the answer says what is missing.'],
+  ['2', 'A usage or configuration error, such as a prepare without an order id: the answer says what is missing.'],
   ['3', 'Settle first: an earlier swap may still land, another finalize from this wallet is still running (busy), or the state directory cannot be made or read (a finalize then answers outcome unknown). Run recover; start nothing new.'],
   ['4', 'Orientim said no: error.code is one of the Errors below.'],
   ['5', 'This order id already swapped, or its transaction may still land (prepare, or a finalize of a second transaction for it). It is never swapped twice.'],
@@ -111,7 +109,6 @@ const ENV: [string, string][] = [
   ['ORIENTIM_SEND_RPC_URL', 'Optional: an RPC of yours that sends the swap (a staked connection, a sender service). Orientim then signs it and sends nothing; the skill sends it at once and again until it lands. In code, sendTransaction.'],
   ['ORIENTIM_ARCHIVE_RPC_URL', 'Optional: an RPC that keeps the chain’s full history. When your own RPC missed the moment it could prove a swap expired, the archive proves it from the one-time key’s own history, so an outage near expiry does not stop the wallet at unknown.'],
   ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system. A policy with a daily limit names its own stateDir instead, and no other directory is used.'],
-  ['ORIENTIM_TREASURY', 'Optional, for a test deployment only: Orientim’s treasury is built into the skill.'],
 ];
 
 /** For developers: everything an agent or a bot needs, one section per entry of the sidebar. */
@@ -132,9 +129,8 @@ export default async function Page() {
               <p className="eyebrow">For AI agents and bots</p>
               <h1>Give your agent a wallet, not a blank cheque.</h1>
               <p className="lead">
-                An agent that trades needs a wallet. The skill checks each transaction against your limits on your own RPC before
-                signing; direct API bots must run the same check. Keep the signing key and unattended spending limits outside the
-                agent when it must not be able to spend independently.
+                An agent that trades needs a wallet. The skill checks each transaction against your limits, on your own RPC,
+                before it signs.
               </p>
               <ul className="agent-points dev-pitch">
                 {PITCH.map(([title, text]) => <li key={title}><b>{title}</b><span>{text}</span></li>)}
@@ -149,15 +145,8 @@ export default async function Page() {
               <h2>Overview</h2>
               <h3>Your strategy, Orientim&apos;s execution</h3>
               <p>
-                <strong>Use your own strategy. When your agent or bot decides to swap, call Orientim for the protected execution.</strong>{' '}
-                Your agent or bot decides when and what to trade. Orientim builds the protected swap when the API is called, your
-                wallet signs it, and it is sent. The strategy and its monitoring stay in your system.
-              </p>
-              <p>
-                For example, your bot decides: &ldquo;Buy SOL with 100 USDC now.&rdquo; At that moment it calls Orientim, which
-                prepares the protected swap; the wallet signs it and the swap is sent. Later the bot decides: &ldquo;Sell the SOL
-                now.&rdquo; It calls Orientim again, for a new swap. DCA, stop-loss or any other strategy runs the same way: in your
-                system, with each swap it triggers going through Orientim.
+                Your agent or bot decides when and what to trade, with any strategy: DCA, stop-loss or your own. Each swap it
+                decides on goes through Orientim, and your wallet signs it.
               </p>
               <p>The swap route only ever gets the amount you approve, under a one-time key, and if less than your minimum would arrive, the whole transaction reverts. Three ways in:</p>
               <div className="table-wrap">
@@ -383,12 +372,6 @@ try {
                 <code>wallet</code>. A service that can only sign and send cannot be used: Orientim signs last. With a service that
                 reads the transaction and applies its own policies (Turnkey or Privy, for example), prefer{' '}
                 <code>signerFromSignTransaction</code>.
-              </p>
-              <p>
-                Orientim protects the wallet from the route and the server, not from the agent: a key file the swap can read, the
-                agent that runs it can read too, and a permission rule does not change that. To keep the key from the agent, sign in
-                a process the agent does not run: a signing service, or a small signer of your own with its own limits. Either way,
-                give the agent a wallet of its own holding only what it may swap, and set <a href="#env">ORIENTIM_POLICY</a>.
               </p>
               <h3>Safe setup against a misled agent</h3>
               <p>
@@ -706,10 +689,7 @@ POST /api/v1/keys
 { "message": "<the message, unchanged>", "challenge": "...", "signature": "<base58 or base64>" }
 → { "key": "ori_...", "wallet": "<address>", "expiresAt": "..." }`}</code></pre>
               <ul>
-                <li>
-                  Sign the challenge within 10 minutes. Within those minutes the same signed challenge can be exchanged again, for
-                  another key of the same wallet, which gives nothing more.
-                </li>
+                <li>Sign the challenge within 10 minutes.</li>
                 <li>
                   Sign only Orientim&apos;s key message for your own wallet: a signature over bytes someone else chose could be a
                   signature for a transaction. The skill checks the message before anything is signed.
@@ -746,8 +726,7 @@ POST /api/v1/keys
                   <code>Retry-After</code>: the seconds until the count starts again.
                 </li>
                 <li>
-                  At the edge, before Orientim, a firewall rule its operator sets: now 120 prepare and finalize requests a minute from one IP address, answered{' '}
-                  <code>429</code> above it.
+                  120 prepare and finalize requests a minute from one IP address, answered <code>429</code> above it.
                 </li>
                 <li>API keys: 30 challenges and 10 keys an hour from one IP address.</li>
                 <li>One swap per output token at a time, and one per wallet in the skill.</li>
@@ -787,10 +766,7 @@ POST /api/v1/keys
                   </ul>
                   A swap whose fee cannot be collected is refused with <code>503 fee-unavailable</code>.
                 </li>
-                <li>
-                  The public deployment, agent API and shipped skill refuse an Orientim fee above 0.3%. The core verifier has a
-                  separate 1% safety ceiling; the network-fee ceiling is 0.001 SOL.
-                </li>
+                <li>The skill refuses an Orientim fee above 0.3%, whatever the server says, and a network fee above 0.001 SOL.</li>
                 <li>
                   A slippage tolerance of your choice (<code>slippageBps</code>, 0.1% to 15%); 0.5% by default, 3% on a Pump.fun launch
                   curve.
@@ -800,8 +776,8 @@ POST /api/v1/keys
                   raises it, to 20% at most).
                 </li>
                 <li>
-                  Limits no flag can loosen: in the skill, a minimum never more than 20% below Jupiter&apos;s own price
-                  (<code>floor-too-low</code>) and Orientim&apos;s fee at 0.3% at most.
+                  A limit no flag can loosen: in the skill, a minimum never more than 20% below Jupiter&apos;s own price
+                  (<code>floor-too-low</code>).
                 </li>
                 <li>
                   The owner&apos;s own limits, per swap and per day for each input mint, and the tokens the wallet may buy, in a file (<code>ORIENTIM_POLICY</code>):

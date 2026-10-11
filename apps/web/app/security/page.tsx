@@ -49,7 +49,7 @@ export default async function Page() {
             With the skill or command line, the exact transaction is checked again on your own connection to Solana before signing.
             A direct API client must run the same independent check before handing bytes to its signer.
           </li>
-          <li>Your agent&apos;s wallet signs first. Orientim checks that it signed exactly what was checked, then adds the last signature, with the one-time key, and sends it. Asked with <code>send: false</code>, it hands the signed transaction back for your agent to send and sends nothing.</li>
+          <li>Your agent&apos;s wallet signs first. Orientim checks that it signed exactly what was checked, then adds the last signature, with the one-time key, and sends it.</li>
           <li>The swap runs. If less than your agent&apos;s minimum would arrive, the whole transaction is cancelled.</li>
         </ol>
       </section>
@@ -77,7 +77,6 @@ export default async function Page() {
             move balances through a program.
           </li>
           <li>It cannot stop an agent that can read the signing key from using it outside Orientim. For unattended funds, keep the key in a separate signer with its own limits and use a wallet funded only for the agent&apos;s job.</li>
-          <li>The API key permits access; it does not prove that a bot verified a transaction. A version header does not prove that either.</li>
           <li>
             Your agent&apos;s own check is worth what the chain state it reads is worth: give it your own RPC, never Orientim&apos;s,
             and use the skill as published (its hashes are at <a href="/skill/SHA256SUMS">/skill/SHA256SUMS</a>).
@@ -119,7 +118,7 @@ export default async function Page() {
           </table>
         </div>
         <ul>
-          <li><strong>A key file or a signing service your agent controls</strong>: supported. The command line never reads a key: your bot signs. The example reads a key file only when you give it one; a signing service keeps the key away from the agent.</li>
+          <li><strong>A key file or a signing service your agent controls</strong>: supported. A signing service keeps the key away from the agent.</li>
           <li><strong>For the API key</strong>: a browser wallet that can sign a message, such as Phantom, Solflare or Backpack, or the skill&apos;s command line.</li>
           <li><strong>Signers that can only sign and send at once, and multisig vaults</strong>: not supported, because the agent&apos;s wallet must sign first and Orientim last.</li>
         </ul>
