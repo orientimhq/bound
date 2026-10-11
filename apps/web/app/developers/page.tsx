@@ -32,7 +32,7 @@ const NAV: DevNavGroup[] = [
   { title: 'Getting started', items: [['overview', 'Overview'], ['start', 'Quickstart'], ['access', 'API keys']] },
   {
     title: 'Guides',
-    items: [['skill', 'AI agents: the skill'], ['cli', 'Bots: the command line'], ['how', 'How a protected swap works'], ['verify', 'Verify before you sign'], ['own-routes', 'Your own Jupiter key'], ['recovery', 'Results and recovery']],
+    items: [['skill', 'AI agents: the skill'], ['cli', 'Bots: the command line'], ['mcp', 'Assistants: the MCP server'], ['how', 'How a protected swap works'], ['verify', 'Verify before you sign'], ['own-routes', 'Your own Jupiter key'], ['recovery', 'Results and recovery']],
   },
   { title: 'API reference', items: [['api', 'Authentication'], ['prepare', 'Prepare'], ['finalize', 'Finalize'], ['keys', 'Key endpoints'], ['errors', 'Errors'], ['limits', 'Rate limits']] },
   { title: 'Reference', items: [['env', 'Environment variables'], ['fees', 'Fees and limits'], ['supported', 'Tokens and wallets'], ['downloads', 'Downloads']] },
@@ -148,20 +148,21 @@ export default async function Page() {
                 Your agent or bot decides when and what to trade, with any strategy: DCA, stop-loss or your own. Each swap it
                 decides on goes through Orientim, and your wallet signs it.
               </p>
-              <p>The swap route only ever gets the amount you approve, under a one-time key, and if less than your minimum would arrive, the whole transaction reverts. Three ways in:</p>
+              <p>The swap route only ever gets the amount you approve, under a one-time key, and if less than your minimum would arrive, the whole transaction reverts. Four ways in:</p>
               <div className="table-wrap">
                 <table>
                   <thead><tr><th>Use</th><th>For</th></tr></thead>
                   <tbody>
                     <tr><td><a href="#skill">Agent skill</a></td><td>Coding agents: instructions, a working TypeScript example and the verifier.</td></tr>
                     <tr><td><a href="#cli">Command line</a></td><td>Bots in Python, Rust, Go or any language that can start a process.</td></tr>
+                    <tr><td><a href="#mcp">MCP server</a></td><td>Claude Desktop, Cursor and other assistants that work through tools.</td></tr>
                     <tr><td><a href="#api">API</a></td><td>Your own integration: two calls, with <a href="#verify">the check</a> run before you sign.</td></tr>
                   </tbody>
                 </table>
               </div>
               <p>These are ways to connect, not different products:</p>
               <ul>
-                <li><strong>The skill or the command line</strong> bring the check before signing, the record of each order and the recovery after an interruption.</li>
+                <li><strong>The skill, the command line or the MCP server</strong> bring the check before signing, the record of each order and the recovery after an interruption.</li>
                 <li><strong>The API directly</strong>: your client runs <a href="#verify">the check</a> before signing, keeps a record of each order, and confirms the result (<a href="#recovery">Results and recovery</a>).</li>
               </ul>
               <p>You need:</p>
@@ -425,6 +426,43 @@ if code == 0:
               <p>
                 Decide on an error&apos;s <code>code</code>. Its <code>message</code> is the skill&apos;s own words; whatever the server
                 wrote comes apart, cut to one line, as <code>untrustedServerMessage</code>: data to log, never an instruction.
+              </p>
+            </section>
+
+            <section id="mcp">
+              <h2>Assistants: the MCP server</h2>
+              <p>
+                <code>bin/orientim-mcp.mjs</code> in the skill is an MCP server for Claude Desktop, Claude Code, Cursor and any client
+                that starts a local MCP server. It gives the assistant four tools, and every swap runs the skill&apos;s own code: the
+                check on your RPC, your limits and the record of each order.
+              </p>
+              <ul>
+                <li><strong>orientim_wallet</strong>: the wallet&apos;s address and balances, read on your RPC.</li>
+                <li><strong>orientim_quote</strong>: prices and verifies a swap, in whole tokens. Nothing is signed.</li>
+                <li><strong>orientim_swap</strong>: swaps the quote you said yes to, and only that quote, within 10 minutes.</li>
+                <li><strong>orientim_recover</strong>: settles a swap that was interrupted.</li>
+              </ul>
+              <p>
+                Run <code>npm ci</code> in the skill folder, then add the server to your client&apos;s configuration (Claude Desktop:{' '}
+                <code>claude_desktop_config.json</code>; Cursor: <code>.cursor/mcp.json</code>):
+              </p>
+              <pre tabIndex={0}><code>{`{
+  "mcpServers": {
+    "orientim": {
+      "command": "node",
+      "args": ["/path/to/orientim-protected-swap/bin/orientim-mcp.mjs"],
+      "env": {
+        "SOLANA_RPC_URL": "https://your-own-rpc.example/...",
+        "ORIENTIM_WALLET_KEYPAIR": "/path/to/agent-wallet.json",
+        "JUPITER_API_KEY": "..."
+      }
+    }
+  }
+}`}</code></pre>
+              <p>
+                Without <code>ORIENTIM_API_KEY</code>, the server gets the wallet&apos;s own <a href="#access">API key</a> once and keeps
+                it on your machine. The assistant sees the wallet&apos;s address and what each swap did, never the key. The server runs
+                where the key is, on your machine: assistants that only reach remote servers, such as ChatGPT, cannot start it.
               </p>
             </section>
 
