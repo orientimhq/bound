@@ -46,13 +46,17 @@ jobs:
         run: |
           sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-      - run: solana --version
+      # The installed version keys the platform-tools cache, so tools from another release are never reused.
+      - id: solana
+        run: |
+          solana --version
+          echo "version=$(solana --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
 
       - name: Cache the SBF platform tools
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/solana
-          key: platform-tools-${{ runner.os }}
+          key: platform-tools-${{ runner.os }}-${{ steps.solana.outputs.version }}
 
       - name: Build the malicious program
         working-directory: tests/cpi/attacker

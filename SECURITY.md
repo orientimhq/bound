@@ -56,8 +56,8 @@ daily-budget reservations. Never create a new order id to bypass an unknown outc
 Orientim's fee is 25 bps (0.25%). The public deployment, agent API and shipped skill cap it at 30 bps
 (0.3%). The
 network fee, market account rent and token transfer tax are separate costs stated in the
-prepare response. The core verifier has a broader 100 bps safety ceiling for generic uses;
-it is not the public product's fee setting. The API fails closed if its fee configuration
+prepare response. The core verifier enforces the same 30 bps ceiling (`MAX_FEE_BPS` in
+`packages/core/src/constants.ts`). The API fails closed if its fee configuration
 exceeds 30 bps or the site's configured fee.
 
 Jupiter routes and Solana state can change. A safe refusal, an expired transaction or an

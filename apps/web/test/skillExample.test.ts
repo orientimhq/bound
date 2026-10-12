@@ -29,7 +29,7 @@ import {
   acquireLock, OrientimApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending, resolvePending,
   OrientimOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
   fillAgainstQuote, PriceImpactError, receivedFor, FloorError, prepareChecked, ownFloor, IntentError,
-  APPROVAL_MS, ERROR_MEANINGS, exitCodeOf, failureCause, networkCause, outcomeMeaning, LockBusyError, loadPolicy, policyPathFor, PolicyError, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keptApproval, temporaryAuthorityOf,
+  APPROVAL_MS, ERROR_MEANINGS, exitCodeOf, failureCause, networkCause, outcomeMeaning, LockBusyError, loadPolicy, policyPathFor, PolicyError, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keypairFileWarning, keptApproval, temporaryAuthorityOf,
 } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import type { OrderBook, OrderRecord, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
@@ -1163,6 +1163,28 @@ describe('orientim-verify, the command for bots in other languages', () => {
     const refused = await runCli('check', { prepared: lie, intent }, deps);
     expect(refused.code).toBe(1);
     expect(String(refused.output.problems)).toContain("not Orientim's treasury");
+  });
+
+  it('check holds the floor to the minimum the user approved after a dry run, and warns of a keypair file others can read', async () => {
+    const { b, deps, stateDir } = await setup();
+    const honest = await honestAnswer(b);
+    const { minOut: _floor, ...intent } = intentFor(b.wallet);
+    const key = { owner: honest.wallet ?? intent.owner, inputMint: intent.inputMint, outputMint: intent.outputMint, amountIn: intent.amountIn };
+    // More than the swap was prepared to deliver: never safe to sign once the person asked for it.
+    recordApproval(stateDir, { ...key, minOut: String(10n ** 18n), expiresAt: Date.now() + 60_000 });
+    expect((await runCli('check', { prepared: honest, intent }, deps)).code).toBe(1);
+    recordApproval(stateDir, { ...key, minOut: '1', expiresAt: Date.now() - 1 });
+    expect((await runCli('check', { prepared: honest, intent }, deps)).output.error).toMatchObject({ code: 'approval' });
+    if (process.platform !== 'win32') {
+      const dir = mkdtempSync(join(tmpdir(), 'orientim-keypair-'));
+      const file = join(dir, 'id.json');
+      writeFileSync(file, '[]', { mode: 0o644 });
+      chmodSync(file, 0o644);
+      expect(keypairFileWarning(file)).toContain('chmod 600');
+      chmodSync(file, 0o600);
+      expect(keypairFileWarning(file)).toBeNull();
+      rmSync(dir, { recursive: true });
+    }
   });
 
   it('usage errors exit 2, and the bundled command runs as a command only', async () => {

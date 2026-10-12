@@ -8,7 +8,7 @@ import {
 } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import {
-  ataOf, ATA_PROGRAM, CLOSE_USER_VOLUME_ACCUMULATOR, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM,
+  ataOf, ATA_PROGRAM, bondingCurveOf, CLOSE_USER_VOLUME_ACCUMULATOR, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM,
   TOKEN_PROGRAM, WSOL_MINT,
 } from '@orientim/core';
 import type { SolanaRpc } from '@orientim/solana';
@@ -133,6 +133,12 @@ export function lamportsSentToTaker(wire: string): {
   };
 }
 
+/**
+ * The bonding curves the fake routes write, as the chain holds them: accounts of the Pump.fun curve
+ * program. Every fake RPC knows them, as every real one does.
+ */
+const pumpCurves = new Map<string, Account>();
+
 export function fakeRpc(
   accounts: Map<string, Account>,
   opts: {
@@ -179,7 +185,7 @@ export function fakeRpc(
     getMultipleAccounts: call((addresses: string[]) => ({
       context: { slot: 300_000_000n },
       value: addresses.map(a => {
-        const acc = accounts.get(a);
+        const acc = accounts.get(a) ?? pumpCurves.get(a);
         return acc ? { owner: acc.owner, lamports: 2_000_000n, data: [b64(acc.data), 'base64'], executable: false, space: BigInt(acc.data.length) } : null;
       }),
     })),
@@ -331,6 +337,11 @@ export function fakeJupiter(answer: {
       if (calls++ < (answer.failFirst ?? 0)) throw new JupiterError('Jupiter 400: No matching liquidity', 400);
       const E = p.taker;
       const eIn = await ataOf(E, p.inputMint);
+      // A curve route writes the curve of the token it trades, as a real one does.
+      const curves = answer.curveProgram
+        ? await Promise.all([p.inputMint, p.outputMint].filter(m => m !== WSOL_MINT).map(bondingCurveOf))
+        : [];
+      for (const c of curves) pumpCurves.set(c, { owner: PUMP, data: new Uint8Array(81) });
       const destination = p.destinationTokenAccount ?? (await ataOf(E, WSOL_MINT));
       const meta = (pubkey: string, isSigner = false, isWritable = false) => ({ pubkey, isSigner, isWritable });
       // The baseline is asked for without exclusions and a protected route with them, so this is how
@@ -373,7 +384,7 @@ export function fakeJupiter(answer: {
             meta(DEX), meta(POOL, false, true),
             // A large swap splits over many pools; enough of them and nothing fits in one transaction.
             ...(answer.extraAccounts ?? []).map(a => meta(a, false, true)),
-            ...(answer.curveProgram ? [meta(PUMP)] : []),
+            ...(answer.curveProgram ? [meta(PUMP), ...curves.map(c => meta(c, false, true))] : []),
             ...(answer.routeAccount ? [meta(await routeAccountOf(PUMP, E), false, true)] : []),
           ],
           data: b64(answer.unknownFormat

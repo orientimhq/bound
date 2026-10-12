@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSigner, getBase58Decoder, signBytes } from '@solana/kit';
 import type { KeyPairSigner } from '@solana/kit';
 import { acceptChallenge, challengeMessage, isRevoked, issueKey, KEY_LIFETIME_S, newChallenge, openKey } from '../lib/server/agent/keys.ts';
-import { accessDeps, keySecrets } from '../lib/server/agent/config.ts';
+import { accessDeps, agentDeps, keySecrets } from '../lib/server/agent/config.ts';
 import { kidOf, newNonce, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
 import { keyChallenge, keyIssue } from '../lib/server/agent/access.ts';
 import type { AccessDeps } from '../lib/server/agent/access.ts';
@@ -129,6 +129,34 @@ describe('the endpoints', () => {
     expect((await empty.json() as { error: { code: string } }).error.code).toBe('wallet-empty');
     const other = await generateKeyPairSigner();
     expect((await ask(await sign(other, c.message), deps(20_000_000n))).status).toBe(400);
+  });
+
+  it('issue a wallet at most five keys a day, and every wallet together at most the hourly cap', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // Ahead of every window the other tests opened.
+      vi.setSystemTime(Date.now() + 3 * 86_400_000);
+      const issue = async (W: Awaited<ReturnType<typeof generateKeyPairSigner>>, d: AccessDeps) => {
+        const c = await newChallenge(secret(5), { domain: 'orientim.com', uri: 'u', wallet: W.address, now: NOW });
+        return keyIssue(new Request('https://orientim.com/api/v1/keys', {
+          method: 'POST', headers: from(), body: JSON.stringify({ ...c, signature: await sign(W, c.message) }),
+        }), d);
+      };
+      const W = await generateKeyPairSigner();
+      for (let i = 0; i < 5; i++) expect((await issue(W, deps(20_000_000n))).status).toBe(200);
+      const sixth = await issue(W, deps(20_000_000n));
+      expect(sixth.status).toBe(429);
+      expect(sixth.headers.get('retry-after')).toBeTruthy();
+      // An empty wallet spends nothing of the hourly cap.
+      vi.setSystemTime(Date.now() + 2 * 3_600_000);
+      const capped = { ...deps(20_000_000n), maxKeysPerHour: 2 };
+      expect((await issue(await generateKeyPairSigner(), { ...capped, rpc: balance(0n) })).status).toBe(403);
+      expect((await issue(await generateKeyPairSigner(), capped)).status).toBe(200);
+      expect((await issue(await generateKeyPairSigner(), capped)).status).toBe(200);
+      expect((await issue(await generateKeyPairSigner(), capped)).status).toBe(429);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('issue nothing while protected swaps are paused', async () => {
@@ -267,6 +295,28 @@ describe('self-serve keys: the site, revocation and secrets', () => {
       expect(deps?.origin).toBe('https://orientim.com');
       process.env.ORIENTIM_PUBLIC_ORIGIN = 'http://orientim.com';
       expect(accessDeps()).toBeNull();
+    });
+
+    it('in production, keys stay off without ORIENTIM_PUBLIC_ORIGIN, and the API without a treasury or a fee', () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+      Object.assign(process.env, {
+        ORIENTIM_API_SECRET: good, ORIENTIM_KEY_SECRET: Buffer.alloc(32, 8).toString('base64'), RPC_URL: 'http://127.0.0.1:1',
+        VERCEL_ENV: 'production', NEXT_PUBLIC_ORIENTIM_TREASURY: 'ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE',
+      });
+      delete process.env.ORIENTIM_PUBLIC_ORIGIN;
+      expect(accessDeps()).toBeNull();
+      process.env.ORIENTIM_PUBLIC_ORIGIN = 'https://orientim.com';
+      expect(accessDeps()).not.toBeNull();
+      delete process.env.NEXT_PUBLIC_ORIENTIM_TREASURY;
+      expect(agentDeps()).toBeNull();
+      expect(errors.mock.calls.flat().join()).toContain('production without a treasury');
+      process.env.ORIENTIM_TEST_MODE = '1';
+      expect(agentDeps()).not.toBeNull();
+      // Outside production, as on a machine of one's own, it runs without a fee, and says so.
+      delete process.env.ORIENTIM_TEST_MODE;
+      delete process.env.VERCEL_ENV;
+      expect(agentDeps()).not.toBeNull();
     });
   });
 });

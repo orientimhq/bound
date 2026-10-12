@@ -102,6 +102,20 @@ export type Session = {
    * Orientim's own key, for the amount, when (ms) and at the tolerance it was asked for.
    */
   sol?: SessionSolValue;
+  /**
+   * What the agent asked of the swap besides its parties: its tolerance, the cost it accepts, the
+   * routing and, once given, its minimum. E is one per session, so every round must ask the same,
+   * and a session cannot carry E into a swap built to other terms.
+   */
+  terms?: SessionTerms;
+};
+
+export type SessionTerms = { slip: number | null; cost: string | null; mode: 'standard' | 'fast'; min: string | null };
+
+const termsOk = (r: unknown): r is SessionTerms => {
+  const x = r as SessionTerms;
+  return !!x && typeof x === 'object' && (x.slip === null || Number.isInteger(x.slip)) && (x.cost === null || (typeof x.cost === 'string' && /^\d{1,5}$/.test(x.cost)))
+    && (x.mode === 'standard' || x.mode === 'fast') && (x.min === null || (typeof x.min === 'string' && /^\d{1,20}$/.test(x.min)));
 };
 
 export type SessionSolValue = { amount: string; value: string; at: number; slip: number };
@@ -153,6 +167,7 @@ export async function openSession(secrets: readonly Uint8Array[], token: unknown
     if ((s.version !== 0 && s.version !== 1) || !Number.isInteger(s.exp) || s.exp < now) return null;
     if (s.ref !== undefined && !referenceOk(s.ref)) return null;
     if (s.sol !== undefined && !solValueOk(s.sol)) return null;
+    if (s.terms !== undefined && !termsOk(s.terms)) return null;
     return { session: s, secret };
   }
   return null;

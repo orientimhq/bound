@@ -52,6 +52,8 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
       });
       const body = await res.json() as Issued & { error?: { message: string } };
       if (!res.ok) throw new Said(body.error?.message ?? 'Orientim could not issue a key. Try again.');
+      // A key for another wallet than the one that signed is not this wallet's key.
+      if (body.wallet !== account.address) throw new Said('Orientim answered with a key for another wallet, so it is not shown. Try again.');
       setIssued(body);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);

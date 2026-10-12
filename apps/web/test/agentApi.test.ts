@@ -865,6 +865,10 @@ describe("routes the agent brings from Jupiter with its own key", () => {
       [swapBody(w.W.address, { ownRoutes: true, session, outputMint: BONK }), KEY],
       [swapBody(w.W.address, { ownRoutes: true, session }), OTHER_KEY],
       [swapBody(w.W.address, { ownRoutes: true, session: `${session}x` }), KEY],
+      // E is one per session: a round cannot ask for other terms than the session was opened for.
+      [swapBody(w.W.address, { ownRoutes: true, session, slippageBps: 120 }), KEY],
+      [swapBody(w.W.address, { ownRoutes: true, session, acceptCostBps: 7 }), KEY],
+      [swapBody(w.W.address, { ownRoutes: true, session, minOut: '2' }), KEY],
     ] as const) {
       const res = await agentPrepare(post('prepare', body, key), w.deps);
       expect(res.status, JSON.stringify(body)).toBe(400);
@@ -1026,7 +1030,7 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     expect(baselineAsks(own.asked)).toBe(1);
   });
 
-  it('an expired price, or a round asking another tolerance, is asked for again', async () => {
+  it('an expired price is asked for again, and a round asking another tolerance is refused', async () => {
     const expired = counting();
     const w = await world({ jupiter: expired.jupiter, treasuryWallet: true });
     expect((await roundsWith(w, await narrowMarket())).res.status).toBe(200);
@@ -1037,10 +1041,11 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     expect(baselineAsks(expired.asked)).toBe(2);
     const other = counting();
     const w3 = await world({ jupiter: other.jupiter, treasuryWallet: true });
-    // The last round asks another tolerance: a price asked for 0.5% is not the one for 1%.
+    // The last round asks another tolerance: E is one per session, so the session no longer opens.
     const r3 = await roundsWith(w3, await narrowMarket(), round => (round === 2 ? { slippageBps: 100 } : {}));
-    expect(r3.res.status).toBe(200);
-    expect(baselineAsks(other.asked)).toBe(2);
+    expect(r3.res.status).toBe(400);
+    expect((await r3.res.json()).error.code).toBe('bad-session');
+    expect(baselineAsks(other.asked)).toBe(1);
   });
 
   it('the operator counts each swap and whose routes built it, in one JSON line per event, never a key\'s secret', async () => {

@@ -18,7 +18,7 @@ import { loggableError, logEvent, maskedReason } from './events';
 import { rateLimited, secondsUntilReset } from '../rateLimit';
 import { openKey } from './keys';
 import { ephemeralFor, kidOf, newNonce, openSession, openTicket, REFERENCE_FRESH_MS, sealSession, sealTicket, SESSION_TTL_SECONDS } from './ticket';
-import type { SessionReference, SessionSolValue } from './ticket';
+import type { SessionReference, SessionSolValue, SessionTerms } from './ticket';
 
 /**
  * The agent API (AGENT-API.md): the protected swap (packages/jupiter), with E held by the
@@ -359,6 +359,13 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   if (minOut === undefined && !firstRound) {
     return fail(400, 'bad-request', 'minOut is required and must be a positive integer in base units, as a string. Get a price independently before preparing.');
   }
+  // The terms a session holds the rounds to (see `SessionTerms`).
+  const terms: SessionTerms = {
+    slip: typeof slippageBps === 'number' ? slippageBps : null,
+    cost: acceptCostBps === undefined ? null : acceptCostBps.toString(),
+    mode: body.routingMode === 'fast' ? 'fast' : 'standard',
+    min: minOut === undefined ? null : minOut.toString(),
+  };
   let routes: ReturnType<typeof providedRoutes> | null = null;
   let sessionNonce: string | null = null;
   // A session ends two minutes after the first round, however many rounds follow.
@@ -382,6 +389,11 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       if (!s || opened.secret !== deps.secrets[0] || s.key !== key || s.owner !== owner || s.inputMint !== inputMint
         || s.outputMint !== outputMint || s.amountIn !== amountIn.toString() || s.version !== version) {
         return fail(400, 'bad-session', 'This session is expired, or was opened for another swap or key: prepare again without it. Nothing was built.');
+      }
+      // E is one per session: every round asks the same terms, and the minimum, once given, stays.
+      const t = s.terms;
+      if (!t || t.slip !== terms.slip || t.cost !== terms.cost || t.mode !== terms.mode || (t.min !== null && t.min !== terms.min)) {
+        return fail(400, 'bad-session', 'This session was opened for other terms (slippageBps, acceptCostBps, routingMode or minOut): prepare again without it, with the terms you want. Nothing was built.');
       }
       sessionNonce = s.nonce;
       sessionExp = s.exp;
@@ -429,6 +441,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       exp: sessionExp ?? Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
       ...(price ? { ref: { out: price.value.out.toString(), min: price.value.minimum.toString(), at: price.at, slip, feeBps: deps.feeBps.toString(), treasury: treasuryText } } : {}),
       ...(solValue ? { sol: { amount: solValue.value.amount.toString(), value: solValue.value.value.toString(), at: solValue.at, slip: solSlip } } : {}),
+      terms,
     }));
     // From an agent's own routes, or Orientim's client; Orientim's fee in SOL is always priced by its
     // own, and with an agent's routes a fee on the output is held to its own price (`reference`).

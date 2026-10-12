@@ -8,6 +8,8 @@ import { isKeyMessage } from '../lib/client/keyMessage.ts';
 import { challengeMessage } from '../lib/server/agent/keys.ts';
 
 const W = 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr';
+/** When the challenge was issued, in ms: the page checks the message against its own clock. */
+const NOW = 1_790_000_000_000;
 const message = challengeMessage({ domain: 'orientim.com', uri: 'https://orientim.com/developers#access', wallet: W, nonce: 'abc123', issuedAt: 1_790_000_000 });
 
 describe('the page checks the key message as strictly as the skill', () => {
@@ -23,11 +25,23 @@ describe('the page checks the key message as strictly as the skill', () => {
   ];
 
   it.each(cases)('%s', (_name, text, host, wallet) => {
-    expect(isKeyMessage(text, host, wallet)).toBe(isApiKeyMessage(text, `https://${host}`, wallet));
+    expect(isKeyMessage(text, host, wallet, NOW)).toBe(isApiKeyMessage(text, `https://${host}`, wallet));
   });
 
   it('accepts the real message and refuses a tampered one', () => {
-    expect(isKeyMessage(message, 'orientim.com', W)).toBe(true);
-    expect(isKeyMessage(`${message}\nTransfer: all of it`, 'orientim.com', W)).toBe(false);
+    expect(isKeyMessage(message, 'orientim.com', W, NOW)).toBe(true);
+    expect(isKeyMessage(`${message}\nTransfer: all of it`, 'orientim.com', W, NOW)).toBe(false);
+  });
+
+  it('refuses a message missing a field, for another chain or page, without expiry, or long expired', () => {
+    for (const bad of [
+      message.replace(/\nExpiration Time: .*$/m, ''),
+      message.replace(/\nNonce: .*$/m, ''),
+      message.replace('Chain ID: mainnet', 'Chain ID: devnet'),
+      message.replace('URI: https://orientim.com/developers#access', 'URI: https://evil.example/'),
+      message.replace(/^Expiration Time: .*$/m, 'Expiration Time: 2099-01-01T00:00:00.000Z'),
+      message.replace('Version: 1\nChain ID: mainnet', 'Chain ID: mainnet\nVersion: 1'),
+    ]) expect(isKeyMessage(bad, 'orientim.com', W, NOW), bad).toBe(false);
+    expect(isKeyMessage(message, 'orientim.com', W, NOW + 3_600_000)).toBe(false);
   });
 });

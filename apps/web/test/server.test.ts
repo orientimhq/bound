@@ -2,7 +2,7 @@
  * The server-side controls (rate limits, client key, public status): they must hold for direct API calls.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { clientKey, rateLimited, secondsUntilReset } from '../lib/server/rateLimit.ts';
+import { addressBucket, clientKey, rateLimited, secondsUntilReset } from '../lib/server/rateLimit.ts';
 
 let n = 0;
 const uniqueIp = () => `203.0.113.${++n % 250}-${n}`;
@@ -54,7 +54,7 @@ describe('the client key comes only from the header the ingress overwrites', () 
     }
   });
 
-  it('a window that starts again counts as the newest: a flood of new keys does not reset a limited client', () => {
+  it('a flood of new keys resets no window: while the map is full, new clients share one window', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     try {
       // Far enough ahead that every earlier window has ended and the next call sweeps.
@@ -62,22 +62,28 @@ describe('the client key comes only from the header the ingress overwrites', () 
       vi.setSystemTime(t0);
       rateLimited(`test:sweep:${uniqueIp()}`, 5);
       const a = `test:limited:${uniqueIp()}`;
-      vi.setSystemTime(t0 + 1_000);
       rateLimited(a, 1);
-      vi.setSystemTime(t0 + 2_000);
-      for (let i = 0; i < 10_000; i++) rateLimited(`test:early:${t0}:${i}`, 5);
-      vi.setSystemTime(t0 + 60_000);
-      rateLimited(`test:tick:${uniqueIp()}`, 5);
-      // A's first window ended at t0 + 61 s: it starts again, and A goes over its limit in it.
-      vi.setSystemTime(t0 + 62_000);
-      expect(rateLimited(a, 1)).toBe(false);
       expect(rateLimited(a, 1)).toBe(true);
-      // A flood drops the oldest tenth: the early keys, not A, whose window is newer than theirs.
-      for (let i = 0; i < 40_000; i++) rateLimited(`test:flood:${t0}:${i}`, 5);
+      // The oldest window of all, and still limited after the map fills behind it.
+      for (let i = 0; i < 60_000; i++) rateLimited(`test:flood:${t0}:${i}`, 1_000_000);
       expect(rateLimited(a, 1)).toBe(true);
+      // A new client meets the shared window the flood already spent.
+      expect(rateLimited(`test:late:${uniqueIp()}`, 5)).toBe(true);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('an IPv6 client is keyed by its /64, and an IPv4-mapped address by its IPv4 address', () => {
+    expect(addressBucket('2001:db8:1:2:aaaa:bbbb:cccc:dddd')).toBe('2001:db8:1:2::/64');
+    expect(addressBucket('2001:0db8:0001:0002::1')).toBe('2001:db8:1:2::/64');
+    expect(addressBucket('[2001:db8:1:2::ffff]')).toBe('2001:db8:1:2::/64');
+    expect(addressBucket('2001:db8::1')).toBe('2001:db8:0:0::/64');
+    expect(addressBucket('::ffff:198.51.100.9')).toBe('198.51.100.9');
+    expect(addressBucket('198.51.100.9')).toBe('198.51.100.9');
+    expect(addressBucket('not-an-address')).toBe('not-an-address');
+    const key = (h: Record<string, string>) => clientKey(new Request('https://x.test', { headers: h }));
+    expect(key({ 'x-vercel-forwarded-for': '2001:db8:1:2::7' })).toBe(key({ 'x-vercel-forwarded-for': '2001:db8:1:2:ffff::9' }));
   });
 });
 

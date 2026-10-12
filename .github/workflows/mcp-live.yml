@@ -43,6 +43,8 @@ jobs:
       max-parallel: 1
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+    # The test wallet's key belongs in this environment's secrets, behind its required reviewers.
+    environment: test-wallet
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     defaults:
@@ -91,6 +93,8 @@ jobs:
     # After the MCP server's swaps, whatever they found: the same wallet, never two at once.
     if: ${{ !cancelled() && (inputs.swaps == '1' || inputs.swaps == 'full') }}
     needs: live
+    # The test wallet's key belongs in this environment's secrets, behind its required reviewers.
+    environment: test-wallet
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:

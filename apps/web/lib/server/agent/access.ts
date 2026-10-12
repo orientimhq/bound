@@ -24,8 +24,17 @@ export type AccessDeps = {
   origin?: string | null;
   /** ORIENTIM_DISABLED: while protected swaps are paused, no key is issued either. */
   disabled?: boolean;
+  /**
+   * How many keys this instance issues in an hour, to every address together
+   * (ORIENTIM_KEY_MAX_PER_HOUR, default 300): the per-address limit alone does not stop addresses
+   * rented by the thousand. One wallet gets at most WALLET_KEYS_PER_DAY a day.
+   */
+  maxKeysPerHour?: number;
   now?: () => number;
 };
+
+export const DEFAULT_KEYS_PER_HOUR = 300;
+const WALLET_KEYS_PER_DAY = 5;
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   Response.json(body, { status, headers: { 'cache-control': 'no-store', ...headers } });
@@ -77,6 +86,15 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
   if (lamports < deps.minLamports) {
     const sol = (Number(deps.minLamports) / 1e9).toLocaleString('en-US', { maximumFractionDigits: 9 });
     return fail(403, 'wallet-empty', `A key is issued to a wallet holding at least ${sol} SOL. Fund the wallet, then ask again.`);
+  }
+  // Counted only for funded wallets that signed, so nobody spends another wallet's or everyone's issuance.
+  const perWallet = `keys-wallet:${accepted.wallet}`;
+  if (rateLimited(perWallet, WALLET_KEYS_PER_DAY, 86_400_000)) {
+    return fail(429, 'rate-limited', 'Too many keys issued to this wallet today. Use the key you have, or wait Retry-After seconds.', { 'retry-after': String(secondsUntilReset(perWallet)) });
+  }
+  const all = 'keys-issue:all';
+  if (rateLimited(all, deps.maxKeysPerHour ?? DEFAULT_KEYS_PER_HOUR, 3_600_000)) {
+    return fail(429, 'rate-limited', 'Orientim is issuing too many keys right now. Wait Retry-After seconds and try again.', { 'retry-after': String(secondsUntilReset(all)) });
   }
   const issued = await issueKey(deps.keySecrets[0], accepted.wallet, seconds(deps));
   return json(200, { key: issued.key, wallet: accepted.wallet, expiresAt: issued.expiresAt });

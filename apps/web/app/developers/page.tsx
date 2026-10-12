@@ -185,11 +185,13 @@ export default async function Page() {
                   open, under Apache-2.0, at <a href={SKILL_SOURCE}>github.com/orientimhq/orientim-protected-swap</a>.
                 </li>
                 <li>
-                  <strong>Check it</strong>: in the unzipped folder, every file against the list this site serves (on macOS,{' '}
-                  <code>shasum -a 256 -c</code>).
-                  <pre tabIndex={0}><code>{`cd orientim-protected-swap
-curl -s https://orientim.com/skill/SHA256SUMS | sha256sum -c`}</code></pre>
-                  On Windows, see <a href="#downloads">Downloads</a>.
+                  <strong>Check it</strong>, before you unzip it, against GitHub rather than this site: the skill exists to protect you
+                  from a dishonest server, so the server cannot be the one that vouches for it. GitHub signs that its release workflow
+                  built this exact zip from the open source (with the <a href="https://cli.github.com">GitHub CLI</a>):
+                  <pre tabIndex={0}><code>{`gh attestation verify orientim-protected-swap.zip -R orientimhq/orientim-protected-swap`}</code></pre>
+                  Each release on GitHub also lists the zip&apos;s own sha256 in <code>RELEASE-SHA256SUMS</code> (from 1.12.3). A check
+                  of the whole zip also catches a file added to it, which a check of each file inside cannot. Then unzip it; the
+                  folder&apos;s <code>SHA256SUMS</code> lists every file in it. On Windows, see <a href="#downloads">Downloads</a>.
                 </li>
                 <li>
                   <strong>Set it up</strong>: in that folder, <code>npm ci</code> and the <a href="#env">environment variables</a>.
@@ -444,7 +446,8 @@ if code == 0:
               </ul>
               <h3>Claude Desktop: one click</h3>
               <p>
-                Download <a href={SKILL_EXTENSION} download>orientim.mcpb</a> (version {SKILL_VERSION}) and open it. Claude Desktop
+                Download <a href={SKILL_EXTENSION} download>orientim.mcpb</a> (version {SKILL_VERSION}), check it against GitHub as
+                the skill (<code>gh attestation verify orientim.mcpb -R orientimhq/orientim-protected-swap</code>), and open it. Claude Desktop
                 asks for your RPC, the wallet&apos;s keypair file and, if you like, your Jupiter key and your limits, and keeps the
                 secrets itself. Nothing else to install: Claude Desktop brings its own Node.
               </p>
@@ -797,8 +800,14 @@ POST /api/v1/keys
                 <li><a href={SKILL_ARCHIVE} download>orientim-protected-swap.zip</a>: the skill, version {SKILL_VERSION}.</li>
                 <li><a href={SKILL_EXTENSION} download>orientim.mcpb</a>: the MCP server for Claude Desktop, the same version (<a href="#mcp">how to use it</a>).</li>
                 <li>
-                  <a href="/skill/SHA256SUMS">SHA256SUMS</a>: the checksum of every file in it. On Windows, in PowerShell, in the
-                  unzipped folder; every line must say OK:
+                  Check a download against GitHub, not this site: <code>gh attestation verify &lt;file&gt; -R
+                  orientimhq/orientim-protected-swap</code>, or its sha256 against <code>RELEASE-SHA256SUMS</code> on the{' '}
+                  <a href={`${SKILL_SOURCE}/releases/tag/v${SKILL_VERSION}`}>GitHub release</a> (from 1.12.3). In PowerShell:{' '}
+                  <code>(Get-FileHash orientim-protected-swap.zip -Algorithm SHA256).Hash</code>.
+                </li>
+                <li>
+                  <a href="/skill/SHA256SUMS">SHA256SUMS</a>: the checksum of every file in it, the same list as in the zip. On
+                  Windows, in PowerShell, in the unzipped folder; every line must say OK:
                   <pre tabIndex={0}><code>{`cd orientim-protected-swap
 (irm https://orientim.com/skill/SHA256SUMS) -split "\`n" | ? { $_.Trim() } | % {
   $hash, $file = $_.Trim() -split '\\s+', 2

@@ -18,6 +18,9 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
+/** A browser's user agent, as any visitor's, so the site cannot tell the check from a user. */
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
+
 // The public pages whose scripts matter: the swap, and the page that issues API keys (/docs, which
 // leads to /developers; the address stays valid before and after a deploy).
 const PAGES = ['/', '/docs', '/security'];
@@ -53,7 +56,7 @@ const problems: string[] = [];
 
 async function get(path: string): Promise<Response | null> {
   try {
-    return await fetch(site + path, { redirect: 'follow', headers: { 'user-agent': 'orientim-live-check' } });
+    return await fetch(site + path, { redirect: 'follow', headers: { 'user-agent': BROWSER_UA } });
   } catch (e) {
     problems.push(`${path}: ${(e as Error).message}`);
     return null;

@@ -4,7 +4,8 @@
  *
  *   - `/api/health` does not answer 200 with `ok` three times, 20 seconds apart (an outage, not a blip);
  *   - the deployment says it was built from a commit that is not on `main`, or whose CI failed;
- *   - the skill it serves (`/skill/SHA256SUMS`) is not the one in the repository at that commit.
+ *   - the skill it serves (`/skill/SHA256SUMS`, and the bytes of the zip and of the `.mcpb`) is not the
+ *     one in the repository at that commit.
  *
  * A pause by the kill switch (`paused`, or `/api/status` `enabled: false`) is said, not failed: it is
  * the operator's own decision. Production behind `main` is said too, with how far.
@@ -15,6 +16,7 @@
  *
  *   node tools/monitor.ts --site https://orientim.com [--repo owner/name]   (GH_TOKEN for the repository checks)
  */
+import { createHash } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 
 type Health = { ok?: boolean; paused?: boolean; agentApi?: string; rpc?: { ok: boolean; ms: number }; rpcFallback?: { ok: boolean; ms: number } | null; jupiter?: { ok: boolean; ms: number }; agents?: { rpc: { ok: boolean; ms: number }; build: { ok: boolean; ms: number } } | null };
@@ -37,11 +39,33 @@ const incomplete: string[] = [];
 const notices: string[] = [];
 const rows: [string, string][] = [];
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+/**
+ * A browser's user agent, as any visitor's: a deployment that served the monitor something other than
+ * what it serves its users would otherwise be told which requests are the monitor's.
+ */
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
+const uaFor = (url: string) => (url.startsWith('https://api.github.com/') ? 'orientim-monitor' : BROWSER_UA);
+const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+
+/** The bytes at `url`, or null (said in the notes) when it did not answer 200. */
+async function bytesOf(url: string, headers: Record<string, string> = {}): Promise<Uint8Array | null> {
+  try {
+    const res = await fetch(url, { headers: { 'user-agent': uaFor(url), 'cache-control': 'no-cache', ...headers }, signal: AbortSignal.timeout(30_000) });
+    if (res.status !== 200) {
+      notices.push(`${url}: ${res.status}`);
+      return null;
+    }
+    return new Uint8Array(await res.arrayBuffer());
+  } catch (e) {
+    notices.push(`${url}: ${(e as Error).message}`);
+    return null;
+  }
+}
 
 async function get(url: string, headers: Record<string, string> = {}): Promise<{ status: number; ms: number; text: string } | null> {
   const started = performance.now();
   try {
-    const res = await fetch(url, { headers: { 'user-agent': 'orientim-monitor', ...headers }, signal: AbortSignal.timeout(20_000) });
+    const res = await fetch(url, { headers: { 'user-agent': uaFor(url), ...headers }, signal: AbortSignal.timeout(20_000) });
     return { status: res.status, ms: Math.round(performance.now() - started), text: await res.text() };
   } catch (e) {
     notices.push(`${url}: ${(e as Error).message}`);
@@ -119,6 +143,18 @@ if (build && repo) {
   else if (served.trim() !== Buffer.from(source.content, 'base64').toString('utf8').trim()) {
     failures.push('the skill served at /skill/SHA256SUMS is not the one in the repository at the deployed commit');
   } else rows.push(['skill', `the source's, at ${build.slice(0, 7)}`]);
+
+  // 5. The downloads themselves, byte for byte: the list above says nothing about the zip and the
+  // `.mcpb` a user actually gets.
+  for (const file of ['orientim-protected-swap.zip', 'orientim.mcpb']) {
+    const got = await bytesOf(`${site}/skill/${file}`);
+    const want = repo ? await bytesOf(`https://api.github.com/repos/${repo}/contents/apps/web/public/skill/${file}?ref=${build}`, {
+      accept: 'application/vnd.github.raw', ...(token ? { authorization: `Bearer ${token}` } : {}),
+    }) : null;
+    if (!got || !want) incomplete.push(`could not compare /skill/${file} with its source`);
+    else if (sha256(got) !== sha256(want)) failures.push(`/skill/${file} is not the file in the repository at the deployed commit`);
+    else rows.push([file, `the source's, sha256 ${sha256(got).slice(0, 16)}…`]);
+  }
 } else if (!build) {
   incomplete.push(status
     ? '/api/status does not say which commit it was built from: its CI and the skill served were not checked'

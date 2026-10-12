@@ -5,7 +5,7 @@ import { createServerRpc } from '../rpcFailover';
 import type { SolanaRpc } from '@orientim/solana';
 import { serverConfig } from '../config';
 import { treasurySetting } from '../../settings';
-import type { AccessDeps } from './access';
+import { DEFAULT_KEYS_PER_HOUR, type AccessDeps } from './access';
 import type { AgentDeps } from './api';
 
 /**
@@ -129,6 +129,13 @@ export function agentDeps(): AgentDeps | null {
     console.error(`The agent API is off: ${(e as Error).message}`);
     return null;
   }
+  // In production a swap without Orientim's fee is a misconfiguration (a treasury not copied to a new
+  // project, say), never a mode: the API stays off and says why, unless ORIENTIM_TEST_MODE=1.
+  if (process.env.VERCEL_ENV === 'production' && process.env.ORIENTIM_TEST_MODE !== '1' && (treasury === null || feeBps === 0n)) {
+    console.error(`The agent API is off: production without ${treasury === null ? 'a treasury (NEXT_PUBLIC_ORIENTIM_TREASURY)' : 'a fee (ORIENTIM_API_FEE_BPS is 0)'}. Set ORIENTIM_TEST_MODE=1 if that is meant.`);
+    return null;
+  }
+  if (treasury === null || feeBps === 0n) sayOnce('The agent API takes no fee: no treasury, or ORIENTIM_API_FEE_BPS is 0.', 'warn');
   const identity = `${rpcUrl}|${server.rpcFallbackUrl ?? ''}|${jupiterApiKey ?? ''}`;
   if (clients?.for !== identity) {
     clients = {
@@ -191,13 +198,20 @@ export function accessDeps(): AccessDeps | null {
   if (!deps || secrets.length === 0) return null;
   const origin = publicOrigin();
   if (origin === undefined) return null;
+  // Unset in production: the key message would name whatever host a request claims, so keys stay off.
+  if (origin === null && process.env.VERCEL_ENV === 'production') {
+    sayOnce('ORIENTIM_PUBLIC_ORIGIN is not set: self-serve keys stay off in production.');
+    return null;
+  }
   const min = process.env.ORIENTIM_KEY_MIN_LAMPORTS?.trim() ?? '';
   let minLamports = /^\d{1,12}$/.test(min) ? BigInt(min) : 10_000_000n;
   if (minLamports < KEY_MIN_LAMPORTS_FLOOR) {
     sayOnce(`ORIENTIM_KEY_MIN_LAMPORTS is ${min}: raised to ${KEY_MIN_LAMPORTS_FLOOR}, so that wallets made by the thousand still cost something.`, 'warn');
     minLamports = KEY_MIN_LAMPORTS_FLOOR;
   }
-  return { rpc: deps.rpc, keySecrets: secrets, minLamports, origin, disabled: deps.disabled };
+  const perHour = process.env.ORIENTIM_KEY_MAX_PER_HOUR?.trim() ?? '';
+  const maxKeysPerHour = /^\d{1,6}$/.test(perHour) && Number(perHour) > 0 ? Number(perHour) : DEFAULT_KEYS_PER_HOUR;
+  return { rpc: deps.rpc, keySecrets: secrets, minLamports, origin, disabled: deps.disabled, maxKeysPerHour };
 }
 
 export const notEnabled = () =>
