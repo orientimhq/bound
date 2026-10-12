@@ -390,9 +390,11 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         || s.outputMint !== outputMint || s.amountIn !== amountIn.toString() || s.version !== version) {
         return fail(400, 'bad-session', 'This session is expired, or was opened for another swap or key: prepare again without it. Nothing was built.');
       }
-      // E is one per session: every round asks the same terms, and the minimum, once given, stays.
+      // E is one per session: a term, once a round has sent it, stays what it was. A first round may
+      // leave some for later (its own minimum and tolerance, while the agent asks Jupiter its price).
       const t = s.terms;
-      if (!t || t.slip !== terms.slip || t.cost !== terms.cost || t.mode !== terms.mode || (t.min !== null && t.min !== terms.min)) {
+      const kept = (was: string | number | null, now: string | number | null) => was === null || was === now;
+      if (!t || t.mode !== terms.mode || !kept(t.slip, terms.slip) || !kept(t.cost, terms.cost) || !kept(t.min, terms.min)) {
         return fail(400, 'bad-session', 'This session was opened for other terms (slippageBps, acceptCostBps, routingMode or minOut): prepare again without it, with the terms you want. Nothing was built.');
       }
       sessionNonce = s.nonce;
