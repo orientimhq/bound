@@ -3,12 +3,13 @@ name: MCP live
 # The MCP server as a customer installs it (npx -y orientim-mcp@<version>, or the skill's own file), on
 # Linux, macOS and Windows, against orientim.com, mainnet and Jupiter: tools/mcp/live.mjs. Without a
 # test wallet: the protocol, balances on the RPC, Orientim's key message signed and answered, refused
-# input. With the secret CANARY_WALLET_KEYPAIR (a solana-keygen file of a wallet kept for this, holding
+# input. With the secret TEST_WALLET_KEYPAIR (a solana-keygen file of a wallet kept only for these tests, holding
 # 0.02 SOL or more): quotes of majors, memecoins, an LST and a Token-2022 token, and the owner's
 # limits, nothing signed. swaps set to 1 also swaps for real on each system, 0.002 SOL to USDC and
-# back, and then through the skill's two other ways in (tools/live-channels.mjs): the agent's command
-# line and orientim-verify, each fee side, an order run again, recover, and tools/pilot-report.ts on
-# the chain. A few cents of fees from the test wallet in all. The report is each job's summary.
+# back; full also, on Linux, buys and sells back every kind of token the skill takes (a stablecoin, a
+# DeFi token, memecoins, an LST, a Token-2022 token, one token for another). Then through the skill's
+# two other ways in (tools/live-channels.mjs): the agent's command line and orientim-verify, each fee
+# side, an order run again, recover, and tools/pilot-report.ts on the chain. A few cents of fees from the test wallet in all. The report is each job's summary.
 #
 # By hand only. It uses CANARY_RPC_URL and CANARY_JUPITER_API_KEY, the canary's keys apart from
 # production's. One system at a time: the wallet's swaps never overlap.
@@ -24,7 +25,7 @@ on:
         required: false
         default: ''
       swaps:
-        description: '1: also swap for real from the test wallet (0.002 SOL to USDC and back, on each system)'
+        description: '1: also swap for real from the test wallet (0.002 SOL to USDC and back, on each system); full: and on Linux every kind of token, each bought and sold back'
         required: false
         default: '0'
 
@@ -68,7 +69,7 @@ jobs:
           fi
       - name: The test wallet
         env:
-          KEYPAIR: ${{ secrets.CANARY_WALLET_KEYPAIR }}
+          KEYPAIR: ${{ secrets.TEST_WALLET_KEYPAIR }}
         run: |
           if [ -n "$KEYPAIR" ]; then
             umask 077
@@ -79,7 +80,8 @@ jobs:
         env:
           SOLANA_RPC_URL: ${{ secrets.CANARY_RPC_URL }}
           JUPITER_API_KEY: ${{ secrets.CANARY_JUPITER_API_KEY }}
-          LIVE_SWAPS: ${{ inputs.swaps }}
+          # The whole token list once, on Linux; the other systems swap SOL to USDC and back.
+          LIVE_SWAPS: ${{ inputs.swaps == 'full' && matrix.os != 'ubuntu-latest' && '1' || inputs.swaps }}
         run: node tools/mcp/live.mjs ${{ steps.server.outputs.command }}
       - name: Forget the test wallet
         if: always()
@@ -87,7 +89,7 @@ jobs:
 
   channels:
     # After the MCP server's swaps, whatever they found: the same wallet, never two at once.
-    if: ${{ !cancelled() && inputs.swaps == '1' }}
+    if: ${{ !cancelled() && (inputs.swaps == '1' || inputs.swaps == 'full') }}
     needs: live
     runs-on: ubuntu-latest
     timeout-minutes: 40
@@ -102,9 +104,9 @@ jobs:
         working-directory: skills/orientim-protected-swap
       - name: The test wallet
         env:
-          KEYPAIR: ${{ secrets.CANARY_WALLET_KEYPAIR }}
+          KEYPAIR: ${{ secrets.TEST_WALLET_KEYPAIR }}
         run: |
-          [ -n "$KEYPAIR" ] || { echo "::error::Add the secret CANARY_WALLET_KEYPAIR first."; exit 1; }
+          [ -n "$KEYPAIR" ] || { echo "::error::Add the secret TEST_WALLET_KEYPAIR first."; exit 1; }
           umask 077
           printf '%s' "$KEYPAIR" > "$RUNNER_TEMP/test-wallet.json"
       - name: The agent and the bot, for real

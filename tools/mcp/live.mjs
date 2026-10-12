@@ -8,11 +8,12 @@
 //   SOLANA_RPC_URL, JUPITER_API_KEY   the owner's RPC and Jupiter key
 //   LIVE_WALLET_KEYPAIR               optional: a test wallet's keypair file, holding 0.02 SOL or more
 //   LIVE_SWAPS=1                      optional: also swap for real, 0.002 SOL to USDC and back
+//   LIVE_SWAPS=full                   optional: and every kind of token, each bought and sold back
 //
 // Without a wallet, a new empty one is made: the protocol, its balances on the RPC, Orientim's key
 // message signed and answered by the real server (wallet-empty), and refused input. With one, every
 // quote below is priced and verified on the RPC, nothing signed; the owner's limits are tried with a
-// policy file. Only LIVE_SWAPS=1 signs anything. Exit 1 when a case failed, 2 when one could not be
+// policy file. Only LIVE_SWAPS signs anything. Exit 1 when a case failed, 2 when one could not be
 // proven for load (a 429, a busy RPC): incomplete is not a pass.
 import { spawn } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
@@ -176,7 +177,7 @@ function base58(bytes) {
 const keypair = process.env.LIVE_WALLET_KEYPAIR;
 let funded = false;
 if (!keypair) {
-  report('test wallet', 'quotes and swaps', 'skip', 'no LIVE_WALLET_KEYPAIR: add the secret CANARY_WALLET_KEYPAIR to quote and swap');
+  report('test wallet', 'quotes and swaps', 'skip', 'no LIVE_WALLET_KEYPAIR: add the secret TEST_WALLET_KEYPAIR to quote and swap');
 } else {
   const group = 'quotes';
   const client = await start({ ...env, ORIENTIM_WALLET_KEYPAIR: keypair, ORIENTIM_STATE_DIR: join(home, 'state') }, group);
@@ -221,9 +222,54 @@ if (!keypair) {
   }
 }
 
-// ── Real swaps, only when asked: 0.002 SOL to USDC and back ───────────────────────────────────────
+// ── Real swaps, only when asked ───────────────────────────────────────────────────────────────────
+// LIVE_SWAPS=1: 0.002 SOL to USDC and back. LIVE_SWAPS=full: also every kind of token the skill
+// takes, each bought and sold back: a stablecoin, a DeFi token, two memecoins, an LST and a
+// Token-2022 token, one token for another with no SOL on either side, a tolerance chosen by Jupiter
+// and one set by hand, and a small amount.
 const solscan = [];
-if (process.env.LIVE_SWAPS === '1' && funded) {
+const TOKEN_PAIRS = [
+  ['USDT (stablecoin)', MINTS.USDT, {}],
+  ['JUP (DeFi), slippage auto', MINTS.JUP, { slippageBps: 'auto' }],
+  ['BONK (memecoin, 5 decimals)', MINTS.BONK, {}],
+  ['WIF (memecoin), slippage 1%', MINTS.WIF, { slippageBps: 100 }],
+  ['JitoSOL (LST)', MINTS.JitoSOL, {}],
+  ['PYUSD (Token-2022)', MINTS.PYUSD, {}],
+];
+
+/** One real swap from a fresh quote, checked against that quote and the wallet. */
+async function swapCase(client, group, inputMint, outputMint, amount, extra = {}) {
+  const pair = `${nameOf(inputMint)} → ${nameOf(outputMint)}`;
+  const holding = mint => mint === SOL ? undefined : client.call('orientim_wallet', { mints: [mint] });
+  const before = await holding(outputMint);
+  const q = await quoteCase(client, group, `quote ${amount} ${pair}`, { inputMint, outputMint, amount, ...extra });
+  if (!q.ok) return undefined;
+  const dp = q.request.outputDecimals;
+  const s = await client.call('orientim_swap', { quoteId: q.quoteId }, 420_000);
+  if (s.signature) solscan.push(`${pair}: ${s.explorer}`);
+  const good = s.ok && s.outcome === 'confirmed' && typeof s.signature === 'string'
+    && units(s.received?.amount ?? '0', dp) >= units(q.summary.receiveAtLeast.amount, dp);
+  report(group, `swap ${pair}`, good ? 'ok' : s.ok === false && LOAD.test(s.error?.code ?? '') ? 'warn' : 'fail',
+    good ? `received ${s.received.amount} ${nameOf(outputMint)} (at least ${q.summary.receiveAtLeast.amount}), fee ${q.summary.orientimFee.amount} ${nameOf(q.summary.orientimFee.mint)}, ${s.explorer}` : errorLine(s));
+  if (!good) return undefined;
+  if (before?.ok) {
+    await sleep(2000);
+    const after = await holding(outputMint);
+    const gained = after?.ok ? units(after.tokens[0].amount, dp) - units(before.tokens[0].amount, dp) : -1n;
+    report(group, `the ${nameOf(outputMint)} arrived in the wallet`, gained >= units(s.received.amount, dp) ? 'ok' : 'fail', `${after?.tokens?.[0]?.amount} now, ${before.tokens[0].amount} before`);
+  }
+  return { quote: q, swap: s };
+}
+
+/** Bought with SOL, then all of it sold back. */
+async function roundTrip(client, group, mint, amount, extra) {
+  const there = await swapCase(client, group, SOL, mint, amount, extra);
+  if (there) await swapCase(client, group, mint, SOL, there.swap.received.amount, extra);
+  await sleep(1500);
+}
+
+const mode = process.env.LIVE_SWAPS;
+if ((mode === '1' || mode === 'full') && funded) {
   const group = 'swaps';
   const client = await start({ ...env, ORIENTIM_WALLET_KEYPAIR: keypair, ORIENTIM_STATE_DIR: join(home, 'state') }, group);
   const before = await client.call('orientim_wallet', { mints: [MINTS.USDC] });
@@ -235,7 +281,7 @@ if (process.env.LIVE_SWAPS === '1' && funded) {
     const good = s.ok && s.outcome === 'confirmed' && typeof s.signature === 'string'
       && units(s.received?.amount ?? '0', 6) >= units(q.summary.receiveAtLeast.amount, 6);
     report(group, 'swap SOL → USDC', good ? 'ok' : 'fail', good ? `received ${s.received.amount} USDC (at least ${q.summary.receiveAtLeast.amount}), ${s.explorer}` : errorLine(s));
-    if (s.signature) solscan.push(s.explorer);
+    if (s.signature) solscan.push(`SOL → USDC: ${s.explorer}`);
     const again = await client.call('orientim_swap', { quoteId: q.quoteId }, 420_000);
     const once = again.exitCode === 5 || (again.ok && again.signature === s.signature);
     report(group, 'the same quote again never swaps twice', once ? 'ok' : 'fail', once ? again.meaning : errorLine(again));
@@ -244,19 +290,26 @@ if (process.env.LIVE_SWAPS === '1' && funded) {
       const after = await client.call('orientim_wallet', { mints: [MINTS.USDC] });
       const gained = after.ok && before.ok ? units(after.tokens[0].amount, 6) - units(before.tokens[0].amount, 6) : -1n;
       report(group, 'the USDC arrived in the wallet', gained >= units(s.received.amount, 6) ? 'ok' : 'fail', `${after.tokens?.[0]?.amount} USDC now, ${before.tokens?.[0]?.amount} before`);
-      const back = await quoteCase(client, group, `quote ${s.received.amount} USDC → SOL`, { inputMint: MINTS.USDC, outputMint: SOL, amount: s.received.amount });
-      if (back.ok) {
-        const b = await client.call('orientim_swap', { quoteId: back.quoteId }, 420_000);
-        const ok = b.ok && b.outcome === 'confirmed';
-        report(group, 'swap USDC → SOL', ok ? 'ok' : 'fail', ok ? `received ${b.received?.amount} SOL, ${b.explorer}` : errorLine(b));
-        if (b.signature) solscan.push(b.explorer);
+      if (mode === 'full') {
+        // One token for another, the fee in neither: USDC to BONK and back, then the USDC to SOL.
+        const bonk = await swapCase(client, group, MINTS.USDC, MINTS.BONK, s.received.amount);
+        if (bonk) await swapCase(client, group, MINTS.BONK, MINTS.USDC, bonk.swap.received.amount);
+        await sleep(1500);
+        const w = await client.call('orientim_wallet', { mints: [MINTS.USDC] });
+        if (w.ok && units(w.tokens[0].amount, 6) > 0n) await swapCase(client, group, MINTS.USDC, SOL, w.tokens[0].amount);
+      } else {
+        await swapCase(client, group, MINTS.USDC, SOL, s.received.amount);
       }
     }
+  }
+  if (mode === 'full') {
+    for (const [, mint, extra] of TOKEN_PAIRS) await roundTrip(client, group, mint, '0.002', extra);
+    await roundTrip(client, group, MINTS.USDC, '0.0005', {}); // a small amount
   }
   const r = await client.call('orientim_recover');
   report(group, 'recover: everything settled', r.ok ? 'ok' : 'fail', r.ok ? r.meaning : errorLine(r));
   await client.close();
-} else if (process.env.LIVE_SWAPS === '1') {
+} else if (mode === '1' || mode === 'full') {
   report('swaps', 'real swaps', 'warn', 'not run: no funded test wallet');
 }
 
