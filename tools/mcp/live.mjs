@@ -44,6 +44,11 @@ const rows = [];
 function report(group, name, status, detail = '') {
   rows.push({ group, name, status, detail });
   console.log(`${{ ok: 'ok  ', warn: 'WARN', skip: 'SKIP' }[status] ?? 'FAIL'} [${group}] ${name}${detail ? `: ${detail}` : ''}`);
+  // The run's annotations name what failed, beside the summary.
+  if (process.env.GITHUB_ACTIONS && (status === 'fail' || status === 'warn')) {
+    const one = s => String(s).replace(/[\r\n%]/g, ' ');
+    console.log(`::${status === 'fail' ? 'error' : 'warning'} title=${one(`${group}: ${name}`).replace(/[:,]/g, ' ')}::${one(detail)}`);
+  }
 }
 
 // One MCP client session over the server's stdio.
@@ -260,6 +265,7 @@ const warned = rows.filter(r => r.status === 'warn').length;
 const verdict = failed ? `${failed} failed` : warned ? `incomplete: ${warned} could not be proven` : 'all passed';
 const where = `${process.platform}, Node ${process.version}, ${[command, ...commandArgs].join(' ')}`;
 console.log(`\n${verdict} (${where})`);
+if (process.env.GITHUB_ACTIONS) console.log(`::notice title=MCP live::${verdict}: ${rows.filter(r => r.status === 'ok').length} passed of ${rows.length}`);
 if (process.env.GITHUB_STEP_SUMMARY) {
   const cell = s => String(s).replaceAll('|', '\\|').replaceAll('\n', ' ');
   appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
