@@ -92,10 +92,13 @@ async function executes(prepared: PreparedSwap): Promise<{ ok: boolean; error: s
  * Builds and executes one swap, once more if the price moved in between. `feeSide`: where the fee
  * must be taken, so a fee path that stopped working fails the run rather than going fee-free.
  */
+/** The listed tokens whose every route failed in simulation, this run. */
+const unbuildable: string[] = [];
+
 async function swap(
   name: string, inputMint: Address, outputMint: Address, amountIn: bigint,
   opts: { want?: string; feeSide?: FeeSide; version?: TxVersion; treasury?: Address } = {},
-): Promise<'done' | 'elsewhere' | 'failed'> {
+): Promise<'done' | 'elsewhere' | 'failed' | 'unbuildable'> {
   const { want } = opts;
   const mints = await fetchMints(rpc, [inputMint, outputMint]);
   for (let round = 0; round < 2; round++) {
@@ -109,6 +112,12 @@ async function swap(
     } catch (e) {
       const code = e instanceof OrientimError ? e.code : 'error';
       if (want && code === 'no-route') return 'elsewhere';
+      // A token picked from a list (the newest on a curve, say) whose every route fails in simulation,
+      // through other markets too: the token's, said by the caller unless every token tried fails so.
+      if (want && code === 'simulation-failed') {
+        unbuildable.push(`${name}: ${(e as Error).message.slice(0, 160)}`);
+        return 'unbuildable';
+      }
       if (isLoad(e) && round === 0) continue;
       report(isLoad(e) ? 'warn' : 'fail', name, `not built: ${code}: ${(e as Error).message.slice(0, 200)}`);
       return 'failed';
@@ -226,12 +235,23 @@ for (const [market, want, url] of [
     report('warn', market, `the Jupiter token list could not be read (${listed})`);
     continue;
   }
-  let outcome: 'done' | 'elsewhere' | 'failed' = 'elsewhere';
+  let outcome: 'done' | 'elsewhere' | 'failed' | 'unbuildable' = 'elsewhere';
+  const before = unbuildable.length;
+  let tried = 0;
   for (const t of listed.filter(x => x.id.endsWith('pump')).slice(0, 8)) {
+    tried++;
     outcome = await swap(`SOL → ${t.symbol} (${market})`, WSOL_MINT, address(t.id), 20_000_000n, { want, feeSide: 'input' });
-    if (outcome !== 'elsewhere') break;
+    if (outcome === 'done' || outcome === 'failed') break;
   }
-  if (outcome === 'elsewhere') report('warn', market, `no listed token routed through ${market}`);
+  const failedInSimulation = unbuildable.slice(before);
+  if (outcome !== 'done' && outcome !== 'failed') {
+    // One new token with a broken pool says nothing about Orientim; every token tried failing so does.
+    if (failedInSimulation.length >= 3 && failedInSimulation.length === tried) {
+      report('fail', market, `every token tried failed in simulation (${tried}): ${failedInSimulation[0]}`);
+    } else {
+      report('warn', market, `no listed token routed through ${market}${failedInSimulation.length ? `; ${failedInSimulation.length} failed in simulation on every route, first ${failedInSimulation[0]}` : ''}`);
+    }
+  }
 }
 
 const ok = verdicts.filter(v => v === 'ok').length;
