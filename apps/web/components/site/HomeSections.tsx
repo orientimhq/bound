@@ -11,10 +11,10 @@ const CAPSULE_STEPS = [
 ];
 
 const AGENT_POINTS = [
-  ['Checks before signing', 'The skill and the command line check the exact transaction on your own connection to Solana.'],
+  ['Checks before signing', 'The skill, the MCP server and the command line check the exact transaction on your own connection to Solana.'],
   ['Limits you set', 'An amount per swap, a daily budget, the tokens it may buy and the most slippage it may take, in the owner’s policy.'],
   ['Recovers an interrupted order', 'After a restart it settles what was in flight before anything new, and never swaps an order twice as long as its state directory is kept.'],
-  ['Works with your stack', 'A skill for coding agents. For bots in any language, a command line: JSON in, JSON out, clear exit codes.'],
+  ['Works with your stack', 'Claude Desktop, Cursor and other assistants through MCP, with one click. A skill for coding agents. For bots in any language, a command line: JSON in, JSON out, clear exit codes.'],
 ];
 
 /** How an agent starts: the key, the skill, the first swap (the developer page has each in full). */
@@ -112,6 +112,7 @@ export function HomeSections() {
                 {AGENT_POINTS.map(([title, text]) => <li key={title}><b>{title}</b><span>{text}</span></li>)}
               </ul>
               <div className="cta-actions">
+                <a className="button ghost-link" href="/developers#mcp">Add to Claude Desktop</a>
                 <a className="button ghost-link" href="/developers">Developer docs</a>
               </div>
               <p className="cta-note">
