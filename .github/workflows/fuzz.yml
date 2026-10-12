@@ -586,7 +586,7 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: package-lock.json
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - name: Fuzz
         env:
           ORIENTIM_FUZZ_RUNS: ${{ matrix.runs }}
@@ -630,8 +630,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
-      - run: npm install --no-save litesvm@1.4.1
+      - run: npm ci --ignore-scripts
+      - run: npm install --no-save --ignore-scripts litesvm@1.4.1
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 23 September 2026
       - name: Install the Solana toolchain
         run: |

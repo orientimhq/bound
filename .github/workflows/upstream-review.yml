@@ -25,7 +25,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - name: Jupiter's own floor, and the arguments the verifier reads
         run: node tests/integration/jupiter-floor.ts
       - name: The canary's swaps, every market proven

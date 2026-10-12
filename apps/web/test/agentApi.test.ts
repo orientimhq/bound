@@ -1111,6 +1111,7 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     expect(line).not.toContain('SECRET123');
     expect(line).not.toContain('KEY456');
     expect(line).not.toContain(wallet);
+    expect(loggableError(new Error('fetch https://user:PASS789@rpc.example/x failed'))).not.toContain('PASS789');
     expect(loggableError('plain text')).toBe('plain text');
   });
 

@@ -28,7 +28,7 @@ export function maskedReason(text: string, max = 160): string {
  */
 export function loggableError(e: unknown): string {
   const text = e instanceof Error ? `${e.stack ?? `${e.name}: ${e.message}`}${e.cause ? `\ncause: ${loggableCause(e.cause)}` : ''}` : String(e);
-  return maskedReason(text.replace(/\b(https?|wss?):\/\/([^\s/'"?#]+)[^\s'"]*/g, '$1://$2/…'), 4_000);
+  return maskedReason(text.replace(/\b(https?|wss?):\/\/(?:[^\s/'"?#@]*@)?([^\s/'"?#@]+)[^\s'"]*/g, '$1://$2/…'), 4_000);
 }
 const loggableCause = (c: unknown) => (c instanceof Error ? `${c.name}: ${c.message}` : String(c));
 

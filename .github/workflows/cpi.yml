@@ -23,6 +23,10 @@ on:
       - '.github/workflows/cpi.yml'
   workflow_dispatch:
 
+# Read only: no step here publishes or writes, and install scripts never run.
+permissions:
+  contents: read
+
 jobs:
   cpi:
     runs-on: ubuntu-latest
@@ -33,9 +37,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       # The lockfile is written on Windows, where litesvm has no binary; make sure the Linux one is here.
-      - run: npm install --no-save litesvm@1.4.1
+      - run: npm install --no-save --ignore-scripts litesvm@1.4.1
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 23 September 2026
       - name: Install the Solana toolchain

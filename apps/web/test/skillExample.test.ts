@@ -29,12 +29,12 @@ import {
   acquireLock, OrientimApiError, checkPrepared, confirm, createFileStore, protectedSwap, recoverPending, resolvePending,
   OrientimOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
   fillAgainstQuote, PriceImpactError, receivedFor, FloorError, prepareChecked, ownFloor, IntentError,
-  ERROR_MEANINGS, exitCodeOf, failureCause, networkCause, outcomeMeaning, LockBusyError, loadPolicy, policyPathFor, PolicyError, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keptApproval, temporaryAuthorityOf,
+  APPROVAL_MS, ERROR_MEANINGS, exitCodeOf, failureCause, networkCause, outcomeMeaning, LockBusyError, loadPolicy, policyPathFor, PolicyError, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keptApproval, temporaryAuthorityOf,
 } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import type { OrderBook, OrderRecord, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, chownSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -1118,6 +1118,25 @@ describe('orientim-verify, the command for bots in other languages', () => {
     expect(keptApproval(dir, key, now)?.minOut).toBe('7');
     expect(keptApproval(dir, key, now + 24 * 60 * 60_000 + 1)).toBeNull();
     expect(approvalFor(dir, key)).toBeNull();
+  });
+
+  it('an approval no dry run could have written is not kept', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-approval-'));
+    const key = { owner: 'W', inputMint: 'A', outputMint: 'B', amountIn: '5' };
+    const now = Date.now();
+    recordApproval(dir, { ...key, minOut: '7', expiresAt: 99_999_999_999_999 });
+    expect(keptApproval(dir, key, now)).toBeNull();
+    expect(approvalFor(dir, key)).toBeNull();
+    recordApproval(dir, { ...key, minOut: '7', expiresAt: now + APPROVAL_MS });
+    expect(keptApproval(dir, key, now)?.minOut).toBe('7');
+  });
+
+  it.runIf(process.platform !== 'win32' && process.geteuid?.() === 0)('refuses a state directory another user owns, whatever its mode', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-foreign-'));
+    chmodSync(dir, 0o755);
+    chownSync(dir, 65534, 65534);
+    expect(() => createFileStore(dir)).toThrow(/belongs to another user/);
+    expect(() => recordApproval(dir, { owner: 'W', inputMint: 'A', outputMint: 'B', amountIn: '5', minOut: '1', expiresAt: Date.now() })).toThrow(/belongs to another user/);
   });
 
   it('nothing new is prepared while an earlier swap could still land, and recover says which', async () => {

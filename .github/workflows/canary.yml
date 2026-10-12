@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       # A paid RPC and a Jupiter key make it steadier; without them the public ones are used.
       - run: node tools/canary.ts
         env:

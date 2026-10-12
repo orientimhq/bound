@@ -99,7 +99,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - run: npm ci --ignore-scripts
         working-directory: skills/orientim-protected-swap
       - name: The test wallet

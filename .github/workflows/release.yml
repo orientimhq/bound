@@ -26,7 +26,7 @@ jobs:
           node-version: 24
           # No cache where a release is built and signed: only the lockfile's hashes decide what is installed.
           package-manager-cache: false
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       # Nothing is published that has not passed the tests and the skill bundle's check: a digest
       # says which code runs, not that it was tested.
       - run: npm run typecheck
@@ -49,7 +49,7 @@ jobs:
 
           \`\`\`
           git checkout $GITHUB_REF_NAME
-          npm ci
+          npm ci --ignore-scripts
           NEXT_PUBLIC_ORIENTIM_TREASURY=$NEXT_PUBLIC_ORIENTIM_TREASURY NEXT_PUBLIC_ORIENTIM_FEE_BPS=$NEXT_PUBLIC_ORIENTIM_FEE_BPS NEXT_PUBLIC_ORIENTIM_ENABLE_V1=$NEXT_PUBLIC_ORIENTIM_ENABLE_V1 ORIENTIM_BUILD_ID=$GITHUB_SHA npm run build
           node tools/build-digest.ts
           \`\`\`
