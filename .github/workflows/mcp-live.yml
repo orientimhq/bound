@@ -6,7 +6,9 @@ name: MCP live
 # input. With the secret CANARY_WALLET_KEYPAIR (a solana-keygen file of a wallet kept for this, holding
 # 0.02 SOL or more): quotes of majors, memecoins, an LST and a Token-2022 token, and the owner's
 # limits, nothing signed. swaps set to 1 also swaps for real on each system, 0.002 SOL to USDC and
-# back: a few cents of fees from the test wallet. The report is each job's summary.
+# back, and then through the skill's two other ways in (tools/live-channels.mjs): the agent's command
+# line and orientim-verify, each fee side, an order run again, recover, and tools/pilot-report.ts on
+# the chain. A few cents of fees from the test wallet in all. The report is each job's summary.
 #
 # By hand only. It uses CANARY_RPC_URL and CANARY_JUPITER_API_KEY, the canary's keys apart from
 # production's. One system at a time: the wallet's swaps never overlap.
@@ -79,6 +81,39 @@ jobs:
           JUPITER_API_KEY: ${{ secrets.CANARY_JUPITER_API_KEY }}
           LIVE_SWAPS: ${{ inputs.swaps }}
         run: node tools/mcp/live.mjs ${{ steps.server.outputs.command }}
+      - name: Forget the test wallet
+        if: always()
+        run: rm -f "$RUNNER_TEMP/test-wallet.json"
+
+  channels:
+    # After the MCP server's swaps, whatever they found: the same wallet, never two at once.
+    if: ${{ !cancelled() && inputs.swaps == '1' }}
+    needs: live
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm ci --ignore-scripts
+        working-directory: skills/orientim-protected-swap
+      - name: The test wallet
+        env:
+          KEYPAIR: ${{ secrets.CANARY_WALLET_KEYPAIR }}
+        run: |
+          [ -n "$KEYPAIR" ] || { echo "::error::Add the secret CANARY_WALLET_KEYPAIR first."; exit 1; }
+          umask 077
+          printf '%s' "$KEYPAIR" > "$RUNNER_TEMP/test-wallet.json"
+      - name: The agent and the bot, for real
+        env:
+          SOLANA_RPC_URL: ${{ secrets.CANARY_RPC_URL }}
+          JUPITER_API_KEY: ${{ secrets.CANARY_JUPITER_API_KEY }}
+          LIVE_WALLET_KEYPAIR: ${{ runner.temp }}/test-wallet.json
+          LIVE_OUT: ${{ runner.temp }}/channels
+        run: node tools/live-channels.mjs
       - name: Forget the test wallet
         if: always()
         run: rm -f "$RUNNER_TEMP/test-wallet.json"
