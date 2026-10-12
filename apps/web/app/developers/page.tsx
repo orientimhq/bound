@@ -6,7 +6,7 @@ import { GetApiKey } from '@/components/site/GetApiKey';
 import { KeyAccess } from '@/components/site/KeyAccess';
 import { FEE_BPS, TREASURY } from '@/lib/client/config';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
-import { SKILL_ARCHIVE, SKILL_VERSION } from '@/lib/server/skillSums';
+import { SKILL_ARCHIVE, SKILL_EXTENSION, SKILL_VERSION } from '@/lib/server/skillSums';
 
 /** The skill's public source: the same files, and a build that gives the same zip (tools/build-skill.ts). */
 const SKILL_SOURCE = 'https://github.com/orientimhq/orientim-protected-swap';
@@ -432,9 +432,9 @@ if code == 0:
             <section id="mcp">
               <h2>Assistants: the MCP server</h2>
               <p>
-                <code>bin/orientim-mcp.mjs</code> in the skill is an MCP server for Claude Desktop, Claude Code, Cursor and any client
-                that starts a local MCP server. It gives the assistant four tools, and every swap runs the skill&apos;s own code: the
-                check on your RPC, your limits and the record of each order.
+                The skill as an MCP server, for Claude Desktop, Claude Code, Cursor and any client that starts a local MCP server.
+                It gives the assistant four tools, and every swap runs the skill&apos;s own code: the check on your RPC, your limits and
+                the record of each order.
               </p>
               <ul>
                 <li><strong>orientim_wallet</strong>: the wallet&apos;s address and balances, read on your RPC.</li>
@@ -442,15 +442,18 @@ if code == 0:
                 <li><strong>orientim_swap</strong>: swaps the quote you said yes to, and only that quote, within 10 minutes.</li>
                 <li><strong>orientim_recover</strong>: settles a swap that was interrupted.</li>
               </ul>
+              <h3>Claude Desktop: one click</h3>
               <p>
-                Run <code>npm ci</code> in the skill folder, then add the server to your client&apos;s configuration (Claude Desktop:{' '}
-                <code>claude_desktop_config.json</code>; Cursor: <code>.cursor/mcp.json</code>):
+                Download <a href={SKILL_EXTENSION} download>orientim.mcpb</a> (version {SKILL_VERSION}) and open it. Claude Desktop
+                asks for your RPC, the wallet&apos;s keypair file and, if you like, your Jupiter key and your limits, and keeps the
+                secrets itself. Nothing else to install: Claude Desktop brings its own Node.
               </p>
+              <h3>Cursor, Claude Code and other clients: one line</h3>
               <pre tabIndex={0}><code>{`{
   "mcpServers": {
     "orientim": {
-      "command": "node",
-      "args": ["/path/to/orientim-protected-swap/bin/orientim-mcp.mjs"],
+      "command": "npx",
+      "args": ["-y", "orientim-mcp@${SKILL_VERSION}"],
       "env": {
         "SOLANA_RPC_URL": "https://your-own-rpc.example/...",
         "ORIENTIM_WALLET_KEYPAIR": "/path/to/agent-wallet.json",
@@ -460,9 +463,14 @@ if code == 0:
   }
 }`}</code></pre>
               <p>
-                Without <code>ORIENTIM_API_KEY</code>, the server gets the wallet&apos;s own <a href="#access">API key</a> once and keeps
-                it on your machine. The assistant sees the wallet&apos;s address and what each swap did, never the key. The server runs
-                where the key is, on your machine: assistants that only reach remote servers, such as ChatGPT, cannot start it.
+                In Claude Code: <code>{`claude mcp add --transport stdio orientim --env SOLANA_RPC_URL=... --env ORIENTIM_WALLET_KEYPAIR=... -- npx -y orientim-mcp@${SKILL_VERSION}`}</code>.
+                The package is one file with nothing beside it, published from the open-source repository&apos;s release.
+              </p>
+              <p>
+                You need no <a href="#access">API key</a> of your own: the server gets the wallet&apos;s key once (the wallet needs
+                0.01 SOL) and keeps it on your machine. The assistant sees the wallet&apos;s address and what each swap did, never the
+                key. The server runs where the key is, on your machine: assistants that only reach remote servers, such as ChatGPT,
+                cannot start it.
               </p>
             </section>
 
@@ -787,6 +795,7 @@ POST /api/v1/keys
               <h2>Downloads</h2>
               <ul>
                 <li><a href={SKILL_ARCHIVE} download>orientim-protected-swap.zip</a>: the skill, version {SKILL_VERSION}.</li>
+                <li><a href={SKILL_EXTENSION} download>orientim.mcpb</a>: the MCP server for Claude Desktop, the same version (<a href="#mcp">how to use it</a>).</li>
                 <li>
                   <a href="/skill/SHA256SUMS">SHA256SUMS</a>: the checksum of every file in it. On Windows, in PowerShell, in the
                   unzipped folder; every line must say OK:
