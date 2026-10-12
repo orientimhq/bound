@@ -66,6 +66,11 @@ const verdicts: Verdict[] = [];
 const report = (v: Verdict, name: string, detail: string) => {
   verdicts.push(v);
   console.log(`${v === 'ok' ? 'OK  ' : v === 'warn' ? 'WARN' : 'FAIL'} ${name} — ${detail}`);
+  // On GitHub, each failure and warning is also an annotation of the run, readable without its log.
+  if (process.env.GITHUB_ACTIONS && v !== 'ok') {
+    const one = (t: string) => t.replace(/[\r\n%]/g, ' ');
+    console.log(`::${v === 'fail' ? 'error' : 'warning'} title=${one(name).replace(/[:,]/g, ' ')}::${one(detail)}`);
+  }
 };
 
 /** Load and moving prices say nothing about Orientim or Jupiter's format; everything else does. */
