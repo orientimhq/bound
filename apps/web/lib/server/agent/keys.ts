@@ -41,7 +41,7 @@ export function challengeMessage(o: { domain: string; uri: string; wallet: strin
     `${o.domain} wants you to sign in with your Solana account:`,
     o.wallet,
     '',
-    'Get an Orientim API key for this wallet. Signing costs nothing and gives no access to your funds.',
+    'Get an Orientim API key for this wallet, and accept the Terms of Use at https://orientim.com/terms. Signing costs nothing and gives no access to your funds.',
     '',
     `URI: ${o.uri}`,
     'Version: 1',

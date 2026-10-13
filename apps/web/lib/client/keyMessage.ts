@@ -19,7 +19,7 @@ export function isKeyMessage(message: unknown, host: string, wallet: string, now
   return lines.length === 11
     && lines[0] === `${host} wants you to sign in with your Solana account:`
     && lines[1] === wallet && lines[2] === ''
-    && lines[3] === 'Get an Orientim API key for this wallet. Signing costs nothing and gives no access to your funds.'
+    && lines[3] === 'Get an Orientim API key for this wallet, and accept the Terms of Use at https://orientim.com/terms. Signing costs nothing and gives no access to your funds.'
     && lines[4] === ''
     && (lines[5] === `URI: https://${host}/developers#access` || (/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host) && lines[5] === `URI: http://${host}/developers#access`))
     && lines[6] === 'Version: 1'
