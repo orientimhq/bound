@@ -9,7 +9,7 @@ const SHOWN: Record<SwapState, { title: string; row: string; className: string }
   running: { title: 'Protected swaps are running', row: 'Running', className: 'status-ok' },
   degraded: {
     title: 'Protected swaps may fail right now',
-    row: 'Degraded: a service swaps depend on (the Solana RPC, Jupiter or the swap API) is not answering, so new swaps may be refused. Your funds are not affected.',
+    row: 'Degraded: new swaps may be refused for now. Your funds are not affected.',
     className: 'status-warn',
   },
   paused: { title: 'Protected swaps are paused', row: 'Paused: no new swaps start. Your funds are not affected.', className: 'status-bad' },
@@ -27,8 +27,7 @@ export default async function Page() {
           <span className={shown.className}>{shown.row}</span>
         </div>
         <p>
-          When something is wrong, Orientim stops new swaps first: the agent API prepares and signs nothing while paused. A swap already
-          sent is settled by the Solana network.
+          When something is wrong, Orientim pauses new swaps. A swap already sent is settled by the Solana network.
         </p>
       </section>
     </InfoPage>

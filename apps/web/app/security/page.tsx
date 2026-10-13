@@ -21,7 +21,7 @@ const SUPPORTED: [string, string][] = [
   ['Tokens whose issuer can move balances through a program, or with an active transfer hook, frozen by default, pausable, non-transferable, interest-bearing, requiring a memo, with a scaled UI amount, or with a Token-2022 extension Orientim has not reviewed', 'Refused, with the reason'],
   ['Tokens whose issuer can freeze accounts or mint more (USDC and USDT among them)', 'Supported; shown to your agent before it signs'],
   ['A token account of your wallet that its issuer has frozen', 'Refused, with the reason: the swap could not land'],
-  ['Routes through a market that would leave an account open', 'Refused: its deposit would be lost'],
+  ['Routes through a market that would leave an account open', 'Refused'],
   ['Routes too large for one transaction', 'Refused: Orientim never splits a swap'],
 ];
 
@@ -47,7 +47,7 @@ export default async function Page() {
             With the skill, the command line or the MCP server, the exact transaction is checked again on your own connection to Solana before signing.
             A direct API client must run the same independent check before handing bytes to its signer.
           </li>
-          <li>Your agent&apos;s wallet signs first. Orientim checks that it signed exactly what was checked, then adds the last signature, with the one-time key, and sends it.</li>
+          <li>Your agent&apos;s wallet signs first. Orientim then adds the one-time key&apos;s signature and sends it.</li>
           <li>The swap runs. If less than your agent&apos;s minimum would arrive, the whole transaction is cancelled.</li>
         </ol>
       </section>
@@ -76,8 +76,7 @@ export default async function Page() {
           </li>
           <li>It cannot stop an agent that can read the signing key from using it outside Orientim. For unattended funds, keep the key in a separate signer with its own limits and use a wallet funded only for the agent&apos;s job.</li>
           <li>
-            Your agent&apos;s own check is worth what the chain state it reads is worth: give it your own RPC, never Orientim&apos;s,
-            and use the skill as published: check a download against its <a href="https://github.com/orientimhq/orientim-protected-swap/releases">GitHub release</a> (<code>gh attestation verify</code>), not against this site.
+            Give your agent its own RPC, never Orientim&apos;s, and use the skill as published: check a download against its <a href="https://github.com/orientimhq/orientim-protected-swap/releases">GitHub release</a> (<code>gh attestation verify</code>), not against this site.
           </li>
         </ul>
       </section>
@@ -106,8 +105,7 @@ export default async function Page() {
       <section id="supported">
         <h2>Supported tokens and wallets</h2>
         <p>
-          Orientim attempts token pairs with a Solana route that fits one protected transaction and passes its checks. A route
-          it cannot build or verify safely is refused, and the answer says why.
+          Most Solana tokens are supported. A swap Orientim cannot protect is refused, and the answer says why.
         </p>
         <div className="table-wrap">
           <table>

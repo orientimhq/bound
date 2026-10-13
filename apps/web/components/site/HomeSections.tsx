@@ -10,7 +10,7 @@ const CAPSULE_STEPS = [
 
 const AGENT_POINTS = [
   ['Checks before signing', 'The skill, the MCP server and the command line check the exact transaction on your own connection to Solana.'],
-  ['Recovers an interrupted order', 'After a restart it settles what was in flight before anything new, and never swaps an order twice as long as its state directory is kept.'],
+  ['Recovers an interrupted order', 'After a restart it settles what was in flight before anything new, and never swaps an order twice.'],
 ];
 
 /** The three ways in, one line each; the developer page has each in full. */
