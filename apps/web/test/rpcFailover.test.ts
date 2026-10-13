@@ -55,13 +55,13 @@ describe('the agent API RPC with a backup', () => {
     await expect(createServerRpc(MAIN, BACKUP).sendTransaction('AA==' as never, { encoding: 'base64' }).send()).rejects.toThrow(/fetch failed/);
   });
 
-  const QUICK = { totalMs: 300, attemptMs: 200, minSendMs: 150 };
+  const QUICK = { totalMs: 300, attemptMs: 200, minSendMs: 150, downMs: 30_000 };
   const balance = () => ok({ context: { slot: 1 }, value: 42 });
 
   it('the main RPC and the backup share one deadline', async () => {
     // Long enough apart that a loaded machine cannot blur them: two deadlines in a row would take
     // attemptMs + totalMs (1 s), one shared deadline totalMs (0.6 s).
-    const SHARED = { totalMs: 600, attemptMs: 400, minSendMs: 150 };
+    const SHARED = { totalMs: 600, attemptMs: 400, minSendMs: 150, downMs: 30_000 };
     const asked = network(hangs, balance);
     const [{ value }, ms] = await timed(() => createServerRpc(MAIN, BACKUP, SHARED).getBalance('11111111111111111111111111111111' as never).send());
     expect(value).toBe(42n);
@@ -83,10 +83,44 @@ describe('the agent API RPC with a backup', () => {
   it('a rate-limited backup stops retrying at the deadline', async () => {
     network(down, () => new Response('busy', { status: 429 }));
     const start = Date.now();
-    await expect(createServerRpc(MAIN, BACKUP, { totalMs: 400, attemptMs: 200, minSendMs: 150 })
+    await expect(createServerRpc(MAIN, BACKUP, { totalMs: 400, attemptMs: 200, minSendMs: 150, downMs: 30_000 })
       .getBalance('11111111111111111111111111111111' as never).send()).rejects.toThrow();
     // Its retries alone would wait at least 1.75 s (250, 500 and 1,000 ms at the least jitter).
     expect(Date.now() - start).toBeLessThan(1_000);
+  });
+
+  it('once the main RPC hangs, the next calls go straight to the backup, until it is tried again', async () => {
+    const TIMES = { totalMs: 600, attemptMs: 300, minSendMs: 150, downMs: 1_000 };
+    const asked = network(hangs, balance);
+    const rpc = createServerRpc(MAIN, BACKUP, TIMES);
+    const read = () => timed(() => rpc.getBalance('11111111111111111111111111111111' as never).send());
+    const [, first] = await read();
+    expect(first).toBeGreaterThanOrEqual(290);
+    // A swap's dozen calls after it: none waits on the main RPC again.
+    for (let i = 0; i < 5; i++) {
+      const [{ value }, ms] = await read();
+      expect(value).toBe(42n);
+      expect(ms).toBeLessThan(200);
+    }
+    expect(asked).toEqual(['main', 'backup', 'backup', 'backup', 'backup', 'backup', 'backup']);
+    // Once the time is up, the main RPC is asked first again, and kept when it answers.
+    await new Promise(r => setTimeout(r, TIMES.downMs + 50));
+    const again = network(balance, balance);
+    await read();
+    await read();
+    expect(again).toEqual(['main', 'main']);
+  });
+
+  it('while the main RPC is down, a send is taken from the backup only as a success', async () => {
+    const TIMES = { totalMs: 600, attemptMs: 300, minSendMs: 150, downMs: 10_000 };
+    network(down, balance);
+    const rpc = createServerRpc(MAIN, BACKUP, TIMES);
+    await rpc.getBalance('11111111111111111111111111111111' as never).send();
+    const asked = network(down, () => refused());
+    await expect(rpc.sendTransaction('AA==' as never, { encoding: 'base64' }).send()).rejects.toThrow();
+    expect(asked).toEqual(['backup']);
+    network(down, () => ok('5igSignature'));
+    expect(await rpc.sendTransaction('AA==' as never, { encoding: 'base64' }).send()).toBe('5igSignature');
   });
 
   it('a 4xx from the main RPC is its answer, not an outage', async () => {
