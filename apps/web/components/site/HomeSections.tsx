@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+import { SKILL_ARCHIVE, SKILL_EXTENSION, SKILL_VERSION } from '@/lib/server/skillSums';
 import { AgentTerminal, CapsuleFlow } from './Motion';
 
 const CAPSULE_STEPS = [
@@ -9,7 +11,25 @@ const CAPSULE_STEPS = [
 const AGENT_POINTS = [
   ['Checks before signing', 'The skill, the MCP server and the command line check the exact transaction on your own connection to Solana.'],
   ['Recovers an interrupted order', 'After a restart it settles what was in flight before anything new, and never swaps an order twice as long as its state directory is kept.'],
-  ['Works with your stack', 'Claude Desktop with one click, Cursor, Claude Code and other assistants with one line, through MCP. A skill for coding agents. For bots in any language, a command line: JSON in, JSON out, clear exit codes.'],
+];
+
+/** The three ways in, one line each; the developer page has each in full. */
+const GET_IT: { id: string; label: string; line: string; note: ReactNode; docs: string }[] = [
+  {
+    id: 'mcp', label: 'MCP server', line: `npx -y orientim-mcp@${SKILL_VERSION}`,
+    note: <>For Cursor, Claude Code, VS Code and other assistants. Or <a href={SKILL_EXTENSION} download>one click in Claude Desktop</a>.</>,
+    docs: '/developers#mcp',
+  },
+  {
+    id: 'skill', label: 'Agent skill', line: 'unzip orientim-protected-swap.zip -d .claude/skills/',
+    note: <>For Claude Code and other coding agents. <a href={SKILL_ARCHIVE} download>Download the skill</a> (v{SKILL_VERSION}).</>,
+    docs: '/developers#skill',
+  },
+  {
+    id: 'cli', label: 'Command line', line: 'echo \'{"intent": {...}}\' | node bin/orientim-verify.mjs prepare',
+    note: <>For bots in Python, Rust, Go or any language: JSON in, JSON out, clear exit codes.</>,
+    docs: '/developers#cli',
+  },
 ];
 
 /** How an agent starts: the key, the skill, the first swap (the developer page has each in full). */
@@ -40,6 +60,26 @@ export function HomeSections() {
           </div>
           <div className="hero-app">
             <AgentTerminal />
+          </div>
+        </div>
+      </section>
+
+      {/* How to get it, right under the hero: tabs without script (radio buttons and CSS). */}
+      <section className="get-it" aria-label="Get Orientim">
+        <div className="container">
+          <div className="get-tabs">
+            {GET_IT.map((g, i) => (
+              <input key={g.id} type="radio" name="get-it" id={`get-${g.id}`} className={`get-radio get-radio-${g.id}`} defaultChecked={i === 0} />
+            ))}
+            <div className="get-labels" role="presentation">
+              {GET_IT.map(g => <label key={g.id} htmlFor={`get-${g.id}`} className={`get-label get-label-${g.id}`}>{g.label}</label>)}
+            </div>
+            {GET_IT.map(g => (
+              <div key={g.id} className={`get-panel get-panel-${g.id}`}>
+                <pre tabIndex={0}><code><span className="get-prompt">$</span> {g.line}</code></pre>
+                <p>{g.note} <a className="get-docs" href={g.docs}>Docs →</a></p>
+              </div>
+            ))}
           </div>
         </div>
       </section>

@@ -378,4 +378,19 @@ a.ghost { display: inline-flex; align-items: center; }
 .not-covered { margin: 18px 0 0; color: var(--faint); font-size: 13px; }
 .not-covered b { color: var(--muted); }
 @media (max-width: 980px) { .threats, .limits-band { grid-template-columns: minmax(0, 1fr); } .limits-band { padding: 22px; gap: 24px; } }
-@media (max-width: 640px) { 
+/* ---- home: how to get it, under the hero (radio tabs, no script) */
+.get-it { padding: 28px 0 0; }
+.get-tabs { max-width: 760px; margin: 0 auto; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); overflow: hidden; }
+.get-radio { position: absolute; opacity: 0; pointer-events: none; }
+.get-labels { display: flex; gap: 4px; padding: 6px; border-bottom: 1px solid var(--line-soft); }
+.get-label { padding: 7px 14px; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--muted); cursor: pointer; }
+.get-label:hover { color: var(--text); }
+.get-panel { display: none; padding: 14px 18px 16px; }
+.get-panel pre { margin: 0; padding: 12px 14px; background: var(--bg); border: 1px solid var(--line-soft); border-radius: 10px; overflow-x: auto; font-family: var(--mono); font-size: 13.5px; }
+.get-prompt { color: var(--accent); user-select: none; }
+.get-panel p { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
+.get-docs { white-space: nowrap; font-weight: 600; }
+.get-radio-mcp:checked ~ .get-panel-mcp, .get-radio-skill:checked ~ .get-panel-skill, .get-radio-cli:checked ~ .get-panel-cli { display: block; }
+.get-radio-mcp:checked ~ .get-labels .get-label-mcp, .get-radio-skill:checked ~ .get-labels .get-label-skill, .get-radio-cli:checked ~ .get-labels .get-label-cli { color: var(--text); background: var(--panel-2); }
+.get-radio:focus-visible ~ .get-labels .get-label { outline: none; }
+.get-radio-mcp:focus-visible ~ .get-labels .get-label-mcp, .get-radio-skill:focus-visible ~ .get-labels .get-label-skill, .get-radio-cli:focus-visible ~ .get-labels .get-label-cli { outline: 2px solid var(--accent); outline-offset: 2px; }
