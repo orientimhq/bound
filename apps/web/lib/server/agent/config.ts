@@ -2,6 +2,7 @@ import { address } from '@solana/kit';
 import { createJupiterClient, heliusPriorityFee, MIN_FEE } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
 import { createServerRpc } from '../rpcFailover';
+import { withSharedReads } from '../sharedReads';
 import type { SolanaRpc } from '@orientim/solana';
 import { serverConfig } from '../config';
 import { treasurySetting } from '../../settings';
@@ -140,7 +141,8 @@ export function agentDeps(): AgentDeps | null {
   if (clients?.for !== identity) {
     clients = {
       for: identity,
-      rpc: createServerRpc(rpcUrl, server.rpcFallbackUrl),
+      // The blockhash and the rent, read once for the swaps that ask at the same time (sharedReads.ts).
+      rpc: withSharedReads(createServerRpc(rpcUrl, server.rpcFallbackUrl)),
       priorityFee: heliusPriorityFee(rpcUrl),
       jupiter: createJupiterClient({
         buildUrl: 'https://api.jup.ag/swap/v2/build',
