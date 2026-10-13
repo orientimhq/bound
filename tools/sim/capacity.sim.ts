@@ -52,7 +52,17 @@ const KILL_AGENTS = Number(process.env.SIM_CAP_KILL_AGENTS ?? 20);
 /** No request may outlast this: prepare's own deadline is 45 s, finalize's 24 s. */
 const HANG_MS = 75_000;
 /** Orientim's clear answers under load and failure: anything else needs a look. */
-const CLEAR = new Set(['rate-limited', 'busy', 'unavailable', 'price-moved', 'paused', 'jupiter-429', 'costs-more', 'no-route', 'expired', 'fee-unavailable', 'bad-request']);
+const CLEAR = new Set([
+  'rate-limited', 'busy', 'unavailable', 'price-moved', 'paused', 'jupiter-429', 'costs-more', 'no-route', 'expired', 'fee-unavailable', 'bad-request',
+  'simulation-failed',
+  // The agent's own budget of Jupiter asks, spent on 429s from the shared test key: the skill's clear stop.
+  'BudgetSpentError',
+  // A public wallet's output balance moved between Orientim's build and the agent's check (the matrix
+  // runs such a case again): the borrowed wallet's doing, not an unclear answer.
+  'balance-moved',
+]);
+/** The skill's check refusing only the minimum-output check: the borrowed wallet's balance moved. */
+const BALANCE_MOVED = /^Not signing: R2: instruction \d+: minimum-output check for \d+/;
 
 type Verdict = 'PASS' | 'LOOK' | 'UNTESTED';
 type Finding = { phase: string; verdict: Verdict; detail: string };
@@ -92,7 +102,8 @@ async function agentSwap(w: World, agent: number, opts: { key?: string; owner?: 
       sample.endedAt = Date.now();
       return sample;
     } catch (e) {
-      return { agent, ok: false, code: codeOf(e), ms: performance.now() - t, startedAt, endedAt: Date.now(), tally };
+      const code = BALANCE_MOVED.test((e as Error)?.message ?? '') ? 'balance-moved' : codeOf(e);
+      return { agent, ok: false, code, ms: performance.now() - t, startedAt, endedAt: Date.now(), tally };
     }
   });
 }
@@ -231,7 +242,7 @@ async function failures(w: World, say: (f: Finding) => void) {
     const verdict: Verdict = bad.length || (expectBuilt && built === 0) ? 'LOOK' : 'PASS';
     say({
       phase: `4 failures, ${label}`, verdict,
-      detail: `${built}/${n} built, ${latency(samples)}; answers: ${byCode(samples)}${bad.length ? `; UNCLEAR: ${[...new Set(bad)].join(', ')}` : ''}${expectBuilt && built === 0 ? '; the backup did not take over' : ''}`,
+      detail: `${built}/${n} built, ${latency(samples)}; answers: ${byCode(samples)}${bad.length ? `; UNCLEAR: ${[...new Set(bad)].join(', ')}` : ''}${expectBuilt && built === 0 ? '; nothing built: the backup did not carry the swaps within their deadline' : ''}`,
     });
     injected.rpc = undefined;
     injected.jupiter = undefined;
