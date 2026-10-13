@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
-// The mainnet simulation matrix only (tools/sim/matrix.sim.ts): never part of `npm test`, which must
-// not reach mainnet. Run by hand or by .github/workflows/sim-matrix.yml.
+// The mainnet simulations only (tools/sim/*.sim.ts: the matrix, the signing services, capacity): never part
+// of `npm test`, which must not reach mainnet. Run by hand or by .github/workflows/sim-matrix.yml.
 export default defineConfig({
   test: {
     include: ['tools/sim/**/*.sim.ts'],

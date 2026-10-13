@@ -11,9 +11,32 @@ name: Simulation matrix
 #
 # By hand only. It uses the secrets CANARY_RPC_URL and CANARY_JUPITER_API_KEY: keys of test accounts,
 # apart from production's, so that the matrix never spends the site's quota.
+#
+# Two more suites, chosen with `suite` (each file's header says more):
+#
+# - signers (tools/sim/signers.sim.ts): wallets held by Turnkey and Privy, through the whole path an agent
+#   takes. Signing without sending, the empty second signature slot, unchanged bytes, v0 with lookup
+#   tables, the service's policy, an unattended agent; how long signing takes against the swap's life, ten
+#   wallets signing at once, a refusal by the service's policy, a signature that times out after signing,
+#   the agent's own credentials, and the service's policy together with ORIENTIM_POLICY. A service whose
+#   secrets are not set is skipped. Nothing is sent unless real_swaps is 1 (three $1.20 swaps per service).
+#   Secrets: TURNKEY_ORGANIZATION_ID, TURNKEY_API_PUBLIC_KEY, TURNKEY_API_PRIVATE_KEY, TURNKEY_WALLET,
+#   TURNKEY_WALLETS, TURNKEY_DENY_WALLET; PRIVY_APP_ID, PRIVY_APP_SECRET, PRIVY_AUTHORIZATION_KEY,
+#   PRIVY_WALLET_ID, PRIVY_WALLET_IDS, PRIVY_DENY_WALLET_ID (tools/sim/providers.ts says what each is).
+# - capacity (tools/sim/capacity.sim.ts): phases 1 to 6, baseline, load, soak, injected failures, abuse
+#   and the kill switch. Prepare only, and finalize with send: false for SIM_WALLET_KEYPAIR's wallet:
+#   nothing is sent. Orientim runs in the job, configured as a deployment is; api_url aims phases 1, 2, 3
+#   and 5 at a deployment (a preview, never production) with the keys in SIM_API_KEYS. Phases 4 and 6
+#   change the configuration, so they run only in the job. Optional: CANARY_RPC_URL_FALLBACK, the backup RPC.
+
 on:
   workflow_dispatch:
     inputs:
+      suite:
+        description: 'matrix (the cases below), signers (Turnkey and Privy) or capacity (phases below)'
+        type: choice
+        options: [matrix, signers, capacity]
+        default: matrix
       groups:
         description: 'Only these groups, comma-separated (repeat, sizes, pairs, majors, whales, personas, pump, tolerance, rules, parity, hard, giants, more-tokens, tamper, approve, burst, v1-compare, modes, fallback, routes, grid); empty for all'
         required: false
@@ -34,12 +57,29 @@ on:
         description: 'Least time between two Jupiter requests, in ms (1100 suits a free key)'
         required: false
         default: '1100'
+      phases:
+        description: 'capacity: the phases, comma-separated (1 baseline, 2 load, 3 soak, 4 failures, 5 abuse, 6 kill switch)'
+        required: false
+        default: '1,2,4,5,6'
+      soak_minutes:
+        description: 'capacity: how long phase 3 runs, in minutes (60 to 120)'
+        required: false
+        default: '60'
+      api_url:
+        description: 'capacity: a deployment for phases 1, 2, 3 and 5 (a preview, never production); empty: Orientim in the job'
+        required: false
+        default: ''
+      real_swaps:
+        description: 'signers: 1 lands three swaps of $1.20 per service on mainnet; 0 sends nothing'
+        required: false
+        default: '0'
 
 permissions:
   contents: read
 
 jobs:
   matrix:
+    if: inputs.suite == 'matrix'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -59,4 +99,61 @@ jobs:
           SIM_VERSION: ${{ inputs.version }}
           SIM_OWN_ROUTES: ${{ inputs.own_routes }}
           SIM_OUT: ${{ runner.temp }}/sim
-        run: node node_modules/vitest/vitest.mjs run --config tools/sim/vitest.config.ts
+        run: node node_modules/vitest/vitest.mjs run --config tools/sim/vitest.config.ts tools/sim/matrix
+
+  signers:
+    if: inputs.suite == 'signers'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Sign with Turnkey and Privy
+        env:
+          RPC_URL: ${{ secrets.CANARY_RPC_URL }}
+          JUPITER_API_KEY: ${{ secrets.CANARY_JUPITER_API_KEY }}
+          SIM_REAL_SWAPS: ${{ inputs.real_swaps }}
+          SIM_OUT: ${{ runner.temp }}/sim
+          TURNKEY_ORGANIZATION_ID: ${{ secrets.TURNKEY_ORGANIZATION_ID }}
+          TURNKEY_API_PUBLIC_KEY: ${{ secrets.TURNKEY_API_PUBLIC_KEY }}
+          TURNKEY_API_PRIVATE_KEY: ${{ secrets.TURNKEY_API_PRIVATE_KEY }}
+          TURNKEY_WALLET: ${{ secrets.TURNKEY_WALLET }}
+          TURNKEY_WALLETS: ${{ secrets.TURNKEY_WALLETS }}
+          TURNKEY_DENY_WALLET: ${{ secrets.TURNKEY_DENY_WALLET }}
+          PRIVY_APP_ID: ${{ secrets.PRIVY_APP_ID }}
+          PRIVY_APP_SECRET: ${{ secrets.PRIVY_APP_SECRET }}
+          PRIVY_AUTHORIZATION_KEY: ${{ secrets.PRIVY_AUTHORIZATION_KEY }}
+          PRIVY_WALLET_ID: ${{ secrets.PRIVY_WALLET_ID }}
+          PRIVY_WALLET_IDS: ${{ secrets.PRIVY_WALLET_IDS }}
+          PRIVY_DENY_WALLET_ID: ${{ secrets.PRIVY_DENY_WALLET_ID }}
+        run: node node_modules/vitest/vitest.mjs run --config tools/sim/vitest.config.ts tools/sim/signers
+
+  capacity:
+    if: inputs.suite == 'capacity'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Load the agent API
+        env:
+          RPC_URL: ${{ secrets.CANARY_RPC_URL }}
+          SIM_RPC_FALLBACK_URL: ${{ secrets.CANARY_RPC_URL_FALLBACK }}
+          JUPITER_API_KEY: ${{ secrets.CANARY_JUPITER_API_KEY }}
+          SIM_CAPACITY_PHASES: ${{ inputs.phases }}
+          SIM_CAP_SOAK_MINUTES: ${{ inputs.soak_minutes }}
+          SIM_API_URL: ${{ inputs.api_url }}
+          SIM_API_KEYS: ${{ secrets.SIM_API_KEYS }}
+          SIM_WALLET_KEYPAIR: ${{ secrets.SIM_WALLET_KEYPAIR }}
+          SIM_OUT: ${{ runner.temp }}/sim
+          # Memory is read after a forced garbage collection (phase 3).
+          NODE_OPTIONS: --expose-gc
+        run: node node_modules/vitest/vitest.mjs run --config tools/sim/vitest.config.ts tools/sim/capacity
