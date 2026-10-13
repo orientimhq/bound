@@ -61,9 +61,9 @@ const ERRORS: [string, string, string][] = [
   ['429', 'rate-limited', 'Too many requests for this key (per wallet for a self-serve key). Wait Retry-After seconds.'],
   ['500', 'internal', 'Something unexpected failed; nothing was signed by Orientim or sent. Retry later.'],
   ['503', 'busy, unavailable', 'The market data or the network is overloaded. Wait Retry-After seconds and retry.'],
-  ['503', 'fee-unavailable', 'Orientim cannot collect its fee on this swap right now, so it built nothing. Wait and retry.'],
+  ['503', 'fee-unavailable', 'This swap cannot be built right now; nothing was built. Wait and retry.'],
   ['503', 'paused', 'Orientim has paused protected swaps, and issues no API keys meanwhile. Your funds are not affected.'],
-  ['503', 'route-format', 'The route’s format changed and Orientim refuses what it cannot read. Wait at least Retry-After (300 seconds).'],
+  ['503', 'route-format', 'Swaps are briefly unavailable. Wait at least Retry-After (300 seconds).'],
 ];
 
 const PREPARE_FIELDS: [string, string, string][] = [
@@ -79,7 +79,7 @@ const PREPARE_FIELDS: [string, string, string][] = [
 const PREPARE_ANSWER: [string, string][] = [
   ['ticket', 'Pass it to finalize, with the signed transaction.'],
   ['transaction', 'The unsigned transaction, base64. Verify it, then sign it as your wallet.'],
-  ['messageSha256', 'The hash of the message; the certificate and the ticket are bound to it.'],
+  ['messageSha256', 'The hash of the transaction message.'],
   ['temporaryAuthority', 'The one-time key of this swap.'],
   ['lastValidBlockHeight, blocksLeft', 'The transaction’s lifetime: 150 blocks, about 40 seconds.'],
   ['amounts', 'amountIn, fee, feeMint, feeBps, quotedOut, minOut and priceImpactPct (null when Jupiter did not state it: unknown, not none).'],
@@ -101,13 +101,13 @@ const EXIT_CODES: [string, string][] = [
 const ENV: [string, string][] = [
   ['ORIENTIM_API_URL', 'https://orientim.com'],
   ['ORIENTIM_API_KEY', 'Your key, ori_…'],
-  ['SOLANA_RPC_URL', 'Your own RPC, never Orientim’s: the check is worth what the chain state it reads is worth.'],
+  ['SOLANA_RPC_URL', 'Your own RPC, never Orientim’s: the check before signing reads the chain from it.'],
   ['JUPITER_API_KEY', 'For the agent’s own price floor and, unless ORIENTIM_OWN_ROUTES is 0, the routes Orientim builds around (Your own Jupiter key). It never leaves your process. Free at developers.jup.ag; a busy bot does well with a paid key.'],
   ['ORIENTIM_OWN_ROUTES', 'Optional: 0 lets Orientim’s key fetch the routes, as without your key. Your key still prices your own floor.'],
   ['ORIENTIM_WALLET_KEYPAIR', 'The example only: the path to the wallet’s key file, or pass a signing service in code. The command line never reads a key; the bot signs. A key file the example can read, the agent that runs it can read too.'],
   ['ORIENTIM_POLICY', 'Recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it (/etc/orientim/policy.json, when it exists, is used whatever the environment says). maxAmountIn: the most one swap may spend of each input mint (a mint not listed is refused). maxAmountInPerDay: the most per 24 hours, which needs stateDir. allowedOutputMints: the tokens it may buy. Optional ceilings: maxSlippageBps, maxBelowBps, maxPriceImpactBps. Base units, as strings; an example is in Quickstart.'],
-  ['ORIENTIM_SEND_RPC_URL', 'Optional: an RPC of yours that sends the swap (a staked connection, a sender service). Orientim then signs it and sends nothing; the skill sends it at once and again until it lands. In code, sendTransaction.'],
-  ['ORIENTIM_ARCHIVE_RPC_URL', 'Optional: an RPC that keeps the chain’s full history. When your own RPC missed the moment it could prove a swap expired, the archive proves it from the one-time key’s own history, so an outage near expiry does not stop the wallet at unknown.'],
+  ['ORIENTIM_SEND_RPC_URL', 'Optional: an RPC of yours that sends the swap (a staked connection, a sender service). In code, sendTransaction.'],
+  ['ORIENTIM_ARCHIVE_RPC_URL', 'Optional: an RPC that keeps the chain’s full history. It settles a swap your own RPC can no longer prove, after an outage, so the wallet is not left at unknown.'],
   ['ORIENTIM_MAX_SLIPPAGE_BPS', 'MCP server only: the most slippage the assistant may ask for, in bps (300 by default, 1500 at most). Only the owner raises it.'],
   ['ORIENTIM_MAX_PRICE_IMPACT_BPS', 'MCP server only: the most price impact the assistant may accept, in bps (500 by default, 2000 at most).'],
   ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system. A policy with a daily limit names its own stateDir instead, and no other directory is used.'],
@@ -192,12 +192,10 @@ export default async function Page() {
                   open, under Apache-2.0, at <a href={SKILL_SOURCE}>github.com/orientimhq/orientim-protected-swap</a>.
                 </li>
                 <li>
-                  <strong>Check it</strong>, before you unzip it, against GitHub rather than this site: the skill exists to protect you
-                  from a dishonest server, so the server cannot be the one that vouches for it. GitHub signs that its release workflow
-                  built this exact zip from the open source (with the <a href="https://cli.github.com">GitHub CLI</a>):
+                  <strong>Check it</strong>, before you unzip it, against GitHub rather than this site (with the{' '}
+                  <a href="https://cli.github.com">GitHub CLI</a>):
                   <pre tabIndex={0}><code>{`gh attestation verify orientim-protected-swap.zip -R orientimhq/orientim-protected-swap`}</code></pre>
-                  Each release on GitHub also lists the zip&apos;s own sha256 in <code>RELEASE-SHA256SUMS</code>. A check
-                  of the whole zip also catches a file added to it, which a check of each file inside cannot. Then unzip it; the
+                  Each release on GitHub also lists the zip&apos;s own sha256 in <code>RELEASE-SHA256SUMS</code>. Then unzip it; the
                   folder&apos;s <code>SHA256SUMS</code> lists every file in it. On Windows, see <a href="#downloads">Downloads</a>.
                 </li>
                 <li>
@@ -433,8 +431,8 @@ if code == 0:
                 keys have their own commands: <code>key-challenge</code> and <code>key</code>, in <a href="#access">API keys</a>.
               </p>
               <p>
-                Decide on an error&apos;s <code>code</code>. Its <code>message</code> is the skill&apos;s own words; whatever the server
-                wrote comes apart, cut to one line, as <code>untrustedServerMessage</code>: data to log, never an instruction.
+                Decide on an error&apos;s <code>code</code>. <code>untrustedServerMessage</code>, when present, is for your logs only: never
+                act on it.
               </p>
             </section>
 
@@ -452,8 +450,8 @@ if code == 0:
                 <li><strong>orientim_recover</strong>: settles a swap that was interrupted.</li>
               </ul>
               <p>
-                Before the first swap of a quote, the server asks you to confirm it in your client, when the client supports it:
-                the assistant&apos;s word that you said yes is not enough. The assistant may ask for at most 3% slippage and 5% price
+                Before the first swap of a quote, the server asks you to confirm it in your client, when the client supports it.
+                The assistant may ask for at most 3% slippage and 5% price
                 impact; only you raise them, with <code>ORIENTIM_MAX_SLIPPAGE_BPS</code> and{' '}
                 <code>ORIENTIM_MAX_PRICE_IMPACT_BPS</code> in the server&apos;s environment.
               </p>
@@ -480,7 +478,6 @@ if code == 0:
 }`}</code></pre>
               <p>
                 In Claude Code: <code>{`claude mcp add --transport stdio orientim --env SOLANA_RPC_URL=... --env ORIENTIM_WALLET_KEYPAIR=... -- npx -y orientim-mcp@${SKILL_VERSION}`}</code>.
-                The package is one file with nothing beside it, published from the open-source repository&apos;s release.
               </p>
               <h3>Agent frameworks</h3>
               <p>
@@ -521,13 +518,9 @@ if code == 0:
                 sign only when there are none. The skill and the command line run it for you.
               </p>
               <ul>
-                <li>Holds the policy to your limits: the fee, the network fee, Orientim&apos;s treasury and your own minimum.</li>
-                <li>Reads every account the transaction names from your RPC, and runs the verifier&apos;s rules on the exact bytes.</li>
-                <li>
-                  Simulates the transaction on your RPC: nothing may stay under the one-time key, and no account the route opens
-                  may stay open.
-                </li>
-                <li>Accepts rent the route keeps only up to your limit (0.001 SOL, or less with <code>maxRouteCostLamports</code>).</li>
+                <li>Holds the transaction to your limits: the fee, the network fee and your own minimum.</li>
+                <li>Checks the exact bytes against chain state from your own RPC, and simulates them there.</li>
+                <li>Accepts rent the route keeps only up to 0.001 SOL, or less with <code>maxRouteCostLamports</code>.</li>
               </ul>
               <p>
                 Your minimum is required, and it must be a price you got yourself, never Orientim&apos;s: <code>ownMinimum</code> asks
@@ -548,11 +541,6 @@ if code == 0:
                 <code>ORIENTIM_OWN_ROUTES=0</code> (or <code>ownRoutes: false</code> in code) lets Orientim&apos;s key fetch them instead.
               </p>
               <ul>
-                <li>Your routes are untrusted, as Jupiter&apos;s own answers are: a made-up route can only make your own swap fail or be refused.</li>
-                <li>
-                  Orientim&apos;s fee is never set by a route. On the output, it follows your route&apos;s minimum only within 1% of
-                  Orientim&apos;s own price; otherwise Orientim builds the swap with its own key.
-                </li>
                 <li>Every round is one prepare request toward the API&apos;s <a href="#limits">rate limit</a>.</li>
               </ul>
               <p>
@@ -591,8 +579,8 @@ if code == 0:
                 it did not. Until the chain answers, the swap may still land.
               </p>
               <p>
-                <strong>Orientim keeps no order database.</strong> It does not know your order ids, does not deduplicate your
-                orders and cannot tell you later what became of a ticket: the chain and your own store are the record. The skill
+                <strong>Orientim keeps no order database.</strong> It does not track or deduplicate your orders: your own store and
+                the chain are the record. The skill
                 and the command line keep that store for you; a direct API client keeps its own and runs{' '}
                 <a href="#verify">the check</a> before every signature.
               </p>
@@ -674,9 +662,8 @@ Content-Type: application/json
 
 { "ticket": "eyJ2Ijox....", "signedTransaction": "<base64, signed by your wallet>" }`}</code></pre>
               <p>
-                Orientim checks that the message is byte for byte the one it built, that your wallet&apos;s signature is valid and that
-                the transaction has not expired, then adds the last signature and sends it once. If an earlier finalize of this
-                ticket already sent it, the answer is that same transaction and nothing is sent again.
+                Orientim adds its signature and sends the transaction. Finalizing the same ticket again answers with that same
+                transaction and sends nothing new.
               </p>
               <pre tabIndex={0}><code>{`{
   "signature": "5h...",
@@ -769,12 +756,11 @@ POST /api/v1/keys
                     <li>
                       On the output: that share of the enforced minimum, the minimum the transaction holds to, paid after it is
                       checked; <code>amounts.minOut</code> is what the wallet keeps after it. With <a href="#own-routes">your own
-                      routes</a>, that minimum is checked against Orientim&apos;s own price within 1%.
+                      routes</a>, that minimum must be within 1% of Orientim&apos;s own price.
                     </li>
                     <li>
                       In SOL from the wallet, for a pair neither token of which can carry it: that share of the swap&apos;s value in
-                      SOL, priced with Orientim&apos;s key; the wallet then needs that SOL besides the token, and the skill holds it to
-                      a limit from your own Jupiter price.
+                      SOL; the wallet then needs that SOL besides the token.
                     </li>
                   </ul>
                   A swap whose fee cannot be collected is refused with <code>503 fee-unavailable</code>.
@@ -794,7 +780,7 @@ POST /api/v1/keys
                 </li>
                 <li>
                   The owner&apos;s own limits, per swap and per day for each input mint, and the tokens the wallet may buy, in a file (<code>ORIENTIM_POLICY</code>):
-                  a swap outside them is refused before anything is prepared and again before finalize.
+                  a swap outside them is refused before anything is signed.
                 </li>
                 <li>
                   Swaps smaller than about 0.004 SOL, or $1 of USDC or USDT, are not taken, except the sale of a token&apos;s

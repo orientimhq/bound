@@ -27,7 +27,7 @@ const orientim = new MCPAdapter({
         ORIENTIM_WALLET_KEYPAIR: '/home/agent/agent-wallet.json',
         ORIENTIM_POLICY: '/home/agent/orientim-policy.json',
       },
-      // The server speaks MCP 2025-11-25: in legacy mode the adapter answers its question with this function.
+      // Legacy mode lets the server ask you before a swap, through this function.
       mode: 'legacy',
       onElicitation: async request => {
         const answer = await terminal.question(\`\\n\${request.message}\\nSwap? (yes/no) \`);
@@ -58,8 +58,8 @@ export default async function Page() {
       code={CODE}
       asking={
         <p>
-          Keep <code>mode: &apos;legacy&apos;</code> with <code>onElicitation</code>. The server speaks MCP 2025-11-25, and without
-          legacy mode the adapter does not offer it a way to ask: the swap would go through on the agent&apos;s word alone. Any chat
+          Keep <code>mode: &apos;legacy&apos;</code> with <code>onElicitation</code>: without it the server cannot ask you, and the
+          swap goes through on the agent&apos;s word alone. Any chat
           model LangChain supports works the same way.
         </p>
       }
