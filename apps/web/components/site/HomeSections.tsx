@@ -1,4 +1,4 @@
-import { AgentTerminal, CapsuleFlow, CheckedTwice } from './Motion';
+import { AgentTerminal, CapsuleFlow } from './Motion';
 
 const CAPSULE_STEPS = [
   ['Your wallet never moves.', 'Your agent names the amount. Only that amount steps out, with the costs shown up front. The rest of your SOL, every other token and every NFT stay exactly where they are.'],
@@ -8,7 +8,6 @@ const CAPSULE_STEPS = [
 
 const AGENT_POINTS = [
   ['Checks before signing', 'The skill, the MCP server and the command line check the exact transaction on your own connection to Solana.'],
-  ['Limits you set', 'An amount per swap, a daily budget, the tokens it may buy and the most slippage it may take, in the owner’s policy.'],
   ['Recovers an interrupted order', 'After a restart it settles what was in flight before anything new, and never swaps an order twice as long as its state directory is kept.'],
   ['Works with your stack', 'Claude Desktop with one click, Cursor, Claude Code and other assistants with one line, through MCP. A skill for coding agents. For bots in any language, a command line: JSON in, JSON out, clear exit codes.'],
 ];
@@ -20,21 +19,11 @@ const START_STEPS = [
   ['Ask for a swap', 'Tell your agent: “swap 5 USDC to SOL with Orientim”. It checks the transaction on its own RPC, then signs.'],
 ];
 
-
 const THREATS: [string, string, string][] = [
   ['prompt', 'A message tells your agent to “swap everything” or “set slippage to 15%”.', 'With your policy file set, the skill stops at your limits: per swap, per day, the tokens you allow and the slippage you set.'],
-  ['drain', 'A server hands your agent a transaction that drains the wallet.', 'With the skill or verifier, every instruction is checked on your own RPC. Approvals, authority changes and stray transfers are refused.'],
   ['server', 'The swap server itself is hacked.', 'Orientim holds none of your keys. With the skill or verifier, a changed transaction is refused before it is signed.'],
   ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: a swap that would fill below your tolerance (0.5% by default) reverts, and only the network fee is paid.'],
-  ['token', 'A token built to trap you.', 'Tokens Orientim can’t isolate are refused before anything is signed, with the reason. Powers the issuer keeps, such as a freeze authority, are shown before your agent signs.'],
-  ['crash', 'The agent crashes mid-swap and tries again.', 'The skill keeps every order by id: after a restart it settles what was in flight and, as long as its state directory survives, never swaps it twice.'],
 ];
-
-const KEEPS_NOTHING = [
-  [NoDatabaseIcon, 'No account. No database.', 'Orientim stores no API keys and keeps no database of your swaps. Our host keeps request logs for a short time, never with a key in them.'],
-  [ShieldIcon, 'Never your keys or funds.', 'Your agent signs with its own wallet or signing service. Orientim never holds funds or asks for a seed phrase.'],
-  [EyeOffIcon, 'No tracking.', 'No cookies, analytics or trackers on this site.'],
-] as const;
 
 export function HomeSections() {
   return (
@@ -119,13 +108,8 @@ export function HomeSections() {
               </div>
             </div>
           </div>
-          <div className="checked-twice">
-            <h3>Checked by Orientim, checked again by your agent</h3>
-            <CheckedTwice />
-          </div>
         </div>
       </section>
-
 
       <section className="section" id="protects">
         <div className="container">
@@ -153,15 +137,7 @@ export function HomeSections() {
             <div>
               <p className="eyebrow eyebrow-cyan">Limits you set</p>
               <h3>Rules in a file only you edit.</h3>
-              <ul className="limit-list">
-                <li><b>Per swap</b><span>The most one swap may spend, for each token.</span></li>
-                <li><b>Per day</b><span>The most all swaps may spend in 24 hours.</span></li>
-                <li><b>Only these tokens</b><span>A token not on the list is never spent.</span></li>
-                <li><b>Only these buys</b><span>A token not on your list is never bought, whoever names it.</span></li>
-                <li><b>A price floor</b><span>From your agent’s own quote, never more than 20% below the market.</span></li>
-                <li><b>Max slippage</b><span>The most the price may move against a swap. Your agent can’t raise it.</span></li>
-                <li><b>Max price impact</b><span>A swap that would move a thin market too far is refused.</span></li>
-              </ul>
+              <p className="lead">Per swap, per day, the tokens it may buy and the most slippage it may take. Your agent can’t raise them.</p>
             </div>
             <div className="terminal policy">
               <div className="terminal-bar"><span /><span /><span /><em>orientim-policy.json, annotated</em></div>
@@ -184,19 +160,10 @@ export function HomeSections() {
 
       <section className="section" id="security">
         <div className="container">
-          <div className="section-head">
-            <p className="eyebrow">Private by design</p>
-            <h2>Protection that keeps nothing.</h2>
-          </div>
-          <div className="glass-stage">
-            <div className="ambient" aria-hidden="true" />
-            <ul className="keeps-nothing">
-              {KEEPS_NOTHING.map(([Icon, title, text]) => (
-                <li key={title}><span className="trust-icon"><Icon /></span><h3>{title}</h3><p>{text}</p></li>
-              ))}
-            </ul>
-          </div>
-          <a className="text-link" href="/privacy">Privacy notice →</a>
+          <p className="keeps-nothing-line">
+            No account, no cookies, no tracking. Orientim never holds your keys or funds, and keeps no database of your swaps.{' '}
+            <a href="/privacy">Privacy notice →</a>
+          </p>
         </div>
       </section>
 
@@ -227,31 +194,3 @@ function LockIcon() {
   );
 }
 
-function NoDatabaseIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <ellipse cx="12" cy="5.5" rx="7" ry="2.5" />
-      <path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5M3 3l18 18" />
-    </svg>
-  );
-}
-
-function ShieldIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 3l7 3v5.5c0 4.3-2.9 7.9-7 9.5-4.1-1.6-7-5.2-7-9.5V6z" />
-      <circle cx="12" cy="10.5" r="1.8" />
-      <path d="M12 12.3V15" />
-    </svg>
-  );
-}
-
-function EyeOffIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
-      <circle cx="12" cy="12" r="2.8" />
-      <path d="M4 4l16 16" />
-    </svg>
-  );
-}
