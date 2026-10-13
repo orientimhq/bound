@@ -92,7 +92,7 @@ a.ghost { display: inline-flex; align-items: center; }
 .hero::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: linear-gradient(90deg, transparent, var(--line), transparent); }
 .hero-grid { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 440px; gap: 56px; align-items: center; max-width: 1120px; }
 .hero-title { font-size: clamp(38px, 5vw, 62px); line-height: 1.04; font-weight: 700; letter-spacing: -0.03em; }
-.hero-sub { color: var(--muted); font-size: 18px; line-height: 1.5; max-width: 34ch; margin: 18px 0 0; text-wrap: pretty; }
+.hero-title-dim { color: var(--muted); }
 /* The agent's terminal on a soft green light. */
 .hero-app { position: relative; isolation: isolate; min-width: 0; }
 .hero-app::before { content: ''; position: absolute; inset: 6% -10% 0; z-index: -1; pointer-events: none;
@@ -159,11 +159,6 @@ a.ghost { display: inline-flex; align-items: center; }
 .ghost-link:hover { color: var(--text); border-color: #33454e; }
 
 /* ---- proof, motion, agents, evidence */
-.proof-strip { border-bottom: 1px solid var(--line-soft); background: var(--bg-2); }
-.proof-row { display: flex; justify-content: center; padding-block: 16px; }
-.one-key { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); text-align: center; text-wrap: balance; }
-.one-key svg { margin-right: 10px; vertical-align: -3px; color: var(--accent); }
-.one-key strong { font-family: var(--font-display); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
 
 /* The two diagrams sit on glass: a panel that blurs a soft light behind it, so it reads as depth
    rather than a flat card. Without backdrop-filter the panel is simply solid. */
@@ -345,8 +340,7 @@ a.ghost { display: inline-flex; align-items: center; }
   .mobile-nav { display: block; }
   .header-row { height: 58px; gap: 12px; }
   .hero-title { font-size: 34px; }
-  .hero-sub { font-size: 16px; margin-top: 12px; }
-  .page-grid { opacity: .7; }
+    .page-grid { opacity: .7; }
   .section { padding-top: 64px; }
   .cta-band { padding: 26px 22px; }
   .footer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
