@@ -482,6 +482,11 @@ if code == 0:
                 In Claude Code: <code>{`claude mcp add --transport stdio orientim --env SOLANA_RPC_URL=... --env ORIENTIM_WALLET_KEYPAIR=... -- npx -y orientim-mcp@${SKILL_VERSION}`}</code>.
                 The package is one file with nothing beside it, published from the open-source repository&apos;s release.
               </p>
+              <h3>Agent frameworks</h3>
+              <p>
+                Your own agent starts the same server and gets the same four tools, with your yes before each swap: a working example
+                for <a href="/developers/vercel-ai-sdk">the Vercel AI SDK</a> and for <a href="/developers/langchain">LangChain</a>.
+              </p>
               <p>
                 You need no <a href="#access">API key</a> of your own: the server gets the wallet&apos;s key once (the wallet needs
                 0.01 SOL) and keeps it on your machine. The assistant sees the wallet&apos;s address and what each swap did, never the
