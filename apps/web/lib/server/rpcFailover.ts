@@ -16,8 +16,14 @@ export type FailoverTimes = {
   attemptMs: number;
   /** A send is not started on the backup with less time than this left: it would be cut off mid-way. */
   minSendMs: number;
+  /**
+   * Once the main RPC has failed a call, how long every call goes straight to the backup. Without it,
+   * a main RPC that hangs makes each of a swap's dozen calls wait `attemptMs` first, and no swap fits
+   * in its deadline although the backup answers (the capacity simulation, phase 4).
+   */
+  downMs: number;
 };
-export const FAILOVER_TIMES: FailoverTimes = { totalMs: 25_000, attemptMs: 15_000, minSendMs: 5_000 };
+export const FAILOVER_TIMES: FailoverTimes = { totalMs: 25_000, attemptMs: 15_000, minSendMs: 5_000, downMs: 30_000 };
 
 /** The caller's own signal, if any, and the call's deadline: whichever ends first ends the request. */
 function until(own: AbortSignal | undefined, ms: number): AbortSignal {
@@ -39,18 +45,31 @@ export function createServerRpc(primary: string, fallback: string | null, times:
   // A rate-limited main RPC is retried twice, not five times: the backup is there to take the call.
   const main = retryingTransport(createDefaultRpcTransport({ url: primary as `https://${string}` }), 2, 500, times.attemptMs);
   const backup = retryingTransport(createDefaultRpcTransport({ url: fallback as `https://${string}` }), 3, 500, times.totalMs);
+  // Until when the main RPC is passed over: set when it fails, cleared when it answers again.
+  let mainDownUntil = 0;
   const transport = (async (config: Config) => {
     const deadline = Date.now() + times.totalMs;
     const own = (config as { signal?: AbortSignal }).signal;
+    const method = (config as { payload?: { method?: unknown } }).payload?.method;
+    if (Date.now() < mainDownUntil) {
+      // The main RPC failed a moment ago: the backup alone, with the whole deadline. A send is still
+      // taken only as a success, so that a refusal is never read as "never broadcast" by mistake.
+      if (method !== 'sendTransaction') return backup({ ...config, signal: until(own, times.totalMs) } as Config);
+      const answer = await backup({ ...config, signal: until(own, times.totalMs) } as Config).catch(() => null);
+      if (answer !== null && typeof answer === 'object' && 'result' in answer && !('error' in answer)) return answer;
+      throw new Error('The backup RPC did not accept the transaction while the main RPC is down.');
+    }
     try {
-      return await main({ ...config, signal: until(own, times.totalMs) } as Config);
+      const answer = await main({ ...config, signal: until(own, times.totalMs) } as Config);
+      mainDownUntil = 0;
+      return answer;
     } catch (e) {
       // The caller's own cancel is not an outage; neither is an HTTP error that is not one (4xx).
       if (own?.aborted) throw e;
       const status = httpStatusOf(e);
       if (status !== null && status !== 429 && status < 500) throw e;
+      mainDownUntil = Date.now() + times.downMs;
       const left = deadline - Date.now();
-      const method = (config as { payload?: { method?: unknown } }).payload?.method;
       if (method !== 'sendTransaction') {
         if (left <= 0) throw e;
         return backup({ ...config, signal: until(own, left) } as Config);
