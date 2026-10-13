@@ -1,8 +1,4 @@
-import { FEE_BPS, TREASURY } from '@/lib/client/config';
 import { AgentTerminal, CapsuleFlow, CheckedTwice } from './Motion';
-
-/** The fee this build charges, as the other pages state it. */
-const feeText = `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 
 const CAPSULE_STEPS = [
   ['Your wallet never moves.', 'Your agent names the amount. Only that amount steps out, with the costs shown up front. The rest of your SOL, every other token and every NFT stay exactly where they are.'],
@@ -53,11 +49,6 @@ export function HomeSections() {
               <a className="button primary-link" href="/developers#mcp">Add to Claude Desktop</a>
               <a className="button ghost-link" href="/developers#start">Quickstart</a>
             </div>
-            {TREASURY && (
-              <p className="cta-note">
-                {feeText} a swap, inside the transaction your agent signs. No sign-up, no subscription. <a href="/security#fees">See fees</a>
-              </p>
-            )}
           </div>
           <div className="hero-app">
             <AgentTerminal />
@@ -115,9 +106,6 @@ export function HomeSections() {
                 <a className="button ghost-link" href="/developers#mcp">Add to Claude Desktop</a>
                 <a className="button ghost-link" href="/developers">Developer docs</a>
               </div>
-              <p className="cta-note">
-                The skill is open source, under Apache-2.0: <a href="https://github.com/orientimhq/orientim-protected-swap">read it on GitHub</a>.
-              </p>
             </div>
             <div className="glass-stage">
               <div className="ambient" aria-hidden="true" />
