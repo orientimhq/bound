@@ -44,7 +44,7 @@ export default async function Page() {
         <ol>
           <li>Your agent asks Orientim for a swap. Orientim finds a route across Solana&apos;s markets, builds one transaction around it and checks it against its rules.</li>
           <li>
-            With the skill or command line, the exact transaction is checked again on your own connection to Solana before signing.
+            With the skill, the command line or the MCP server, the exact transaction is checked again on your own connection to Solana before signing.
             A direct API client must run the same independent check before handing bytes to its signer.
           </li>
           <li>Your agent&apos;s wallet signs first. Orientim checks that it signed exactly what was checked, then adds the last signature, with the one-time key, and sends it.</li>
@@ -77,7 +77,7 @@ export default async function Page() {
           <li>It cannot stop an agent that can read the signing key from using it outside Orientim. For unattended funds, keep the key in a separate signer with its own limits and use a wallet funded only for the agent&apos;s job.</li>
           <li>
             Your agent&apos;s own check is worth what the chain state it reads is worth: give it your own RPC, never Orientim&apos;s,
-            and use the skill as published (its hashes are at <a href="/skill/SHA256SUMS">/skill/SHA256SUMS</a>).
+            and use the skill as published: check a download against its <a href="https://github.com/orientimhq/orientim-protected-swap/releases">GitHub release</a> (<code>gh attestation verify</code>), not against this site.
           </li>
         </ul>
       </section>
@@ -90,7 +90,7 @@ export default async function Page() {
             <thead><tr><th>Cost</th><th>Amount</th><th>Who receives it</th></tr></thead>
             <tbody>
               <tr><td>Orientim fee</td><td>{TREASURY ? `${feeText} of the swap: of the amount in, when taken from the input; of the enforced minimum, when taken from the output; of the swap’s value in SOL, when paid in SOL from your wallet` : 'None'}</td><td>Orientim. Inside the transaction you sign: in SOL, USDC or USDT when the swap has one of them, otherwise in the input token or in SOL from your wallet.</td></tr>
-              <tr><td>Network fee</td><td>Usually under 0.0001 SOL, never more than 0.001 SOL</td><td>Solana&apos;s validators. The exact amount is stated before your agent signs.</td></tr>
+              <tr><td>Network fee</td><td>Usually under 0.0001 SOL; the skill refuses more than 0.001 SOL</td><td>Solana&apos;s validators. The exact amount is stated before your agent signs.</td></tr>
               <tr><td>Market account fee</td><td>Only on some markets, such as a Pump.fun launch curve</td><td>The market. Stated before your agent signs, with what comes back.</td></tr>
               <tr><td>Token transfer tax</td><td>Only on tokens that tax transfers</td><td>The token&apos;s issuer. Stated before your agent signs.</td></tr>
             </tbody>

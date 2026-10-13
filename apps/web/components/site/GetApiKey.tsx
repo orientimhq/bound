@@ -125,6 +125,7 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
           {busy ?? 'Get an API key'}
         </button>
       )}
+      {!choosing && <p className="hint">By getting a key, you accept the <a href="/terms">Terms of Use</a> and the <a href="/privacy">Privacy Notice</a>.</p>}
       {/* Always in the page, so that a screen reader announces an error when it appears. */}
       <div aria-live="polite">
         {error && <p className="key-error">{error.text}</p>}

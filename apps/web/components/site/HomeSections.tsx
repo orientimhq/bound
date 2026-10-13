@@ -14,12 +14,12 @@ const AGENT_POINTS = [
   ['Checks before signing', 'The skill, the MCP server and the command line check the exact transaction on your own connection to Solana.'],
   ['Limits you set', 'An amount per swap, a daily budget, the tokens it may buy and the most slippage it may take, in the owner’s policy.'],
   ['Recovers an interrupted order', 'After a restart it settles what was in flight before anything new, and never swaps an order twice as long as its state directory is kept.'],
-  ['Works with your stack', 'Claude Desktop, Cursor and other assistants through MCP, with one click. A skill for coding agents. For bots in any language, a command line: JSON in, JSON out, clear exit codes.'],
+  ['Works with your stack', 'Claude Desktop with one click, Cursor, Claude Code and other assistants with one line, through MCP. A skill for coding agents. For bots in any language, a command line: JSON in, JSON out, clear exit codes.'],
 ];
 
 /** How an agent starts: the key, the skill, the first swap (the developer page has each in full). */
 const START_STEPS = [
-  ['Get an API key', 'Sign Orientim’s message with your agent’s wallet. The key comes at once and lasts 90 days; signing moves nothing.'],
+  ['Get an API key', 'Sign Orientim’s message with your agent’s wallet. The key comes at once and lasts 90 days; signing moves nothing. The MCP server gets one itself.'],
   ['Download the skill', 'Instructions for your agent, a working example, a command line for bots, and the verifier that checks every swap.'],
   ['Ask for a swap', 'Tell your agent: “swap 5 USDC to SOL with Orientim”. It checks the transaction on its own RPC, then signs.'],
 ];
@@ -35,7 +35,7 @@ const THREATS: [string, string, string][] = [
 ];
 
 const KEEPS_NOTHING = [
-  [NoDatabaseIcon, 'No account. No database.', 'Orientim stores no API keys and no list of your swaps. Our host keeps short-lived request logs, never a key or a transaction.'],
+  [NoDatabaseIcon, 'No account. No database.', 'Orientim stores no API keys and keeps no database of your swaps. Our host keeps request logs for a short time, never with a key in them.'],
   [ShieldIcon, 'Never your keys or funds.', 'Your agent signs with its own wallet or signing service. Orientim never holds funds or asks for a seed phrase.'],
   [EyeOffIcon, 'No tracking.', 'No cookies, analytics or trackers on this site.'],
 ] as const;
@@ -47,10 +47,10 @@ export function HomeSections() {
         <div className="container hero-grid">
           <div className="hero-copy">
             <p className="eyebrow">Protected swaps on Solana, for AI agents and bots</p>
-            <h1 className="hero-title">Give your agent a safer way to swap.</h1>
+            <h1 className="hero-title">Let your agent trade. Never let it drain the wallet.</h1>
             <p className="hero-sub">Your agent’s swap only ever reaches the amount it approves, and the skill checks every transaction against your limits before it signs.</p>
             <div className="cta-actions hero-actions">
-              <a className="button primary-link" href="/developers#access">Get an API key</a>
+              <a className="button primary-link" href="/developers#mcp">Add to Claude Desktop</a>
               <a className="button ghost-link" href="/developers#start">Quickstart</a>
             </div>
             {TREASURY && (

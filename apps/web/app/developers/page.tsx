@@ -108,6 +108,8 @@ const ENV: [string, string][] = [
   ['ORIENTIM_POLICY', 'Recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it (/etc/orientim/policy.json, when it exists, is used whatever the environment says). maxAmountIn: the most one swap may spend of each input mint (a mint not listed is refused). maxAmountInPerDay: the most per 24 hours, which needs stateDir. allowedOutputMints: the tokens it may buy. Optional ceilings: maxSlippageBps, maxBelowBps, maxPriceImpactBps. Base units, as strings; an example is in Quickstart.'],
   ['ORIENTIM_SEND_RPC_URL', 'Optional: an RPC of yours that sends the swap (a staked connection, a sender service). Orientim then signs it and sends nothing; the skill sends it at once and again until it lands. In code, sendTransaction.'],
   ['ORIENTIM_ARCHIVE_RPC_URL', 'Optional: an RPC that keeps the chain’s full history. When your own RPC missed the moment it could prove a swap expired, the archive proves it from the one-time key’s own history, so an outage near expiry does not stop the wallet at unknown.'],
+  ['ORIENTIM_MAX_SLIPPAGE_BPS', 'MCP server only: the most slippage the assistant may ask for, in bps (300 by default, 1500 at most). Only the owner raises it.'],
+  ['ORIENTIM_MAX_PRICE_IMPACT_BPS', 'MCP server only: the most price impact the assistant may accept, in bps (500 by default, 2000 at most).'],
   ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system. A policy with a daily limit names its own stateDir instead, and no other directory is used.'],
 ];
 
@@ -167,16 +169,21 @@ export default async function Page() {
               </ul>
               <p>You need:</p>
               <ul>
-                <li>An <a href="#access">API key</a> for the wallet that swaps.</li>
+                <li>An <a href="#access">API key</a> for the wallet that swaps (not for the MCP server: it gets one itself).</li>
                 <li>An RPC of your own.</li>
                 <li>A Jupiter API key of your own (free at developers.jup.ag), for the agent&apos;s own price. It never leaves your machine.</li>
                 <li>A wallet that signs first and hands the transaction back: a local key or a signing service.</li>
-                <li>Node 22.18 or later, for the skill and the command line.</li>
+                <li>Node 22.18 or later, for the skill and the command line (20.18 for the MCP server; Claude Desktop brings its own).</li>
               </ul>
             </section>
 
             <section id="start">
               <h2>Quickstart</h2>
+              <p>
+                <strong>Using Claude Desktop?</strong> Download <a href={SKILL_EXTENSION} download>orientim.mcpb</a>, open it and
+                answer its questions: no API key and nothing else to install (<a href="#mcp">MCP server</a>). For a bot or a coding
+                agent, follow these steps.
+              </p>
               <ol>
                 <li><strong>Get an API key</strong> with the wallet your agent swaps from, in <a href="#access">API keys</a>.</li>
                 <li>
@@ -189,7 +196,7 @@ export default async function Page() {
                   from a dishonest server, so the server cannot be the one that vouches for it. GitHub signs that its release workflow
                   built this exact zip from the open source (with the <a href="https://cli.github.com">GitHub CLI</a>):
                   <pre tabIndex={0}><code>{`gh attestation verify orientim-protected-swap.zip -R orientimhq/orientim-protected-swap`}</code></pre>
-                  Each release on GitHub also lists the zip&apos;s own sha256 in <code>RELEASE-SHA256SUMS</code> (from 1.12.3). A check
+                  Each release on GitHub also lists the zip&apos;s own sha256 in <code>RELEASE-SHA256SUMS</code>. A check
                   of the whole zip also catches a file added to it, which a check of each file inside cannot. Then unzip it; the
                   folder&apos;s <code>SHA256SUMS</code> lists every file in it. On Windows, see <a href="#downloads">Downloads</a>.
                 </li>
@@ -444,6 +451,12 @@ if code == 0:
                 <li><strong>orientim_swap</strong>: swaps the quote you said yes to, and only that quote, within 10 minutes.</li>
                 <li><strong>orientim_recover</strong>: settles a swap that was interrupted.</li>
               </ul>
+              <p>
+                Before the first swap of a quote, the server asks you to confirm it in your client, when the client supports it:
+                the assistant&apos;s word that you said yes is not enough. The assistant may ask for at most 3% slippage and 5% price
+                impact; only you raise them, with <code>ORIENTIM_MAX_SLIPPAGE_BPS</code> and{' '}
+                <code>ORIENTIM_MAX_PRICE_IMPACT_BPS</code> in the server&apos;s environment.
+              </p>
               <h3>Claude Desktop: one click</h3>
               <p>
                 Download <a href={SKILL_EXTENSION} download>orientim.mcpb</a> (version {SKILL_VERSION}), check it against GitHub as
@@ -761,7 +774,7 @@ POST /api/v1/keys
                   </ul>
                   A swap whose fee cannot be collected is refused with <code>503 fee-unavailable</code>.
                 </li>
-                <li>The skill refuses an Orientim fee above 0.3%, whatever the server says, and a network fee above 0.001 SOL.</li>
+                <li>The skill refuses an Orientim fee above 0.25% (up to 0.3% only when you set <code>maxFeeBps</code>), whatever the server says, and a network fee above 0.001 SOL.</li>
                 <li>
                   A slippage tolerance of your choice (<code>slippageBps</code>, 0.1% to 15%); 0.5% by default, 3% on a Pump.fun launch
                   curve.
@@ -802,7 +815,7 @@ POST /api/v1/keys
                 <li>
                   Check a download against GitHub, not this site: <code>gh attestation verify &lt;file&gt; -R
                   orientimhq/orientim-protected-swap</code>, or its sha256 against <code>RELEASE-SHA256SUMS</code> on the{' '}
-                  <a href={`${SKILL_SOURCE}/releases/tag/v${SKILL_VERSION}`}>GitHub release</a> (from 1.12.3). In PowerShell:{' '}
+                  <a href={`${SKILL_SOURCE}/releases/tag/v${SKILL_VERSION}`}>GitHub release</a>. In PowerShell:{' '}
                   <code>(Get-FileHash orientim-protected-swap.zip -Algorithm SHA256).Hash</code>.
                 </li>
                 <li>
