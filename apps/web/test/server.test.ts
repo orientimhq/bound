@@ -54,21 +54,32 @@ describe('the client key comes only from the header the ingress overwrites', () 
     }
   });
 
-  it('a flood of new keys resets no window: while the map is full, new clients share one window', () => {
+  it("a flood of new keys in one limiter never limits another's clients, nor shares a window among newcomers", () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     try {
       // Far enough ahead that every earlier window has ended and the next call sweeps.
       const t0 = Date.now() + 10 * 60_000;
       vi.setSystemTime(t0);
-      rateLimited(`test:sweep:${uniqueIp()}`, 5);
-      const a = `test:limited:${uniqueIp()}`;
-      rateLimited(a, 1);
-      expect(rateLimited(a, 1)).toBe(true);
-      // The oldest window of all, and still limited after the map fills behind it.
-      for (let i = 0; i < 60_000; i++) rateLimited(`test:flood:${t0}:${i}`, 1_000_000);
-      expect(rateLimited(a, 1)).toBe(true);
-      // A new client meets the shared window the flood already spent.
-      expect(rateLimited(`test:late:${uniqueIp()}`, 5)).toBe(true);
+      const agent = `agent:/api/v1/prepare:${uniqueIp()}`;
+      rateLimited(agent, 60);
+      const limited = `agent:/api/v1/prepare:${uniqueIp()}`;
+      rateLimited(limited, 1);
+      expect(rateLimited(limited, 1)).toBe(true);
+      // Key challenges from 60,000 addresses, with hour-long windows.
+      for (let i = 0; i < 60_000; i++) rateLimited(`flood:${t0}:${i}`, 30, 3_600_000);
+      // Another limiter's windows are untouched, the limited one still limited.
+      expect(rateLimited(agent, 60)).toBe(false);
+      expect(rateLimited(limited, 1)).toBe(true);
+      // Once an agent's window ends, its next one is its own again, not an hour-long shared one.
+      vi.setSystemTime(t0 + 61_000);
+      expect(rateLimited(agent, 60)).toBe(false);
+      expect(rateLimited(`health:${uniqueIp()}`, 30)).toBe(false);
+      expect(secondsUntilReset(agent)).toBe(60);
+      // Within the flooded limiter, a newcomer gets a window of its own (the oldest makes room).
+      const late = `flood:late:${uniqueIp()}`;
+      expect(rateLimited(late, 1, 3_600_000)).toBe(false);
+      expect(rateLimited(late, 1, 3_600_000)).toBe(true);
+      expect(rateLimited(`flood:later:${uniqueIp()}`, 1, 3_600_000)).toBe(false);
     } finally {
       vi.useRealTimers();
     }

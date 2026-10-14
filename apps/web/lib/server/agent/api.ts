@@ -265,7 +265,9 @@ function explain(e: unknown): Response {
   }
   const http = httpStatusOf(e);
   if (http === 429) return fail(503, 'busy', "Orientim's Solana RPC is rate limited right now. Wait a few seconds and try again. Nothing was sent.", {}, { 'retry-after': '5' });
-  if ((http !== null && http >= 500) || unanswered(e)) {
+  // Any other HTTP error from the RPC is the RPC's, not the swap's: a 5xx, or a backup whose key has
+  // expired or whose plan ran out (401, 402, 403).
+  if (http !== null || unanswered(e)) {
     return fail(503, 'unavailable', "Orientim's Solana RPC didn't answer. Nothing was sent; try again in a moment.", {}, { 'retry-after': '5' });
   }
   // The RPC answered but could not serve the request: its own fault or its plan's, not the swap's.
@@ -600,6 +602,35 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
 const EARLIER =
   'If an earlier finalize of this ticket went out, that transaction may have landed, or may still land until lastValidBlockHeight: check its signature on your own RPC before preparing again.';
 
+/**
+ * The one message E has signed, per E's nonce, on this instance: E is a one-time key, and a session
+ * (whose rounds share one E, since the routes the agent fetched are built around it) could otherwise
+ * be replayed into several swaps of different terms, each signed by the same E. A first round may
+ * leave the minimum and the tolerance open, so prepare cannot tell a replay from the round that
+ * fills them in; finalize can: it signs one message per E, and the same one again as often as asked.
+ * Kept past any ticket's life (a session's two minutes, then a blockhash's), and per instance only.
+ */
+const signedByE = new Map<string, { msg: string; until: number }>();
+const SIGNED_BY_E_MS = 10 * 60_000;
+const SIGNED_BY_E_MAX = 50_000;
+
+/** May E (of `nonce`) sign `msg`? Yes for its first message and that one again; it is noted here. */
+function oneMessagePerE(nonce: string, msg: string): boolean {
+  const now = Date.now();
+  const had = signedByE.get(nonce);
+  if (had && had.until > now) return had.msg === msg;
+  if (signedByE.size >= SIGNED_BY_E_MAX) {
+    for (const [k, v] of signedByE) {
+      if (v.until > now) break;
+      signedByE.delete(k);
+    }
+    if (signedByE.size >= SIGNED_BY_E_MAX) signedByE.delete(signedByE.keys().next().value!);
+  }
+  signedByE.delete(nonce);
+  signedByE.set(nonce, { msg, until: now + SIGNED_BY_E_MS });
+  return true;
+}
+
 export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Response> {
   const auth = await authenticate(req, deps);
   if (auth instanceof Response) return auth;
@@ -690,6 +721,10 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
         });
       }
     }
+    // Checked and noted in one step, with nothing awaited between: two finalizes at once cannot both pass.
+    if (!oneMessagePerE(ticket.nonce, ticket.msg)) {
+      return refuse(409, 'session-used', 'Orientim already signed another transaction with this one-time key (an earlier round of the same session), and signs one per key. Prepare again without the session; this request signed and sent nothing.');
+    }
     const signed = await countersign(false);
     // Signed, not sent: the agent sends these bytes itself.
     if (!sendIt) {
@@ -725,7 +760,7 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     }
     const http = httpStatusOf(e);
     if (http === 429) return refuse(503, 'busy', "Orientim's Solana RPC is rate limited right now, so this request sent nothing. Wait a few seconds and try finalize again.", {}, { 'retry-after': '5' });
-    if ((http !== null && http >= 500) || unanswered(e) || isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED)) {
+    if (http !== null || unanswered(e) || isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED)) {
       return refuse(503, 'unavailable', "Orientim's Solana RPC didn't answer, so this request sent nothing. Try finalize again in a moment.", {}, { 'retry-after': '5' });
     }
     console.error(loggableError(e));

@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
   address, compileTransaction, decompileTransactionMessage, generateKeyPairSigner, getCompiledTransactionMessageDecoder,
-  SolanaError, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, getPublicKeyFromAddress, getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder,
+  SolanaError, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, getPublicKeyFromAddress, getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder,
   partiallySignTransaction, signBytes, verifySignature,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
@@ -704,6 +704,15 @@ describe("an RPC that answers but cannot serve the request is unavailable, not a
     expect(w.sent).toHaveLength(0);
   });
 
+  it('prepare answers unavailable, not internal, when the RPC refuses with an HTTP 4xx (a backup whose key expired)', async () => {
+    const w = await world();
+    const expired = new SolanaError(SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR, { statusCode: 401, message: 'Unauthorized', headers: new Headers() });
+    w.deps.rpc = new Proxy({}, { get: () => () => ({ send: async () => { throw expired; } }) }) as AgentDeps['rpc'];
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address)), w.deps);
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.code).toBe('unavailable');
+  });
+
   it('prepare answers unavailable, not internal, when a node stays behind the slot of an earlier read', async () => {
     const w = await world();
     const behind = new SolanaError(SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, { contextSlot: 1n });
@@ -1125,6 +1134,26 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     expect(loggableError('plain text')).toBe('plain text');
   });
 
+  it('a URL without its scheme, or with it in capitals or a password holding "@", is cut to its host as well', () => {
+    const lines = [
+      loggableError(new Error('fetch failed: rpc.example.com/v2/APIKEY123456 timed out')),
+      loggableError(new Error('getaddrinfo ENOTFOUND mainnet.helius-rpc.com?api-key=abcd1234-5678')),
+      loggableError(new Error('connect to orientim:s3cr3tP4ss@rpc.example.com:8899/ refused')),
+      loggableError(new Error('POST HTTPS://user:pa@ss@rpc.example.com/?api-key=UPPER999 failed')),
+      loggableError(new Error('upstream said api-key=LOOSE777 is not valid')),
+    ];
+    for (const secret of ['APIKEY123456', 'abcd1234', 's3cr3tP4ss', 'pa@ss', 'UPPER999', 'LOOSE777']) {
+      for (const line of lines) expect(line).not.toContain(secret);
+    }
+    expect(lines[0]).toContain('rpc.example.com/…');
+    expect(lines[1]).toContain('mainnet.helius-rpc.com/…');
+    expect(lines[2]).toContain('rpc.example.com:8899/…');
+    // A stack's own file paths stay readable.
+    const e = new Error('boom');
+    e.stack = 'Error: boom\n    at run (/var/task/.next/server/app/api/v1/prepare/route.js:1:2345)';
+    expect(loggableError(e)).toContain('route.js:1:2345');
+  });
+
   it('without Orientim\'s program labels an excluded DEX cannot be checked: the swap is built with its own key', async () => {
     const asked: unknown[] = [];
     const w = await world({ jupiter: fakeJupiter({ asked: asked as never, labels: 'down' }) });
@@ -1156,6 +1185,40 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     expect((await agentPrepare(post('prepare', { ...noMin, ownRoutes: true }), { ...w.deps, ownRoutes: false })).status).toBe(400);
     const done = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true, session: asked.session, routes })), w.deps);
     expect(done.status).toBe(200);
+  });
+
+  it('a first round replayed with other terms gets no second message signed by the same E', async () => {
+    const w = await world();
+    const { minOut: _m, ...noMin } = swapBody(w.W.address);
+    const first = (await (await agentPrepare(post('prepare', { ...noMin, ownRoutes: true }), w.deps)).json() as Asked).error;
+    const agentMarket = fakeJupiter();
+    const routes = await Promise.all(first.requests.map(async r => ({ params: r, response: await agentMarket.build(paramsOf(r)) })));
+    // The first round left the minimum and the tolerance open: each replay fills them in its own way.
+    const built: Prepared[] = [];
+    for (const terms of [{ minOut: '1' }, { minOut: '3', slippageBps: 100 }, { minOut: '4', slippageBps: 200 }]) {
+      let res!: Response;
+      for (let round = 0; round < 6; round++) {
+        res = await agentPrepare(post('prepare', { ...noMin, ownRoutes: true, session: first.session, routes, ...terms }), w.deps);
+        if (res.status !== 409) break;
+        for (const r of (await res.json() as Asked).error.requests) routes.push({ params: r, response: await agentMarket.build(paramsOf(r)) });
+      }
+      expect(res.status).toBe(200);
+      built.push(await res.json() as Prepared);
+    }
+    expect(new Set(built.map(p => p.temporaryAuthority)).size).toBe(1);
+    expect(new Set(built.map(p => p.messageSha256)).size).toBeGreaterThan(1);
+    const sign = async (p: Prepared) => agentFinalize(post('finalize', { ticket: p.ticket, signedTransaction: await signAsWallet(w.W, p.transaction), send: false }), w.deps);
+    expect((await sign(built[0])).status).toBe(200);
+    // The same message again, as a repeated finalize: the same answer.
+    expect((await sign(built[0])).status).toBe(200);
+    for (const p of built.filter(b => b.messageSha256 !== built[0].messageSha256)) {
+      const res = await sign(p);
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.error.code).toBe('session-used');
+      expect(body.error.signedTransaction).toBeUndefined();
+    }
+    expect(w.sent).toHaveLength(0);
   });
 
   it('a session ends two minutes after the first round, however many rounds follow', async () => {

@@ -9,7 +9,7 @@ import type { KeyPairSigner } from '@solana/kit';
 import { acceptChallenge, challengeMessage, isRevoked, issueKey, KEY_LIFETIME_S, newChallenge, openKey } from '../lib/server/agent/keys.ts';
 import { accessDeps, agentDeps, keySecrets } from '../lib/server/agent/config.ts';
 import { kidOf, newNonce, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
-import { keyChallenge, keyIssue } from '../lib/server/agent/access.ts';
+import { keyChallenge, keyIssue, MIN_KEY_SKILL_VERSION } from '../lib/server/agent/access.ts';
 import type { AccessDeps } from '../lib/server/agent/access.ts';
 import { agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
@@ -172,6 +172,38 @@ describe('the endpoints', () => {
     expect(res.status).toBe(503);
   });
 
+  it('answer a copy of the skill too old for the key message with 426, before any limit counts it', async () => {
+    const W = await generateKeyPairSigner();
+    const headers = (skill: string | null) => ({ ...from(), ...(skill ? { 'x-orientim-skill': skill } : {}) });
+    const challenge = (skill: string | null, d = deps(20_000_000n)) =>
+      keyChallenge(new Request(`https://orientim.com/api/v1/keys/challenge?wallet=${W.address}`, { headers: headers(skill) }), d);
+    const old = await challenge('1.12.2');
+    expect(old.status).toBe(426);
+    const body = await old.json() as { error: { code: string; minimum: string; message: string } };
+    expect(body.error.code).toBe('skill-outdated');
+    expect(body.error.minimum).toBe(MIN_KEY_SKILL_VERSION);
+    expect(body.error.message).toMatch(/npx -y orientim-mcp@\d+\.\d+\.\d+/);
+    expect(body.error.message).toMatch(/orientim\.mcpb/);
+    expect(body.error.message).toMatch(/skill folder/);
+    const c = await newChallenge(secret(5), { domain: 'orientim.com', uri: 'u', wallet: W.address, now: NOW });
+    const issued = await keyIssue(new Request('https://orientim.com/api/v1/keys', {
+      method: 'POST', headers: headers('1.10.8'), body: JSON.stringify({ ...c, signature: await sign(W, c.message) }),
+    }), deps(20_000_000n));
+    expect(issued.status).toBe(426);
+    // Served: the current skill, a request naming none (the site), and what is not a version.
+    for (const skill of [MIN_KEY_SKILL_VERSION, '2.0.0', null, 'dev']) expect((await challenge(skill)).status, String(skill)).toBe(200);
+    // A higher ORIENTIM_MIN_SKILL_VERSION raises the bar here too; a lower one does not lower it.
+    expect((await challenge(MIN_KEY_SKILL_VERSION, { ...deps(20_000_000n), minSkillVersion: '9.0.0' })).status).toBe(426);
+    expect((await challenge('1.12.2', { ...deps(20_000_000n), minSkillVersion: '1.0.0' })).status).toBe(426);
+    // Refused before the address's limit counts: an old copy retrying never locks its address out.
+    const ipHeaders = { 'x-vercel-forwarded-for': '10.0.9.9', 'x-orientim-skill': '1.12.2' };
+    for (let i = 0; i < 40; i++) {
+      await keyChallenge(new Request(`https://orientim.com/api/v1/keys/challenge?wallet=${W.address}`, { headers: ipHeaders }), deps(0n));
+    }
+    const fresh = await keyChallenge(new Request(`https://orientim.com/api/v1/keys/challenge?wallet=${W.address}`, { headers: { 'x-vercel-forwarded-for': '10.0.9.9' } }), deps(0n));
+    expect(fresh.status).toBe(200);
+  });
+
   it('refuse a challenge for something that is not a wallet', async () => {
     const res = await keyChallenge(new Request('https://orientim.com/api/v1/keys/challenge?wallet=nope', { headers: from() }), deps(0n));
     expect(res.status).toBe(400);
@@ -252,6 +284,19 @@ describe('self-serve keys: the site, revocation and secrets', () => {
     expect((await res.json() as { error: { message: string } }).error.message).toMatch(/another site/);
   });
 
+  it('without a site set, a message Orientim wrote for another host is refused at this one', async () => {
+    const W = await generateKeyPairSigner();
+    const got = await keyChallenge(new Request(`https://phishing.example/api/v1/keys/challenge?wallet=${W.address}`, { headers: from() }), site(null));
+    const c = await got.json() as { message: string; challenge: string };
+    const signed = JSON.stringify({ ...c, signature: await sign(W, c.message) });
+    const issue = (host: string) => keyIssue(new Request(`https://${host}/api/v1/keys`, { method: 'POST', headers: from(), body: signed }), site(null));
+    const res = await issue('preview-abc.vercel.app');
+    expect(res.status).toBe(400);
+    expect((await res.json() as { error: { message: string } }).error.message).toMatch(/another site/);
+    // The host the challenge was written for, as on a machine of one's own.
+    expect((await issue('phishing.example')).status).toBe(200);
+  });
+
   it('wallet@time revokes the keys issued until then, and its owner signs again for a new one', async () => {
     const W = await generateKeyPairSigner();
     const { key: leaked } = await issueKey(secret(9), W.address, NOW);
@@ -317,6 +362,22 @@ describe('self-serve keys: the site, revocation and secrets', () => {
       delete process.env.ORIENTIM_TEST_MODE;
       delete process.env.VERCEL_ENV;
       expect(agentDeps()).not.toBeNull();
+    });
+
+    it("on a Vercel preview without ORIENTIM_PUBLIC_ORIGIN, the message names the deployment's own address, or keys stay off", () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      Object.assign(process.env, {
+        ORIENTIM_API_SECRET: good, ORIENTIM_KEY_SECRET: Buffer.alloc(32, 8).toString('base64'), RPC_URL: 'http://127.0.0.1:1',
+        VERCEL_ENV: 'preview', VERCEL_URL: 'bound-web-git-x-team.vercel.app',
+      });
+      delete process.env.ORIENTIM_PUBLIC_ORIGIN;
+      expect(accessDeps()?.origin).toBe('https://bound-web-git-x-team.vercel.app');
+      delete process.env.VERCEL_URL;
+      expect(accessDeps()).toBeNull();
+      // Off Vercel, as on a machine of one's own, the request's host is the site.
+      delete process.env.VERCEL_ENV;
+      expect(accessDeps()?.origin).toBeNull();
     });
   });
 });

@@ -18,17 +18,23 @@ own price for a fee on the output is kept for 15 seconds across a session's roun
 prepare carries a `Server-Timing` header (`prepare`, `initial`, `jupiter-build`, `simulation`,
 `verification`, `local`, in milliseconds); these internals are not part of the public reference.
 Every setting is listed in `apps/web/lib/server/agent/config.ts`.
-Keep `ORIENTIM_API_FEE_BPS` at or below 30 and no higher than `NEXT_PUBLIC_ORIENTIM_FEE_BPS`;
-the API fails closed otherwise. The public fee setting also has a 30 bps maximum.
+Keep `ORIENTIM_API_FEE_BPS` at 25. The API fails closed above 30 or above
+`NEXT_PUBLIC_ORIENTIM_FEE_BPS` (whose maximum is also 30), but the shipped skill, its CLI and the MCP
+server refuse a fee above 25 bps unless the owner's `maxFeeBps` allows up to 30, and the MCP server
+has no way to set it: a fee of 26 to 30 bps makes every default agent swap fail until a skill release
+raises its default.
 
 ## Self-serve keys
 
 `ORIENTIM_KEY_SECRET` turns them on. The key message always names `ORIENTIM_PUBLIC_ORIGIN`,
-whatever host a request claims; in production (`VERCEL_ENV=production`) keys stay off without it. In
+whatever host a request claims; in production (`VERCEL_ENV=production`) keys stay off without it, and
+on a preview without it the message names the deployment's own `VERCEL_URL` (keys work only on that
+address, not on a branch alias). In
 production the agent API also stays off without a treasury or with `ORIENTIM_API_FEE_BPS=0`, unless
 `ORIENTIM_TEST_MODE=1` says that is meant. A key lasts 90 days. From one IP address Orientim answers 30 key
 challenges and issues 10 keys an hour; one wallet gets 5 keys a day, and each instance issues at most
-300 an hour to everyone together (`ORIENTIM_KEY_MAX_PER_HOUR`). The wallet must hold 0.01 SOL (`ORIENTIM_KEY_MIN_LAMPORTS`). IPv6
+300 an hour to everyone together (`ORIENTIM_KEY_MAX_PER_HOUR`). Each of these counts is per instance
+(below, "Limits across instances"). The wallet must hold 0.01 SOL (`ORIENTIM_KEY_MIN_LAMPORTS`). IPv6
 addresses are counted per /64. A key is revoked by its wallet: `ORIENTIM_API_REVOKED` lists
 `<wallet>` (all its keys) or `<wallet>@<unix seconds>` (its keys issued until then, so that the
 wallet's owner can sign again for a new one).
@@ -127,9 +133,13 @@ What to watch: a share of `prepare` answering `busy` or `unavailable` above a fe
 or a provider), `internal` at all, `ms` far above its usual (Jupiter or the RPC slowing), and
 `routes_not_used` from one key again and again (an agent bringing routes it should not).
 
-**Limits across instances.** The app's rate limit (60 a minute per key and endpoint) is kept by each
-instance in memory, so it bounds one instance, not the deployment. A rate-limit rule in the hosting
-firewall bounds all of them: on Vercel, Firewall, a rule on the path prefix `/api/v1/` keyed on the
+**Limits across instances.** Every limit the app keeps (60 a minute per key and endpoint, and the key
+limits: 30 challenges and 10 keys an hour per IP, 5 keys a wallet a day, 300 keys an hour) is kept by
+each instance in memory, in a fixed window, and starts again on a cold start or a redeploy. It bounds
+one instance, not the deployment: with three instances a wallet can get 15 keys in a day, and at a
+window's edge one instance lets in nearly twice its limit. The Vercel Firewall rule is the real
+limit, so check that it is saved (Firewall tab) rather than assume it. A rate-limit rule in the
+hosting firewall bounds all of them: on Vercel, Firewall, a rule on the path prefix `/api/v1/` keyed on the
 client's IP (for example 120 requests a minute, answered 429), and one on `/api/health` (30 a
 minute). Spend alerts on the RPC and Jupiter accounts bound what an abuse can cost.
 

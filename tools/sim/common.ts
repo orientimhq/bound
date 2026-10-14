@@ -220,6 +220,32 @@ export function writeReport(name: string, md: string, data: unknown) {
   console.log(`\nReport: ${join(OUT, `${name}.md`)}\n\n===== SUMMARY =====\n${md}===== END OF SUMMARY =====`);
 }
 
+// --- how the capacity run judges what it saw (unit tested in apps/web/test/capacitySim.test.ts)
+/** The skill's refusal when the minimum-output check is its one problem: "check for X, expected Y". */
+const MIN_OUTPUT_ONLY = /^Not signing: R2: instruction \d+: minimum-output check for (\d+), expected (\d+)$/;
+
+/**
+ * Is a refusal a borrowed wallet's output balance moving between Orientim's build and the agent's
+ * check? Only when the minimum-output check is the refusal's one problem, and its gap (what the agent
+ * expected less what the check asks) is the change seen in that balance meanwhile: the agent reads
+ * the balance after Orientim did, so a balance up by d makes it expect d more. A refusal that also
+ * names a fee sent elsewhere, or a check lowered with no such change, is never this: it is a server
+ * weakening the floor, and needs a look.
+ */
+export function balanceMoved(message: string, seenChange: bigint | null): boolean {
+  const m = MIN_OUTPUT_ONLY.exec(message);
+  if (!m || seenChange === null || seenChange === 0n) return false;
+  return BigInt(m[2]) - BigInt(m[1]) === seenChange;
+}
+
+/**
+ * A phase that must build: PASS only with no unclear answer and at least `share` of its swaps built.
+ * One built swap of many proves little: at 5 runs, 5 passes still allow a failure rate up to 45%.
+ */
+export function buildVerdict(built: number, n: number, unclear: number, share: number): 'PASS' | 'LOOK' {
+  return unclear === 0 && n > 0 && built >= Math.ceil(share * n - 1e-9) ? 'PASS' : 'LOOK';
+}
+
 /** An error, as a short code for counting: Orientim's code, or what kind of failure it was. */
 export function codeOf(e: unknown): string {
   const err = e as { code?: unknown; name?: string; message?: string };

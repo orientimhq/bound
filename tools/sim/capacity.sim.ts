@@ -30,11 +30,12 @@
  * switch was off.
  */
 import { expect, it } from 'vitest';
-import { createKeyPairSignerFromBytes } from '@solana/kit';
+import { address, createKeyPairSignerFromBytes } from '@solana/kit';
 import type { KeyPairSigner, Rpc, SolanaRpcApi } from '@solana/kit';
+import { ataOf } from '@orientim/core';
 import { prepareChecked, signAsWallet } from '../../skills/orientim-protected-swap/examples/swap.ts';
 import {
-  agentRpc, codeOf, counts, esc, injected, JUP, JUPITER_API_KEY, ms, newTally, OFFLINE, offlineWorld, orientim, percentile, publicWallets,
+  agentRpc, balanceMoved, buildVerdict, codeOf, counts, esc, injected, JUP, JUPITER_API_KEY, ms, newTally, OFFLINE, offlineWorld, orientim, percentile, publicWallets,
   RPC_URL, runTally, sleep, SOL, solPrice, sum, tallyOf, USDC, writeReport,
 } from './common.ts';
 import type { Tally, Target } from './common.ts';
@@ -58,11 +59,18 @@ const CLEAR = new Set([
   // The agent's own budget of Jupiter asks, spent on 429s from the shared test key: the skill's clear stop.
   'BudgetSpentError',
   // A public wallet's output balance moved between Orientim's build and the agent's check (the matrix
-  // runs such a case again): the borrowed wallet's doing, not an unclear answer.
+  // runs such a case again): the borrowed wallet's doing, not an unclear answer (`balanceMoved`).
   'balance-moved',
 ]);
-/** The skill's check refusing only the minimum-output check: the borrowed wallet's balance moved. */
-const BALANCE_MOVED = /^Not signing: R2: instruction \d+: minimum-output check for \d+/;
+/**
+ * Where swaps must be built (load, and the RPC failures with a backup up), a simulation that failed,
+ * a request Orientim called bad or a swap that expired is not a clear answer: under load each is a
+ * sign of the server, or of a backup behind the main RPC, not of the market.
+ */
+const CLEAR_WHEN_BUILDING = new Set([...CLEAR].filter(c => c !== 'simulation-failed' && c !== 'bad-request' && c !== 'expired'));
+/** The share of swaps a phase that must build has to build: the load phase, and failover with a backup up. */
+const LOAD_SHARE = 0.95;
+const FAILOVER_SHARE = 0.8;
 
 type Verdict = 'PASS' | 'LOOK' | 'UNTESTED';
 type Finding = { phase: string; verdict: Verdict; detail: string };
@@ -90,6 +98,9 @@ async function agentSwap(w: World, agent: number, opts: { key?: string; owner?: 
   const signing = opts.finalize && w.signer;
   const owner = signing ? w.signer!.address : opts.owner ?? w.wallets[agent % w.wallets.length];
   const intent = signing ? w.signerSwap! : w.swapOf(agent);
+  // The output balance before and after, read outside the swap's own count of calls: a refusal is
+  // a moved balance only when the change was seen.
+  const before = await outputBalance(w, owner, intent.outputMint);
   return tallyOf.run(tally, async () => {
     const t = performance.now();
     try {
@@ -102,10 +113,42 @@ async function agentSwap(w: World, agent: number, opts: { key?: string; owner?: 
       sample.endedAt = Date.now();
       return sample;
     } catch (e) {
-      const code = BALANCE_MOVED.test((e as Error)?.message ?? '') ? 'balance-moved' : codeOf(e);
-      return { agent, ok: false, code, ms: performance.now() - t, startedAt, endedAt: Date.now(), tally };
+      const message = (e as Error)?.message ?? '';
+      const elapsed = performance.now() - t;
+      let code = codeOf(e);
+      if (before !== null && message.startsWith('Not signing: R2:')) {
+        const after = await tallyOf.exit(() => outputBalance(w, owner, intent.outputMint));
+        if (after !== null && balanceMoved(message, after - before)) code = 'balance-moved';
+      }
+      return { agent, ok: false, code, ms: elapsed, startedAt, endedAt: Date.now(), tally };
     }
   });
+}
+
+/** Each mint's token program, read once. */
+const mintPrograms = new Map<string, Promise<string>>();
+
+/** `owner`'s balance of `mint` in its associated account (0 without one), or null when SOL or unread. */
+async function outputBalance(w: World, owner: string, mint: string): Promise<bigint | null> {
+  if (mint === SOL) return null;
+  try {
+    let program = mintPrograms.get(mint);
+    if (!program) {
+      program = w.rpc.getAccountInfo(address(mint), { encoding: 'base64' }).send().then(r => {
+        if (!r.value) throw new Error('no such mint');
+        return String(r.value.owner);
+      });
+      mintPrograms.set(mint, program);
+      program.catch(() => mintPrograms.delete(mint));
+    }
+    const account = await ataOf(address(owner), address(mint), address(await program));
+    const { value } = await w.rpc.getAccountInfo(account, { encoding: 'jsonParsed', commitment: 'confirmed' }).send();
+    if (!value) return 0n;
+    const amount = (value.data as { parsed?: { info?: { tokenAmount?: { amount?: string } } } }).parsed?.info?.tokenAmount?.amount;
+    return typeof amount === 'string' && /^\d+$/.test(amount) ? BigInt(amount) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** finalize with send: false: Orientim signs as E and sends nothing. */
@@ -123,7 +166,7 @@ async function finalizeUnsent(w: World, key: string, ticket: string, signedTrans
   }
 }
 
-const unclear = (samples: Sample[]) => samples.filter(s => !s.ok && !CLEAR.has(s.code)).map(s => s.code);
+const unclear = (samples: Sample[], clear: ReadonlySet<string> = CLEAR) => samples.filter(s => !s.ok && !clear.has(s.code)).map(s => s.code);
 const byCode = (samples: Sample[]) => counts(samples.reduce<Record<string, number>>((m, s) => ({ ...m, [s.code]: (m[s.code] ?? 0) + 1 }), {}));
 const latency = (samples: Sample[]) => {
   const ok = samples.filter(s => s.ok).map(s => s.ms);
@@ -156,11 +199,12 @@ async function load(w: World, say: (f: Finding) => void) {
     const started = performance.now();
     const samples = await Promise.all(Array.from({ length: n }, (_, i) => agentSwap(w, i)));
     const wall = performance.now() - started;
-    const bad = unclear(samples);
+    const bad = unclear(samples, CLEAR_WHEN_BUILDING);
+    const built = samples.filter(s => s.ok).length;
     const timings = samples.map(s => s.tally.serverTiming?.prepare).filter((x): x is number => Number.isFinite(x));
     say({
-      phase: `2 load, ${n} agents`, verdict: bad.length ? 'LOOK' : samples.some(s => s.ok) ? 'PASS' : 'UNTESTED',
-      detail: `${samples.filter(s => s.ok).length}/${n} built in ${ms(wall)}; agent's whole prepare ${latency(samples)}; server's prepare p50 ${ms(percentile(timings, 50))}, p95 ${ms(percentile(timings, 95))}; `
+      phase: `2 load, ${n} agents`, verdict: buildVerdict(built, n, bad.length, LOAD_SHARE),
+      detail: `${built}/${n} built in ${ms(wall)}${built < Math.ceil(LOAD_SHARE * n) ? ` (fewer than ${LOAD_SHARE * 100}%)` : ''}; agent's whole prepare ${latency(samples)}; server's prepare p50 ${ms(percentile(timings, 50))}, p95 ${ms(percentile(timings, 95))}; `
         + `answers: ${byCode(samples)}; 429s seen: ${counts(merge(samples, t => t.limited))}${bad.length ? `; UNCLEAR: ${[...new Set(bad)].join(', ')}` : ''}`
         + `; ${new Set(samples.map(s => s.agent % w.wallets.length)).size} wallets, ${Math.min(n, w.target.keys.length)} keys`,
     });
@@ -237,12 +281,13 @@ async function failures(w: World, say: (f: Finding) => void) {
   const run = async (label: string, setup: () => void, expectBuilt: boolean, n = 5) => {
     setup();
     const samples = await Promise.all(Array.from({ length: n }, (_, i) => agentSwap(w, i)));
-    const bad = unclear(samples);
+    const bad = unclear(samples, CLEAR_WHEN_BUILDING);
     const built = samples.filter(s => s.ok).length;
-    const verdict: Verdict = bad.length || (expectBuilt && built === 0) ? 'LOOK' : 'PASS';
+    const verdict: Verdict = expectBuilt ? buildVerdict(built, n, bad.length, FAILOVER_SHARE) : bad.length ? 'LOOK' : 'PASS';
+    const few = expectBuilt && built < Math.ceil(FAILOVER_SHARE * n);
     say({
       phase: `4 failures, ${label}`, verdict,
-      detail: `${built}/${n} built, ${latency(samples)}; answers: ${byCode(samples)}${bad.length ? `; UNCLEAR: ${[...new Set(bad)].join(', ')}` : ''}${expectBuilt && built === 0 ? '; nothing built: the backup did not carry the swaps within their deadline' : ''}`,
+      detail: `${built}/${n} built, ${latency(samples)}; answers: ${byCode(samples)}${bad.length ? `; UNCLEAR: ${[...new Set(bad)].join(', ')}` : ''}${few ? `; fewer than ${FAILOVER_SHARE * 100}% built: the backup did not carry the swaps within their deadline` : ''}`,
     });
     injected.rpc = undefined;
     injected.jupiter = undefined;

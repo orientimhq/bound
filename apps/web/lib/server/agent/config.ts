@@ -27,7 +27,8 @@ import type { AgentDeps } from './api';
  *   ORIENTIM_KEY_MIN_LAMPORTS     optional, what a wallet must hold to get a key (10,000,000: 0.01 SOL;
  *                                 never less than 1,000,000)
  *   ORIENTIM_PUBLIC_ORIGIN        the site's own address (https://orientim.com): the only one a key
- *                                 message names; set it wherever self-serve keys are on
+ *                                 message names; set it wherever self-serve keys are on (unset, keys are
+ *                                 off in production, and a preview names its own VERCEL_URL)
  */
 const said = new Set<string>();
 /** Said once per instance: the settings are read on every request. */
@@ -198,12 +199,22 @@ export function accessDeps(): AccessDeps | null {
   const deps = agentDeps();
   const secrets = keySecrets();
   if (!deps || secrets.length === 0) return null;
-  const origin = publicOrigin();
+  let origin = publicOrigin();
   if (origin === undefined) return null;
   // Unset in production: the key message would name whatever host a request claims, so keys stay off.
   if (origin === null && process.env.VERCEL_ENV === 'production') {
     sayOnce('ORIENTIM_PUBLIC_ORIGIN is not set: self-serve keys stay off in production.');
     return null;
+  }
+  // Unset on another Vercel deployment (a preview): the deployment's own address, which Vercel sets,
+  // rather than a host the request names; without it, keys stay off there too.
+  if (origin === null && process.env.VERCEL_ENV) {
+    const own = process.env.VERCEL_URL?.trim();
+    if (!own || !/^[a-z0-9.-]+$/i.test(own)) {
+      sayOnce('ORIENTIM_PUBLIC_ORIGIN and VERCEL_URL are not set: self-serve keys stay off on this deployment.');
+      return null;
+    }
+    origin = `https://${own.toLowerCase()}`;
   }
   const min = process.env.ORIENTIM_KEY_MIN_LAMPORTS?.trim() ?? '';
   let minLamports = /^\d{1,12}$/.test(min) ? BigInt(min) : 10_000_000n;
@@ -213,7 +224,7 @@ export function accessDeps(): AccessDeps | null {
   }
   const perHour = process.env.ORIENTIM_KEY_MAX_PER_HOUR?.trim() ?? '';
   const maxKeysPerHour = /^\d{1,6}$/.test(perHour) && Number(perHour) > 0 ? Number(perHour) : DEFAULT_KEYS_PER_HOUR;
-  return { rpc: deps.rpc, keySecrets: secrets, minLamports, origin, disabled: deps.disabled, maxKeysPerHour };
+  return { rpc: deps.rpc, keySecrets: secrets, minLamports, origin, disabled: deps.disabled, maxKeysPerHour, minSkillVersion: deps.minSkillVersion ?? null };
 }
 
 export const notEnabled = () =>

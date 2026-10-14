@@ -53,6 +53,7 @@ const ERRORS: [string, string, string][] = [
   ['409', 'price-moved', 'The market cannot meet your minOut. newMinOut is what it supports now: prepare again with it only with the user’s approval.'],
   ['409', 'costs-more', 'The protected route is gapBps below the open market. With the user’s approval, prepare again with acceptCostBps.'],
   ['409', 'routes-needed', 'With ownRoutes: fetch requests from Jupiter with your own key and prepare again with session and every route you have (Your own Jupiter key). The skill does this itself.'],
+  ['409', 'session-used', 'With ownRoutes: Orientim already signed another transaction from this session (one per session). Check that one’s signature, then prepare again without the session.'],
   ['409', 'output-balance-changed', 'Your balance of the output token moved since prepare. Check the signature, then prepare again.'],
   ['410', 'expired', 'The transaction’s lifetime passed before finalize. Check the signature, then prepare again.'],
   ['422', 'amount-too-small', 'The amount is below the smallest swap Orientim takes, about 0.004 SOL, or $1 of USDC or USDT (for a swap between two other tokens, its value in SOL). Selling the whole balance of a token (not SOL) is allowed at any size.'],
@@ -697,7 +698,11 @@ POST /api/v1/keys
                   <code>400 bad-signature</code>: the signature does not match, or the challenge expired, was not Orientim&apos;s, or
                   names another site. <code>403 wallet-empty</code>: the wallet holds less than 0.01 SOL.
                 </li>
-                <li>From one IP address, 30 challenges and 10 keys an hour; a <code>429</code> carries <code>Retry-After</code>.</li>
+                <li>
+                  From one IP address, 30 challenges and 10 keys an hour; one wallet gets 5 keys a day. Keep the key you have
+                  rather than ask again on every start. A <code>429</code> carries <code>Retry-After</code>.
+                </li>
+                <li>Getting a key needs skill 1.12.3 or later; an older copy is answered <code>426 skill-outdated</code>.</li>
               </ul>
             </section>
 
@@ -727,7 +732,7 @@ POST /api/v1/keys
                 <li>
                   120 prepare and finalize requests a minute from one IP address, answered <code>429</code> above it.
                 </li>
-                <li>API keys: 30 challenges and 10 keys an hour from one IP address.</li>
+                <li>API keys: 30 challenges and 10 keys an hour from one IP address, and 5 keys a day for one wallet.</li>
                 <li>One swap per output token at a time, and one per wallet in the skill.</li>
                 <li>A key used to overload or attack the service is revoked.</li>
                 <li>For uptime monitors, <code>GET /api/health</code> needs no key: 200 when a swap could go through now, 503 when it could not.</li>

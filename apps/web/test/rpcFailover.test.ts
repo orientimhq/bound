@@ -3,6 +3,7 @@
  * and for a send, trusted only when it answers with a success.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { refusedBeforeBroadcast } from '@orientim/solana';
 import { createServerRpc } from '../lib/server/rpcFailover.ts';
 
 const MAIN = 'https://main.rpc.test/';
@@ -10,6 +11,11 @@ const BACKUP = 'https://backup.rpc.test/';
 const ok = (result: unknown) => Response.json({ jsonrpc: '2.0', id: 1, result });
 const refused = () => Response.json({ jsonrpc: '2.0', id: 1, error: { code: -32002, message: 'Blockhash not found' } });
 const down = () => { throw new TypeError('fetch failed'); };
+/** A preflight refusal: the simulation failed, so the node broadcast nothing. */
+const simulationFailed = () => Response.json({
+  jsonrpc: '2.0', id: 1,
+  error: { code: -32002, message: 'Transaction simulation failed', data: { err: { InstructionError: [0, { Custom: 6001 }] }, logs: [], accounts: null, unitsConsumed: 0 } },
+});
 
 /** An RPC that never answers: the request ends only when its signal does. */
 const hangs = (init?: RequestInit) => new Promise<Response>((_, reject) => {
@@ -115,6 +121,8 @@ describe('the agent API RPC with a backup', () => {
     const TIMES = { totalMs: 600, attemptMs: 300, minSendMs: 150, downMs: 10_000 };
     network(down, balance);
     const rpc = createServerRpc(MAIN, BACKUP, TIMES);
+    // Two quick failures judge it down.
+    await rpc.getBalance('11111111111111111111111111111111' as never).send();
     await rpc.getBalance('11111111111111111111111111111111' as never).send();
     const asked = network(down, () => refused());
     await expect(rpc.sendTransaction('AA==' as never, { encoding: 'base64' }).send()).rejects.toThrow();
@@ -127,5 +135,100 @@ describe('the agent API RPC with a backup', () => {
     const asked = network(() => new Response('bad', { status: 400 }), () => ok({ context: { slot: 1 }, value: 1 }));
     await expect(createServerRpc(MAIN, BACKUP).getBalance('11111111111111111111111111111111' as never).send()).rejects.toThrow();
     expect(asked).toEqual(['main']);
+  });
+
+  const ADDRESS = '11111111111111111111111111111111' as never;
+  /** A main RPC whose calls are answered in turn by `answers`, the last one for every call after. */
+  const inTurn = (...answers: Answer[]): Answer => {
+    let i = 0;
+    return init => answers[Math.min(i++, answers.length - 1)](init);
+  };
+  const outcome = (p: Promise<unknown>) => p.then(() => 'ok', (e: Error) => `fail: ${e.message}`);
+
+  it('one quick failure of the main RPC is a blip: the next calls ask it first, even with the backup failing', async () => {
+    const asked = network(inTurn(() => new Response('bad gateway', { status: 502 }), balance), () => new Response('expired key', { status: 401 }));
+    const rpc = createServerRpc(MAIN, BACKUP, { ...QUICK, downMs: 30_000 });
+    const results = [];
+    for (let i = 0; i < 5; i++) results.push(await outcome(rpc.getBalance(ADDRESS).send()));
+    expect(results.slice(1)).toEqual(['ok', 'ok', 'ok', 'ok']);
+    expect(asked).toEqual(['main', 'backup', 'main', 'main', 'main', 'main']);
+  });
+
+  it('a backup that fails while the main RPC is passed over ends the wait: the main RPC is asked with the time left', async () => {
+    const TIMES = { totalMs: 600, attemptMs: 300, minSendMs: 150, downMs: 30_000 };
+    network(down, balance);
+    const rpc = createServerRpc(MAIN, BACKUP, TIMES);
+    await rpc.getBalance(ADDRESS).send();
+    await rpc.getBalance(ADDRESS).send();
+    // Judged down; now the main RPC is back and the backup's key has expired.
+    const asked = network(balance, () => new Response('expired key', { status: 401 }));
+    expect((await rpc.getBalance(ADDRESS).send()).value).toBe(42n);
+    expect((await rpc.getBalance(ADDRESS).send()).value).toBe(42n);
+    expect(asked).toEqual(['backup', 'main', 'main']);
+  });
+
+  it('while the main RPC is passed over, a read now and then also asks it, and its answer ends the wait', async () => {
+    const TIMES = { totalMs: 600, attemptMs: 300, minSendMs: 150, downMs: 30_000, probeMs: 100 };
+    network(down, balance);
+    const rpc = createServerRpc(MAIN, BACKUP, TIMES);
+    await rpc.getBalance(ADDRESS).send();
+    await rpc.getBalance(ADDRESS).send();
+    const asked = network(balance, balance);
+    await rpc.getBalance(ADDRESS).send();
+    expect(asked).toEqual(['backup']);
+    await new Promise(r => setTimeout(r, TIMES.probeMs + 20));
+    // This read is answered by the backup at once; the main RPC is asked beside it.
+    await rpc.getBalance(ADDRESS).send();
+    await new Promise(r => setTimeout(r, 20));
+    expect(asked.slice(1).sort()).toEqual(['backup', 'main']);
+    await rpc.getBalance(ADDRESS).send();
+    expect(asked.at(-1)).toBe('main');
+  });
+
+  it('a slow success that began before the main RPC was judged down does not end the wait', async () => {
+    const TIMES = { totalMs: 1_500, attemptMs: 1_000, minSendMs: 150, downMs: 30_000 };
+    const slow = () => new Promise<Response>(r => setTimeout(() => r(balance()), 250));
+    const asked = network(inTurn(slow, down, down, slow), balance);
+    const rpc = createServerRpc(MAIN, BACKUP, TIMES);
+    const first = rpc.getBalance(ADDRESS).send();
+    await new Promise(r => setTimeout(r, 20));
+    await rpc.getBalance(ADDRESS).send();
+    await rpc.getBalance(ADDRESS).send();
+    await first;
+    const [, ms] = await timed(() => rpc.getBalance(ADDRESS).send());
+    expect(ms).toBeLessThan(200);
+    expect(asked).toEqual(['main', 'main', 'backup', 'main', 'backup', 'backup']);
+  });
+
+  it("while the main RPC is passed over, the backup's refusal of a send it alone was given is a refusal before broadcast", async () => {
+    const TIMES = { totalMs: 600, attemptMs: 300, minSendMs: 150, downMs: 30_000 };
+    network(down, balance);
+    const rpc = createServerRpc(MAIN, BACKUP, TIMES);
+    await rpc.getBalance(ADDRESS).send();
+    await rpc.getBalance(ADDRESS).send();
+    const asked = network(down, simulationFailed);
+    const caught = await rpc.sendTransaction('AA==' as never, { encoding: 'base64' }).send().catch((e: unknown) => e);
+    expect(asked).toEqual(['backup']);
+    expect(refusedBeforeBroadcast(caught)).toBe(true);
+  });
+
+  it('but not of a send the main RPC was given before: that one stays unknown', async () => {
+    const TIMES = { totalMs: 600, attemptMs: 300, minSendMs: 150, downMs: 30_000 };
+    network(down, simulationFailed);
+    const rpc = createServerRpc(MAIN, BACKUP, TIMES);
+    // The main RPC fails the first send after taking it, maybe; the backup refuses it.
+    const first = await rpc.sendTransaction('BB==' as never, { encoding: 'base64' }).send().catch((e: unknown) => e);
+    expect(refusedBeforeBroadcast(first)).toBe(false);
+    network(down, balance);
+    await rpc.getBalance(ADDRESS).send();
+    const asked = network(down, simulationFailed);
+    const again = await rpc.sendTransaction('BB==' as never, { encoding: 'base64' }).send().catch((e: unknown) => e);
+    expect(asked).toEqual(['backup']);
+    expect(refusedBeforeBroadcast(again)).toBe(false);
+  });
+
+  it('a backup that refuses outright (401) is reported as the main RPC being down, not as the caller\'s error', async () => {
+    network(down, () => new Response('expired key', { status: 401 }));
+    await expect(createServerRpc(MAIN, BACKUP, QUICK).getBalance(ADDRESS).send()).rejects.toThrow(/fetch failed/);
   });
 });
