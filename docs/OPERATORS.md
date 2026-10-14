@@ -24,7 +24,9 @@ the API fails closed otherwise. The public fee setting also has a 30 bps maximum
 ## Self-serve keys
 
 `ORIENTIM_KEY_SECRET` turns them on. The key message always names `ORIENTIM_PUBLIC_ORIGIN`,
-whatever host a request claims; in production (`VERCEL_ENV=production`) keys stay off without it. In
+whatever host a request claims; in production (`VERCEL_ENV=production`) keys stay off without it, and
+on a preview without it the message names the deployment's own `VERCEL_URL` (keys work only on that
+address, not on a branch alias). In
 production the agent API also stays off without a treasury or with `ORIENTIM_API_FEE_BPS=0`, unless
 `ORIENTIM_TEST_MODE=1` says that is meant. A key lasts 90 days. From one IP address Orientim answers 30 key
 challenges and issues 10 keys an hour; one wallet gets 5 keys a day, and each instance issues at most

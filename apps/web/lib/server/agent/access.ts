@@ -20,8 +20,9 @@ export type AccessDeps = {
   /** What the wallet must hold to get a key, so that wallets made by the thousand cost something. */
   minLamports: bigint;
   /**
-   * The site the message names (ORIENTIM_PUBLIC_ORIGIN, e.g. https://orientim.com), whatever host a
-   * request claims; the request's own when unset, as on a machine of one's own.
+   * The site the message names (ORIENTIM_PUBLIC_ORIGIN, e.g. https://orientim.com, or on a Vercel
+   * preview its own VERCEL_URL), whatever host a request claims; the request's own when unset, as on
+   * a machine of one's own.
    */
   origin?: string | null;
   /** ORIENTIM_DISABLED: while protected swaps are paused, no key is issued either. */
@@ -109,9 +110,11 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
     body = null;
   }
   if (!body || typeof body !== 'object') return fail(400, 'bad-request', 'Send { "message", "challenge", "signature" }.');
+  // The message must name this site: the one set, or else, as on a machine of one's own, the host
+  // this request reached, the same rule the challenge was written by. Never no check at all.
   const accepted = await acceptChallenge(deps.keySecrets, {
     message: body.message, challenge: body.challenge, signature: body.signature, now: seconds(deps),
-    ...(deps.origin ? { domain: new URL(deps.origin).host } : {}),
+    domain: new URL(deps.origin ?? req.url).host,
   });
   if ('error' in accepted) return fail(400, accepted.malformed ? 'bad-request' : 'bad-signature', accepted.error);
   let lamports: bigint;

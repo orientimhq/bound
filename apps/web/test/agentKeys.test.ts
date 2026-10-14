@@ -284,6 +284,19 @@ describe('self-serve keys: the site, revocation and secrets', () => {
     expect((await res.json() as { error: { message: string } }).error.message).toMatch(/another site/);
   });
 
+  it('without a site set, a message Orientim wrote for another host is refused at this one', async () => {
+    const W = await generateKeyPairSigner();
+    const got = await keyChallenge(new Request(`https://phishing.example/api/v1/keys/challenge?wallet=${W.address}`, { headers: from() }), site(null));
+    const c = await got.json() as { message: string; challenge: string };
+    const signed = JSON.stringify({ ...c, signature: await sign(W, c.message) });
+    const issue = (host: string) => keyIssue(new Request(`https://${host}/api/v1/keys`, { method: 'POST', headers: from(), body: signed }), site(null));
+    const res = await issue('preview-abc.vercel.app');
+    expect(res.status).toBe(400);
+    expect((await res.json() as { error: { message: string } }).error.message).toMatch(/another site/);
+    // The host the challenge was written for, as on a machine of one's own.
+    expect((await issue('phishing.example')).status).toBe(200);
+  });
+
   it('wallet@time revokes the keys issued until then, and its owner signs again for a new one', async () => {
     const W = await generateKeyPairSigner();
     const { key: leaked } = await issueKey(secret(9), W.address, NOW);
@@ -349,6 +362,22 @@ describe('self-serve keys: the site, revocation and secrets', () => {
       delete process.env.ORIENTIM_TEST_MODE;
       delete process.env.VERCEL_ENV;
       expect(agentDeps()).not.toBeNull();
+    });
+
+    it("on a Vercel preview without ORIENTIM_PUBLIC_ORIGIN, the message names the deployment's own address, or keys stay off", () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      Object.assign(process.env, {
+        ORIENTIM_API_SECRET: good, ORIENTIM_KEY_SECRET: Buffer.alloc(32, 8).toString('base64'), RPC_URL: 'http://127.0.0.1:1',
+        VERCEL_ENV: 'preview', VERCEL_URL: 'bound-web-git-x-team.vercel.app',
+      });
+      delete process.env.ORIENTIM_PUBLIC_ORIGIN;
+      expect(accessDeps()?.origin).toBe('https://bound-web-git-x-team.vercel.app');
+      delete process.env.VERCEL_URL;
+      expect(accessDeps()).toBeNull();
+      // Off Vercel, as on a machine of one's own, the request's host is the site.
+      delete process.env.VERCEL_ENV;
+      expect(accessDeps()?.origin).toBeNull();
     });
   });
 });
