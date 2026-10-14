@@ -213,7 +213,7 @@ export function accessDeps(): AccessDeps | null {
   }
   const perHour = process.env.ORIENTIM_KEY_MAX_PER_HOUR?.trim() ?? '';
   const maxKeysPerHour = /^\d{1,6}$/.test(perHour) && Number(perHour) > 0 ? Number(perHour) : DEFAULT_KEYS_PER_HOUR;
-  return { rpc: deps.rpc, keySecrets: secrets, minLamports, origin, disabled: deps.disabled, maxKeysPerHour };
+  return { rpc: deps.rpc, keySecrets: secrets, minLamports, origin, disabled: deps.disabled, maxKeysPerHour, minSkillVersion: deps.minSkillVersion ?? null };
 }
 
 export const notEnabled = () =>

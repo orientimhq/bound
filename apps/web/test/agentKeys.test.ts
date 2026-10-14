@@ -9,7 +9,7 @@ import type { KeyPairSigner } from '@solana/kit';
 import { acceptChallenge, challengeMessage, isRevoked, issueKey, KEY_LIFETIME_S, newChallenge, openKey } from '../lib/server/agent/keys.ts';
 import { accessDeps, agentDeps, keySecrets } from '../lib/server/agent/config.ts';
 import { kidOf, newNonce, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
-import { keyChallenge, keyIssue } from '../lib/server/agent/access.ts';
+import { keyChallenge, keyIssue, MIN_KEY_SKILL_VERSION } from '../lib/server/agent/access.ts';
 import type { AccessDeps } from '../lib/server/agent/access.ts';
 import { agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
@@ -170,6 +170,38 @@ describe('the endpoints', () => {
       method: 'POST', headers: from(), body: JSON.stringify({ ...c, signature: await sign(W, c.message) }),
     }), paused);
     expect(res.status).toBe(503);
+  });
+
+  it('answer a copy of the skill too old for the key message with 426, before any limit counts it', async () => {
+    const W = await generateKeyPairSigner();
+    const headers = (skill: string | null) => ({ ...from(), ...(skill ? { 'x-orientim-skill': skill } : {}) });
+    const challenge = (skill: string | null, d = deps(20_000_000n)) =>
+      keyChallenge(new Request(`https://orientim.com/api/v1/keys/challenge?wallet=${W.address}`, { headers: headers(skill) }), d);
+    const old = await challenge('1.12.2');
+    expect(old.status).toBe(426);
+    const body = await old.json() as { error: { code: string; minimum: string; message: string } };
+    expect(body.error.code).toBe('skill-outdated');
+    expect(body.error.minimum).toBe(MIN_KEY_SKILL_VERSION);
+    expect(body.error.message).toMatch(/npx -y orientim-mcp@\d+\.\d+\.\d+/);
+    expect(body.error.message).toMatch(/orientim\.mcpb/);
+    expect(body.error.message).toMatch(/skill folder/);
+    const c = await newChallenge(secret(5), { domain: 'orientim.com', uri: 'u', wallet: W.address, now: NOW });
+    const issued = await keyIssue(new Request('https://orientim.com/api/v1/keys', {
+      method: 'POST', headers: headers('1.10.8'), body: JSON.stringify({ ...c, signature: await sign(W, c.message) }),
+    }), deps(20_000_000n));
+    expect(issued.status).toBe(426);
+    // Served: the current skill, a request naming none (the site), and what is not a version.
+    for (const skill of [MIN_KEY_SKILL_VERSION, '2.0.0', null, 'dev']) expect((await challenge(skill)).status, String(skill)).toBe(200);
+    // A higher ORIENTIM_MIN_SKILL_VERSION raises the bar here too; a lower one does not lower it.
+    expect((await challenge(MIN_KEY_SKILL_VERSION, { ...deps(20_000_000n), minSkillVersion: '9.0.0' })).status).toBe(426);
+    expect((await challenge('1.12.2', { ...deps(20_000_000n), minSkillVersion: '1.0.0' })).status).toBe(426);
+    // Refused before the address's limit counts: an old copy retrying never locks its address out.
+    const ipHeaders = { 'x-vercel-forwarded-for': '10.0.9.9', 'x-orientim-skill': '1.12.2' };
+    for (let i = 0; i < 40; i++) {
+      await keyChallenge(new Request(`https://orientim.com/api/v1/keys/challenge?wallet=${W.address}`, { headers: ipHeaders }), deps(0n));
+    }
+    const fresh = await keyChallenge(new Request(`https://orientim.com/api/v1/keys/challenge?wallet=${W.address}`, { headers: { 'x-vercel-forwarded-for': '10.0.9.9' } }), deps(0n));
+    expect(fresh.status).toBe(200);
   });
 
   it('refuse a challenge for something that is not a wallet', async () => {
