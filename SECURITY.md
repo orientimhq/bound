@@ -53,8 +53,9 @@ daily-budget reservations. Never create a new order id to bypass an unknown outc
 
 ## Fees and availability
 
-Orientim's fee is 25 bps (0.25%). The public deployment, agent API and shipped skill cap it at 30 bps
-(0.3%). The
+Orientim's fee is 25 bps (0.25%). The public deployment and agent API cap it at 30 bps (0.3%). The
+shipped skill refuses a fee above 25 bps unless the owner's `maxFeeBps` allows up to 30, so the API
+fee stays at 25. The
 network fee, market account rent and token transfer tax are separate costs stated in the
 prepare response. The core verifier enforces the same 30 bps ceiling (`MAX_FEE_BPS` in
 `packages/core/src/constants.ts`). The API fails closed if its fee configuration

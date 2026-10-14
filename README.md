@@ -125,8 +125,8 @@ Server only (never sent to the browser):
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `RPC_URL` | public mainnet RPC | Solana RPC for the server. Use a reliable provider; clients must use their own trusted RPC for independent verification |
-| `RPC_URL_FALLBACK` | none | A backup RPC from another provider, asked only when `RPC_URL` does not answer, is rate-limited or fails. A send takes its answer only when it is a success |
-| `JUPITER_API_KEY` | — | Required for any real use (free at developers.jup.ag/portal): Jupiter asks for a key on every endpoint and throttles keyless requests after one or two, so quotes fail as "busy". `/api/status` says whether it is set |
+| `RPC_URL_FALLBACK` | none | A backup RPC from another provider, asked only when `RPC_URL` does not answer, is rate-limited or fails. After a hang, or two failures within 10 s, calls go to it first for up to 30 s; a failure of the backup, or a background read the main RPC answers, ends that early. A send takes its answer only when it is a success, or as a refusal when the main RPC was never given that transaction |
+| `JUPITER_API_KEY` | — | Required for any real use (free at developers.jup.ag/portal): Jupiter asks for a key on every endpoint and throttles keyless requests after one or two, so quotes fail as "busy". `/api/status` does not say whether it is set; in production the logs say so when it is not |
 | `ORIENTIM_DISABLED` | 0 | Kill switch: `1` (or `true`) makes the server refuse new swaps and new API keys |
 | `ORIENTIM_CLIENT_IP_HEADER` | `x-vercel-forwarded-for` | The one header your ingress overwrites with the client address (Cloudflare: `cf-connecting-ip`). The app's rate limit is per instance; add a rule in the hosting firewall too |
 | `ORIENTIM_EXCLUDE_DEXES` | `HumidiFi` | DEXes whose per-taker rent is too high to pay on every swap |

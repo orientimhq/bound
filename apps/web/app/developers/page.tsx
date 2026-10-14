@@ -698,7 +698,11 @@ POST /api/v1/keys
                   <code>400 bad-signature</code>: the signature does not match, or the challenge expired, was not Orientim&apos;s, or
                   names another site. <code>403 wallet-empty</code>: the wallet holds less than 0.01 SOL.
                 </li>
-                <li>From one IP address, 30 challenges and 10 keys an hour; a <code>429</code> carries <code>Retry-After</code>.</li>
+                <li>
+                  From one IP address, 30 challenges and 10 keys an hour; one wallet gets 5 keys a day. Keep the key you have
+                  rather than ask again on every start. A <code>429</code> carries <code>Retry-After</code>.
+                </li>
+                <li>Getting a key needs skill 1.12.3 or later; an older copy is answered <code>426 skill-outdated</code>.</li>
               </ul>
             </section>
 
@@ -728,7 +732,7 @@ POST /api/v1/keys
                 <li>
                   120 prepare and finalize requests a minute from one IP address, answered <code>429</code> above it.
                 </li>
-                <li>API keys: 30 challenges and 10 keys an hour from one IP address.</li>
+                <li>API keys: 30 challenges and 10 keys an hour from one IP address, and 5 keys a day for one wallet.</li>
                 <li>One swap per output token at a time, and one per wallet in the skill.</li>
                 <li>A key used to overload or attack the service is revoked.</li>
                 <li>For uptime monitors, <code>GET /api/health</code> needs no key: 200 when a swap could go through now, 503 when it could not.</li>
