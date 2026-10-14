@@ -53,6 +53,7 @@ const ERRORS: [string, string, string][] = [
   ['409', 'price-moved', 'The market cannot meet your minOut. newMinOut is what it supports now: prepare again with it only with the user’s approval.'],
   ['409', 'costs-more', 'The protected route is gapBps below the open market. With the user’s approval, prepare again with acceptCostBps.'],
   ['409', 'routes-needed', 'With ownRoutes: fetch requests from Jupiter with your own key and prepare again with session and every route you have (Your own Jupiter key). The skill does this itself.'],
+  ['409', 'session-used', 'With ownRoutes: Orientim already signed another transaction from this session (one per session). Check that one’s signature, then prepare again without the session.'],
   ['409', 'output-balance-changed', 'Your balance of the output token moved since prepare. Check the signature, then prepare again.'],
   ['410', 'expired', 'The transaction’s lifetime passed before finalize. Check the signature, then prepare again.'],
   ['422', 'amount-too-small', 'The amount is below the smallest swap Orientim takes, about 0.004 SOL, or $1 of USDC or USDT (for a swap between two other tokens, its value in SOL). Selling the whole balance of a token (not SOL) is allowed at any size.'],

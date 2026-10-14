@@ -1167,6 +1167,40 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     expect(done.status).toBe(200);
   });
 
+  it('a first round replayed with other terms gets no second message signed by the same E', async () => {
+    const w = await world();
+    const { minOut: _m, ...noMin } = swapBody(w.W.address);
+    const first = (await (await agentPrepare(post('prepare', { ...noMin, ownRoutes: true }), w.deps)).json() as Asked).error;
+    const agentMarket = fakeJupiter();
+    const routes = await Promise.all(first.requests.map(async r => ({ params: r, response: await agentMarket.build(paramsOf(r)) })));
+    // The first round left the minimum and the tolerance open: each replay fills them in its own way.
+    const built: Prepared[] = [];
+    for (const terms of [{ minOut: '1' }, { minOut: '3', slippageBps: 100 }, { minOut: '4', slippageBps: 200 }]) {
+      let res!: Response;
+      for (let round = 0; round < 6; round++) {
+        res = await agentPrepare(post('prepare', { ...noMin, ownRoutes: true, session: first.session, routes, ...terms }), w.deps);
+        if (res.status !== 409) break;
+        for (const r of (await res.json() as Asked).error.requests) routes.push({ params: r, response: await agentMarket.build(paramsOf(r)) });
+      }
+      expect(res.status).toBe(200);
+      built.push(await res.json() as Prepared);
+    }
+    expect(new Set(built.map(p => p.temporaryAuthority)).size).toBe(1);
+    expect(new Set(built.map(p => p.messageSha256)).size).toBeGreaterThan(1);
+    const sign = async (p: Prepared) => agentFinalize(post('finalize', { ticket: p.ticket, signedTransaction: await signAsWallet(w.W, p.transaction), send: false }), w.deps);
+    expect((await sign(built[0])).status).toBe(200);
+    // The same message again, as a repeated finalize: the same answer.
+    expect((await sign(built[0])).status).toBe(200);
+    for (const p of built.filter(b => b.messageSha256 !== built[0].messageSha256)) {
+      const res = await sign(p);
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.error.code).toBe('session-used');
+      expect(body.error.signedTransaction).toBeUndefined();
+    }
+    expect(w.sent).toHaveLength(0);
+  });
+
   it('a session ends two minutes after the first round, however many rounds follow', async () => {
     const w = await world();
     const expOf = (session: string) => (JSON.parse(Buffer.from(session.split('.')[0], 'base64url').toString('utf8')) as { exp: number }).exp;
