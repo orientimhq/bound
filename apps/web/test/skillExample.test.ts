@@ -30,6 +30,7 @@ import {
   OrientimOrderError, PendingSwapError, signerFromSignBytes, signerFromSignTransaction, SKILL_VERSION,
   fillAgainstQuote, PriceImpactError, receivedFor, FloorError, prepareChecked, ownFloor, IntentError,
   APPROVAL_MS, ERROR_MEANINGS, exitCodeOf, failureCause, networkCause, outcomeMeaning, LockBusyError, loadPolicy, policyPathFor, PolicyError, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keypairFileWarning, keptApproval, temporaryAuthorityOf,
+  forgetApproval, isApiKeyMessage, lockHeld,
 } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import type { OrderBook, OrderRecord, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
 import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
@@ -3202,5 +3203,104 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
     expect(rateLimitResetMs(h({ 'x-ratelimit-reset': String(now + 1_500) }), now)).toBe(1_500);
     expect(rateLimitResetMs(h({}), now)).toBeNull();
     expect(rateLimitResetMs(h({ 'retry-after': 'soon' }), now)).toBeNull();
+  });
+});
+
+describe('one request, one swap; a yes and a lock that stay their own (14 October 2026 review)', () => {
+  const example = 'skills/orientim-protected-swap/examples/swap.ts';
+  const cwd = join(import.meta.dirname, '../../..');
+  const env = { ...process.env, ORIENTIM_API_URL: 'http://127.0.0.1:1', ORIENTIM_API_KEY: 'k', SOLANA_RPC_URL: 'http://127.0.0.1:1', JUPITER_API_KEY: 'j' };
+  const dry = (stateDir: string) => spawnSync(process.execPath, [example, '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--owner', WSOL_MINT, '--dry-run'], {
+    encoding: 'utf8', cwd, env: { ...env, ORIENTIM_STATE_DIR: stateDir },
+  });
+
+  it('quotes nothing while an earlier swap from the wallet may still land, so a new yes is never read as its retry', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-r14-pending-'));
+    await createFileStore(dir).put({
+      signature: 'an-earlier-swap', lastValidBlockHeight: 10n ** 12n, ticket: 't', signedTransaction: '', messageSha256: '', signedAt: Date.now(), owner: WSOL_MINT,
+    });
+    const run = dry(dir);
+    expect(run.status).toBe(3);
+    expect(run.stderr).toContain('an-earlier-swap');
+  });
+
+  it('quotes nothing while another run from the wallet holds its lock', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-r14-lock-'));
+    const release = acquireLock(dir, WSOL_MINT);
+    try {
+      expect(lockHeld(dir, WSOL_MINT)).toBe(true);
+      const run = dry(dir);
+      expect(run.status).toBe(3);
+      expect(run.stderr).toContain('is running now');
+    } finally {
+      release();
+    }
+    expect(lockHeld(dir, WSOL_MINT)).toBe(false);
+  });
+
+  it('a fresh lock of a process still at work is never taken over, whatever was judged stale before it', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-r14-race-'));
+    const path = join(dir, `lock-${WSOL_MINT}`);
+    // A fresh lock of another process, still at work on this host.
+    writeFileSync(path, JSON.stringify({ pid: process.pid, host: hostname(), at: Date.now(), token: 'fresh' }));
+    expect(() => acquireLock(dir, WSOL_MINT)).toThrow(LockBusyError);
+    expect(JSON.parse(readFileSync(path, 'utf8')).token).toBe('fresh');
+  });
+
+  it("a swap that lands uses up only the yes it was held to, never a newer one", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-r14-approval-'));
+    const key = { owner: WSOL_MINT, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '1000000' };
+    const startedAt = Date.now();
+    // The user said yes again, to the same swap, while the first was on its way.
+    recordApproval(dir, { ...key, minOut: '999', expiresAt: startedAt + 1_000 + APPROVAL_MS });
+    forgetApproval(dir, key, startedAt);
+    expect(approvalFor(dir, key)?.minOut).toBe('999');
+    forgetApproval(dir, key, startedAt + 2_000);
+    expect(approvalFor(dir, key)).toBeNull();
+  });
+
+  it('a system policy is one path in any letter case on Windows', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-r14-policy-'));
+    const system = join(dir, 'Policy.json');
+    writeFileSync(system, '{}');
+    expect(policyPathFor(system.toUpperCase(), system, 'win32')).toBe(system);
+    expect(() => policyPathFor(system.toUpperCase(), system, 'linux')).toThrow('not used');
+  });
+
+  it("checks Orientim's key message field by field, as the site does", () => {
+    const W = 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr';
+    const now = Date.now();
+    const iso = (ms: number) => new Date(ms).toISOString();
+    const lines = (uri: string, chain = 'mainnet') => [
+      'orientim.com wants you to sign in with your Solana account:', W, '',
+      'Get an Orientim API key for this wallet, and accept the Terms of Use at https://orientim.com/terms. Signing costs nothing and gives no access to your funds.', '',
+      `URI: ${uri}`, 'Version: 1', `Chain ID: ${chain}`, 'Nonce: abc123', `Issued At: ${iso(now)}`, `Expiration Time: ${iso(now + 10 * 60_000)}`,
+    ].join('\n');
+    expect(isApiKeyMessage(lines('https://orientim.com/developers#access'), 'https://orientim.com', W, now)).toBe(true);
+    expect(isApiKeyMessage(lines('https://evil.example/'), 'https://orientim.com', W, now)).toBe(false);
+    expect(isApiKeyMessage(lines('https://orientim.com/developers#access', 'devnet'), 'https://orientim.com', W, now)).toBe(false);
+    expect(isApiKeyMessage(lines('https://orientim.com/developers#access'), 'https://orientim.com', W, now + 3_600_000)).toBe(false);
+  });
+
+  it('refuses an amount that is not whole base units before anything is asked', () => {
+    for (const amount of ['-5', '0x10', '0', '1.5']) {
+      const run = spawnSync(process.execPath, [example, '--in', USDC, '--out', WSOL_MINT, '--amount', amount, '--owner', WSOL_MINT, '--dry-run'], { encoding: 'utf8', cwd, env });
+      expect(run.status, amount).toBe(2);
+      expect(run.stderr).toContain('whole number of base units');
+    }
+  });
+
+  it('orientim-verify reads JSON written with a byte-order mark', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-r14-bom-'));
+    const run = spawnSync(process.execPath, ['skills/orientim-protected-swap/bin/orientim-verify.mjs', 'recover'], {
+      encoding: 'utf8', cwd, input: '﻿{}', env: { ...env, ORIENTIM_STATE_DIR: dir },
+    });
+    expect(run.stdout).not.toContain('not JSON');
+    const prepare = spawnSync(process.execPath, ['skills/orientim-protected-swap/bin/orientim-verify.mjs', 'prepare'], {
+      encoding: 'utf8', cwd, input: `﻿${JSON.stringify({ intent: { owner: WSOL_MINT, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '-5', id: 'x' } })}`, env: { ...env, ORIENTIM_STATE_DIR: dir },
+    });
+    expect(prepare.status).toBe(2);
+    expect(prepare.stdout).not.toContain('not JSON');
+    expect(prepare.stdout).toContain('digits only');
   });
 });
