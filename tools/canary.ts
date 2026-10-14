@@ -112,6 +112,9 @@ async function swap(
     } catch (e) {
       const code = e instanceof OrientimError ? e.code : 'error';
       if (want && code === 'no-route') return 'elsewhere';
+      // A picked token Orientim refuses by design (a route through a permanent delegate, say): the
+      // refusal is the promise kept, and the market is proven by the next token.
+      if (want && code === 'unsupported-token') return 'elsewhere';
       // A token picked from a list (the newest on a curve, say) whose every route fails in simulation,
       // through other markets too: the token's, said by the caller unless every token tried fails so.
       if (want && code === 'simulation-failed') {
