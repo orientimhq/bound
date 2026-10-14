@@ -1134,6 +1134,26 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     expect(loggableError('plain text')).toBe('plain text');
   });
 
+  it('a URL without its scheme, or with it in capitals or a password holding "@", is cut to its host as well', () => {
+    const lines = [
+      loggableError(new Error('fetch failed: rpc.example.com/v2/APIKEY123456 timed out')),
+      loggableError(new Error('getaddrinfo ENOTFOUND mainnet.helius-rpc.com?api-key=abcd1234-5678')),
+      loggableError(new Error('connect to orientim:s3cr3tP4ss@rpc.example.com:8899/ refused')),
+      loggableError(new Error('POST HTTPS://user:pa@ss@rpc.example.com/?api-key=UPPER999 failed')),
+      loggableError(new Error('upstream said api-key=LOOSE777 is not valid')),
+    ];
+    for (const secret of ['APIKEY123456', 'abcd1234', 's3cr3tP4ss', 'pa@ss', 'UPPER999', 'LOOSE777']) {
+      for (const line of lines) expect(line).not.toContain(secret);
+    }
+    expect(lines[0]).toContain('rpc.example.com/…');
+    expect(lines[1]).toContain('mainnet.helius-rpc.com/…');
+    expect(lines[2]).toContain('rpc.example.com:8899/…');
+    // A stack's own file paths stay readable.
+    const e = new Error('boom');
+    e.stack = 'Error: boom\n    at run (/var/task/.next/server/app/api/v1/prepare/route.js:1:2345)';
+    expect(loggableError(e)).toContain('route.js:1:2345');
+  });
+
   it('without Orientim\'s program labels an excluded DEX cannot be checked: the swap is built with its own key', async () => {
     const asked: unknown[] = [];
     const w = await world({ jupiter: fakeJupiter({ asked: asked as never, labels: 'down' }) });

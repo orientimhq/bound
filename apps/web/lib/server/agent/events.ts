@@ -22,13 +22,27 @@ export function maskedReason(text: string, max = 160): string {
   return text.replace(ADDRESSES, '…').slice(0, max);
 }
 
+/** A URL with its scheme, in any case, and its credentials up to the last "@" of the host part. */
+const URLS = /\b(https?|wss?):\/\/(?:[^\s/?#'"]*@)?([^\s/'"?#@]+)[^\s'"]*/gi;
+/**
+ * A host and what follows it, without a scheme, as some errors write it ("fetch failed:
+ * rpc.example.com/v2/KEY", "ENOTFOUND host?api-key=..."). File paths in a stack have no host before them.
+ */
+const BARE_URLS = /\b((?:[a-z0-9-]+\.)+[a-z][a-z0-9-]*)(:\d{1,5})?[/?][^\s'"]*/gi;
+/** Credentials before a host, without a scheme: "user:password@". */
+const BARE_CREDENTIALS = /[^\s/'"@:]+:[^\s/'"]*@(?=[a-z0-9-]+\.)/gi;
+/** A secret passed as a parameter anywhere else. */
+const SECRET_PARAMS = /\b(api[-_]?key|access[-_]?token|token|secret|password|auth)=[^\s&'"]+/gi;
+
 /**
  * An unexpected error as one log entry: its stack or message, with every URL cut to its host (an RPC
- * URL may carry the provider's key in its path or query) and every address masked.
+ * URL may carry the provider's key in its path or query, or credentials before its host), with or
+ * without its scheme, and every address masked.
  */
 export function loggableError(e: unknown): string {
   const text = e instanceof Error ? `${e.stack ?? `${e.name}: ${e.message}`}${e.cause ? `\ncause: ${loggableCause(e.cause)}` : ''}` : String(e);
-  return maskedReason(text.replace(/\b(https?|wss?):\/\/(?:[^\s/'"?#@]*@)?([^\s/'"?#@]+)[^\s'"]*/g, '$1://$2/…'), 4_000);
+  const cut = text.replace(URLS, '$1://$2/…').replace(BARE_CREDENTIALS, '').replace(BARE_URLS, '$1$2/…').replace(SECRET_PARAMS, '$1=…');
+  return maskedReason(cut, 4_000);
 }
 const loggableCause = (c: unknown) => (c instanceof Error ? `${c.name}: ${c.message}` : String(c));
 
