@@ -21,15 +21,15 @@ const TIMEOUT = 60_000 + RUNS * 2;
 describe('the API key', () => {
   it("refuses any change to the first four lines of Orientim's key message", async () => {
     const W = (await generateKeyPairSigner()).address;
-    const { message } = await newChallenge(new Uint8Array(32).fill(1), { domain: 'orientim.com', uri: 'https://orientim.com/docs#access', wallet: W, now: 1_790_000_000 });
-    expect(isApiKeyMessage(message, 'https://orientim.com', W)).toBe(true);
+    const { message } = await newChallenge(new Uint8Array(32).fill(1), { domain: 'orientim.com', uri: 'https://orientim.com/developers#access', wallet: W, now: 1_790_000_000 });
+    expect(isApiKeyMessage(message, 'https://orientim.com', W, 1_790_000_000_000)).toBe(true);
     const head = message.split('\n').slice(0, 4).join('\n').length;
     fc.assert(fc.property(fc.nat({ max: head - 1 }), fc.string({ minLength: 1, maxLength: 3 }), fc.constantFrom('replace', 'insert', 'delete'), (at, text, how) => {
       const changed = how === 'replace' ? message.slice(0, at) + text + message.slice(at + 1)
         : how === 'insert' ? message.slice(0, at) + text + message.slice(at)
           : message.slice(0, at) + message.slice(at + 1);
       if (changed === message) return;
-      expect(isApiKeyMessage(changed, 'https://orientim.com', W)).toBe(false);
+      expect(isApiKeyMessage(changed, 'https://orientim.com', W, 1_790_000_000_000)).toBe(false);
     }), PARAMS);
   }, TIMEOUT);
 

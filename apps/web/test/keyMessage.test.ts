@@ -25,7 +25,7 @@ describe('the page checks the key message as strictly as the skill', () => {
   ];
 
   it.each(cases)('%s', (_name, text, host, wallet) => {
-    expect(isKeyMessage(text, host, wallet, NOW)).toBe(isApiKeyMessage(text, `https://${host}`, wallet));
+    expect(isKeyMessage(text, host, wallet, NOW)).toBe(isApiKeyMessage(text, `https://${host}`, wallet, NOW));
   });
 
   it('accepts the real message and refuses a tampered one', () => {
