@@ -265,7 +265,9 @@ function explain(e: unknown): Response {
   }
   const http = httpStatusOf(e);
   if (http === 429) return fail(503, 'busy', "Orientim's Solana RPC is rate limited right now. Wait a few seconds and try again. Nothing was sent.", {}, { 'retry-after': '5' });
-  if ((http !== null && http >= 500) || unanswered(e)) {
+  // Any other HTTP error from the RPC is the RPC's, not the swap's: a 5xx, or a backup whose key has
+  // expired or whose plan ran out (401, 402, 403).
+  if (http !== null || unanswered(e)) {
     return fail(503, 'unavailable', "Orientim's Solana RPC didn't answer. Nothing was sent; try again in a moment.", {}, { 'retry-after': '5' });
   }
   // The RPC answered but could not serve the request: its own fault or its plan's, not the swap's.
@@ -725,7 +727,7 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     }
     const http = httpStatusOf(e);
     if (http === 429) return refuse(503, 'busy', "Orientim's Solana RPC is rate limited right now, so this request sent nothing. Wait a few seconds and try finalize again.", {}, { 'retry-after': '5' });
-    if ((http !== null && http >= 500) || unanswered(e) || isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED)) {
+    if (http !== null || unanswered(e) || isSolanaError(e, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED)) {
       return refuse(503, 'unavailable', "Orientim's Solana RPC didn't answer, so this request sent nothing. Try finalize again in a moment.", {}, { 'retry-after': '5' });
     }
     console.error(loggableError(e));

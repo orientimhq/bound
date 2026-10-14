@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import {
   address, compileTransaction, decompileTransactionMessage, generateKeyPairSigner, getCompiledTransactionMessageDecoder,
-  SolanaError, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, getPublicKeyFromAddress, getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder,
+  SolanaError, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND, SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, getPublicKeyFromAddress, getSignatureFromTransaction, getTransactionDecoder, getTransactionEncoder,
   partiallySignTransaction, signBytes, verifySignature,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
@@ -702,6 +702,15 @@ describe("an RPC that answers but cannot serve the request is unavailable, not a
     expect(res.headers.get('retry-after')).toBe('5');
     expect((await res.json()).error.code).toBe('unavailable');
     expect(w.sent).toHaveLength(0);
+  });
+
+  it('prepare answers unavailable, not internal, when the RPC refuses with an HTTP 4xx (a backup whose key expired)', async () => {
+    const w = await world();
+    const expired = new SolanaError(SOLANA_ERROR__RPC__TRANSPORT_HTTP_ERROR, { statusCode: 401, message: 'Unauthorized', headers: new Headers() });
+    w.deps.rpc = new Proxy({}, { get: () => () => ({ send: async () => { throw expired; } }) }) as AgentDeps['rpc'];
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address)), w.deps);
+    expect(res.status).toBe(503);
+    expect((await res.json()).error.code).toBe('unavailable');
   });
 
   it('prepare answers unavailable, not internal, when a node stays behind the slot of an earlier read', async () => {
