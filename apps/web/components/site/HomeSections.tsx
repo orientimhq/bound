@@ -35,6 +35,14 @@ const GET_IT: { id: string; label: string; line: string; note: ReactNode; docs: 
   },
 ];
 
+/** What the protection rests on, in figures a visitor can check (the developer and security pages say how). */
+const PROOF: [string, string, string][] = [
+  ['7', 'byte-level rules', 'Checked on your own RPC before you sign, and fuzzed with about 29 million cases.'],
+  ['1', 'one-time key per swap', 'It lives one transaction, about 150 blocks; its accounts close back to your wallet in it.'],
+  ['0.25%', 'flat fee', 'No custody, no account to open, no sign-up: a key comes from one wallet signature.'],
+  ['100%', 'open verifier', 'Apache-2.0, with every release attested on GitHub.'],
+];
+
 /** How an agent starts: the key, the skill, the first swap (the developer page has each in full). */
 const START_STEPS = [
   ['Get an API key', 'Sign Orientim’s message with your agent’s wallet. The key comes at once and lasts 90 days; signing moves nothing. The MCP server gets one itself.'],
@@ -85,6 +93,16 @@ export function HomeSections() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      <section className="proof-band" aria-label="What the protection rests on">
+        <div className="container">
+          <ul className="proof-grid">
+            {PROOF.map(([figure, label, text]) => (
+              <li key={label}><b className="proof-figure">{figure}</b><span className="proof-label">{label}</span><p>{text}</p></li>
+            ))}
+          </ul>
         </div>
       </section>
 
