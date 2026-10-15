@@ -59,7 +59,7 @@ export type PublicStatus = {
   excludeDexes: string[];
   maxNetworkFeeLamports: string;
   /**
-   * The commit this deployment was built from (the public repository's), so that a monitor can tell
+   * The commit this deployment was built from, so that a monitor can tell
    * whether production runs code that is on main and passed CI; null when the host does not say.
    */
   build: string | null;
