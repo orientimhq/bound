@@ -1,6 +1,8 @@
 import { createDefaultRpcTransport, createSolanaRpcFromTransport } from '@solana/kit';
 import { createRetryingRpc, httpStatusOf, retryingTransport } from '@orientimhq/swap/solana';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
+import { createHash } from 'node:crypto';
+import type { Shared } from './shared';
 
 type Transport = ReturnType<typeof createDefaultRpcTransport>;
 type Config = Parameters<Transport>[0];
@@ -41,6 +43,9 @@ export const FAILOVER_TIMES: FailoverTimes = { totalMs: 25_000, attemptMs: 15_00
  */
 const MAIN_MAY_HAVE_MS = 180_000;
 const MAIN_MAY_HAVE_MAX = 10_000;
+/** How often an instance reads whether another one judged the main RPC down. */
+const SHARED_DOWN_EVERY_MS = 1_000;
+const DOWN_KEY = 'orientim:rpc:main-down-until';
 
 /** The caller's own signal, if any, and the call's deadline: whichever ends first ends the request. */
 function until(own: AbortSignal | undefined, ms: number): AbortSignal {
@@ -63,8 +68,15 @@ function until(own: AbortSignal | undefined, ms: number): AbortSignal {
  * pinning a whole instance to the backup over it would make the backup's health everyone's. The wait
  * ends early when the backup fails a call (the main RPC is then asked with the time left), or when a
  * read sent to the main RPC in the background answers (one every `probeMs`).
+ *
+ * With `shared` (Redis, shared.ts), instances tell each other: one that judges the main RPC down
+ * says until when, and the others read it in the background at most once a second, so that they go
+ * to the backup without each waiting out a slow failure first; one that sees the main RPC answer
+ * again says so. And every transaction given to the main RPC is noted there too, so that a
+ * finalize repeated on another instance knows the main RPC may have it. A call never waits on Redis
+ * except in that one case, a send the backup refused while the main RPC is passed over.
  */
-export function createServerRpc(primary: string, fallback: string | null, times: FailoverTimes = FAILOVER_TIMES): SolanaRpc {
+export function createServerRpc(primary: string, fallback: string | null, times: FailoverTimes = FAILOVER_TIMES, shared: Shared | null = null): SolanaRpc {
   if (!fallback || fallback === primary) return createRetryingRpc(primary);
   // A rate-limited main RPC is retried twice, not five times: the backup is there to take the call.
   const main = retryingTransport(createDefaultRpcTransport({ url: primary as `https://${string}` }), 2, 500, times.attemptMs);
@@ -79,15 +91,31 @@ export function createServerRpc(primary: string, fallback: string | null, times:
   let nextProbe = 0;
   // Every transaction this instance gave the main RPC, until it can no longer land: whatever the main
   // RPC answered then, it may have it (a success, an answer lost on the way back, or an earlier
-  // send), so a refusal from the backup alone never says it was not broadcast. Per instance, like
-  // all of this: another instance's sends are the chain's to tell (finalize reads it first).
+  // send), so a refusal from the backup alone never says it was not broadcast. Noted in `shared` as
+  // well, when there is one: a finalize repeated on another instance gives it the same transaction.
   const mainMayHave = new Map<string, number>();
 
+  const quietly = (p: Promise<unknown>) => void p.catch(() => undefined);
+  let nextSharedRead = 0;
+  /** What other instances judged, read in the background: a later "down until" than ours is taken as a judgement. */
+  const readShared = () => {
+    if (!shared || Date.now() < nextSharedRead) return;
+    nextSharedRead = Date.now() + SHARED_DOWN_EVERY_MS;
+    quietly(shared.get(DOWN_KEY).then(v => {
+      const until = Number(v);
+      if (!Number.isFinite(until) || until <= Date.now() || until <= mainDownUntil) return;
+      pins++;
+      mainDownUntil = Math.min(until, Date.now() + times.downMs);
+      nextProbe = Date.now() + probeMs;
+      lastQuickFailure = 0;
+    }));
+  };
   const judgeDown = () => {
     pins++;
     mainDownUntil = Date.now() + times.downMs;
     nextProbe = Date.now() + probeMs;
     lastQuickFailure = 0;
+    if (shared) quietly(shared.set(DOWN_KEY, String(mainDownUntil), times.downMs));
   };
   /** The main RPC failed a call that took `ms`: judged down now, or on a second quick failure. */
   const mainFailed = (ms: number) => {
@@ -98,6 +126,8 @@ export function createServerRpc(primary: string, fallback: string | null, times:
   /** The main RPC answered a call that began while `pinsAtStart` judgements had been made. */
   const mainAnswered = (pinsAtStart: number) => {
     if (pins !== pinsAtStart) return;
+    // It was passed over and answers again: the other instances stop passing it over too.
+    if (mainDownUntil !== 0 && shared) quietly(shared.set(DOWN_KEY, '0', times.downMs));
     mainDownUntil = 0;
     lastQuickFailure = 0;
   };
@@ -118,8 +148,20 @@ export function createServerRpc(primary: string, fallback: string | null, times:
       if (mainMayHave.size >= MAIN_MAY_HAVE_MAX) mainMayHave.delete(mainMayHave.keys().next().value!);
     }
     mainMayHave.set(wire, now + MAIN_MAY_HAVE_MS);
+    if (shared) quietly(shared.set(sentKey(wire), '1', MAIN_MAY_HAVE_MS));
   };
-  const mainMayHaveIt = (wire: string | null) => wire !== null && (mainMayHave.get(wire) ?? 0) > Date.now();
+  const sentKey = (wire: string) => `orientim:rpc:main-may-have:${createHash('sha256').update(wire).digest('hex')}`;
+  /** Here, or on another instance. Redis not answering counts as "it may": that is the cautious answer. */
+  const mainMayHaveIt = async (wire: string | null) => {
+    if (wire === null) return false;
+    if ((mainMayHave.get(wire) ?? 0) > Date.now()) return true;
+    if (!shared) return false;
+    try {
+      return (await shared.get(sentKey(wire))) !== null;
+    } catch {
+      return true;
+    }
+  };
   const succeeded = (answer: unknown) => answer !== null && typeof answer === 'object' && 'result' in answer && !('error' in answer);
   /** An HTTP refusal (not 429): the RPC did not take the request at all. */
   const refusedOutright = (e: unknown) => {
@@ -142,6 +184,7 @@ export function createServerRpc(primary: string, fallback: string | null, times:
     const method = (config as { payload?: { method?: unknown } }).payload?.method;
     const send = method === 'sendTransaction';
     const wire = send ? wireOf(config) : null;
+    readShared();
 
     if (Date.now() < mainDownUntil) {
       // The main RPC is passed over: the backup first, for one attempt's time, so that the main RPC
@@ -178,7 +221,7 @@ export function createServerRpc(primary: string, fallback: string | null, times:
       // the sender reads it as refused, or as sent. Unless the main RPC was given this very
       // transaction earlier and never said what it did with it: then a refusal here proves nothing,
       // and the send stays unknown.
-      if (!send || succeeded(answer) || !mainMayHaveIt(wire)) return answer;
+      if (!send || succeeded(answer) || !(await mainMayHaveIt(wire))) return answer;
       throw new Error('The backup RPC did not accept the transaction while the main RPC is down.');
     }
 

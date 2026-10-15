@@ -59,7 +59,8 @@ async function server(clients: number, perMinute: number, own = false) {
   ]);
   for (const w of wallets) for (const m of [USDC, BONK]) for (const [k, a] of await fundedAccounts(w.address, m)) accounts.set(k, a);
   const sent: string[] = [];
-  const rpc = fakeRpc(accounts, { sent });
+  // Each sent swap lands at once, as the next swap into the same account needs (one in flight per account).
+  const rpc = fakeRpc(accounts, { sent, landOnSend: true, statuses: new Map() });
   const jupiter = fakeJupiter({ out: 1_000_000_000n });
   const deps: AgentDeps = {
     rpc, jupiter, secrets: [new Uint8Array(32).fill(5)],

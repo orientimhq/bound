@@ -1,7 +1,7 @@
 import { address, isAddress } from '@solana/kit';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { readBodyLimited } from '../body';
-import { clientKey, rateLimited, secondsUntilReset } from '../rateLimit';
+import { clientKey, limit } from '../rateLimit';
 import { SKILL_VERSION } from '../skill';
 import { olderThan } from './api';
 import { LEGAL } from '../../legal';
@@ -91,8 +91,9 @@ export async function keyChallenge(req: Request, deps: AccessDeps): Promise<Resp
   const old = outdated(req, deps);
   if (old) return old;
   const bucket = `keys-challenge:${clientKey(req)}`;
-  if (rateLimited(bucket, 30, 3_600_000)) {
-    return fail(429, 'rate-limited', 'Too many key challenges from this address. Wait Retry-After seconds and try again.', { 'retry-after': String(secondsUntilReset(bucket)) });
+  const waitBucket = await limit(bucket, 30, 3_600_000);
+  if (waitBucket !== null) {
+    return fail(429, 'rate-limited', 'Too many key challenges from this address. Wait Retry-After seconds and try again.', { 'retry-after': String(waitBucket) });
   }
   const url = new URL(req.url);
   const wallet = url.searchParams.get('wallet') ?? '';
@@ -107,8 +108,9 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
   const old = outdated(req, deps);
   if (old) return old;
   const bucket = `keys-issue:${clientKey(req)}`;
-  if (rateLimited(bucket, 10, 3_600_000)) {
-    return fail(429, 'rate-limited', 'Too many keys requested from this address. Wait Retry-After seconds and try again.', { 'retry-after': String(secondsUntilReset(bucket)) });
+  const waitBucket = await limit(bucket, 10, 3_600_000);
+  if (waitBucket !== null) {
+    return fail(429, 'rate-limited', 'Too many keys requested from this address. Wait Retry-After seconds and try again.', { 'retry-after': String(waitBucket) });
   }
   const text = await readBodyLimited(req, 4_096);
   let body: Record<string, unknown> | null = null;
@@ -137,12 +139,14 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
   }
   // Counted only for funded wallets that signed, so nobody spends another wallet's or everyone's issuance.
   const perWallet = `keys-wallet:${accepted.wallet}`;
-  if (rateLimited(perWallet, WALLET_KEYS_PER_DAY, 86_400_000)) {
-    return fail(429, 'rate-limited', 'Too many keys issued to this wallet today. Use the key you have, or wait Retry-After seconds.', { 'retry-after': String(secondsUntilReset(perWallet)) });
+  const waitPerWallet = await limit(perWallet, WALLET_KEYS_PER_DAY, 86_400_000);
+  if (waitPerWallet !== null) {
+    return fail(429, 'rate-limited', 'Too many keys issued to this wallet today. Use the key you have, or wait Retry-After seconds.', { 'retry-after': String(waitPerWallet) });
   }
   const all = 'keys-issue:all';
-  if (rateLimited(all, deps.maxKeysPerHour ?? DEFAULT_KEYS_PER_HOUR, 3_600_000)) {
-    return fail(429, 'rate-limited', 'Orientim is issuing too many keys right now. Wait Retry-After seconds and try again.', { 'retry-after': String(secondsUntilReset(all)) });
+  const waitAll = await limit(all, deps.maxKeysPerHour ?? DEFAULT_KEYS_PER_HOUR, 3_600_000);
+  if (waitAll !== null) {
+    return fail(429, 'rate-limited', 'Orientim is issuing too many keys right now. Wait Retry-After seconds and try again.', { 'retry-after': String(waitAll) });
   }
   const now = seconds(deps);
   const issued = await issueKey(deps.keySecrets[0], accepted.wallet, now);

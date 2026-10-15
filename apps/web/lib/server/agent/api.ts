@@ -15,7 +15,8 @@ import { hasPermanentDelegate } from '@orientimhq/swap/verifier';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { readBodyLimited } from '../body';
 import { loggableError, logEvent, maskedReason } from './events';
-import { rateLimited, secondsUntilReset } from '../rateLimit';
+import { limit } from '../rateLimit';
+import { memoryShared, type Shared } from '../shared';
 import { openKey } from './keys';
 import { ephemeralFor, kidOf, newNonce, openSession, openTicket, REFERENCE_FRESH_MS, sealSession, sealTicket, SESSION_TTL_SECONDS } from './ticket';
 import type { SessionReference, SessionSolValue, SessionTerms } from './ticket';
@@ -74,6 +75,12 @@ export type AgentDeps = {
    * from before them did.
    */
   ownRoutes?: boolean;
+  /**
+   * State every instance sees (shared.ts): Redis when the deployment has it. Without it, this
+   * instance's memory: one message per E and one swap in flight per output account then hold per
+   * instance only, and the rate limit is the instance's own.
+   */
+  shared?: Shared;
 };
 
 /** Is `version` (major.minor.patch) older than `minimum`? A version that is not one is not judged. */
@@ -122,8 +129,9 @@ async function authenticate(req: Request, deps: AgentDeps): Promise<{ id: string
   const auth = manual ? { id: manual, wallet: null } : own;
   if (!auth) return fail(401, 'unauthorized', 'A valid API key is required: Authorization: Bearer <key>. This one is missing, unknown, expired or revoked; a wallet gets a new key by signing a new key challenge.');
   const bucket = `agent:${new URL(req.url).pathname}:${auth.id}`;
-  if (rateLimited(bucket, deps.perMinute)) {
-    return fail(429, 'rate-limited', 'Too many requests for this API key. Wait Retry-After seconds and try again.', {}, { 'retry-after': String(secondsUntilReset(bucket)) });
+  const wait = await limit(bucket, deps.perMinute, 60_000, deps.shared?.kind === 'redis' ? deps.shared : null);
+  if (wait !== null) {
+    return fail(429, 'rate-limited', 'Too many requests for this API key. Wait Retry-After seconds and try again.', {}, { 'retry-after': String(wait) });
   }
   return auth;
 }
@@ -615,33 +623,39 @@ const EARLIER =
   'If an earlier finalize of this ticket went out, that transaction may have landed, or may still land until lastValidBlockHeight: check its signature on your own RPC before preparing again.';
 
 /**
- * The one message E has signed, per E's nonce, on this instance: E is a one-time key, and a session
- * (whose rounds share one E, since the routes the agent fetched are built around it) could otherwise
- * be replayed into several swaps of different terms, each signed by the same E. A first round may
- * leave the minimum and the tolerance open, so prepare cannot tell a replay from the round that
- * fills them in; finalize can: it signs one message per E, and the same one again as often as asked.
- * Kept past any ticket's life (a session's two minutes, then a blockhash's), and per instance only.
+ * The one message E has signed, per E's nonce: E is a one-time key, and a session (whose rounds
+ * share one E, since the routes the agent fetched are built around it) could otherwise be replayed
+ * into several swaps of different terms, each signed by the same E. A first round may leave the
+ * minimum and the tolerance open, so prepare cannot tell a replay from the round that fills them in;
+ * finalize can: it signs one message per E, and the same one again as often as asked. Kept past any
+ * ticket's life (a session's two minutes, then a blockhash's), in the deployment's shared state, so
+ * that two instances cannot each sign another message with the same E.
  */
-const signedByE = new Map<string, { msg: string; until: number }>();
 const SIGNED_BY_E_MS = 10 * 60_000;
-const SIGNED_BY_E_MAX = 50_000;
+/** This instance's memory, for deployments (and tests) without shared state. */
+const localShared = memoryShared();
 
-/** May E (of `nonce`) sign `msg`? Yes for its first message and that one again; it is noted here. */
-function oneMessagePerE(nonce: string, msg: string): boolean {
-  const now = Date.now();
-  const had = signedByE.get(nonce);
-  if (had && had.until > now) return had.msg === msg;
-  if (signedByE.size >= SIGNED_BY_E_MAX) {
-    for (const [k, v] of signedByE) {
-      if (v.until > now) break;
-      signedByE.delete(k);
-    }
-    if (signedByE.size >= SIGNED_BY_E_MAX) signedByE.delete(signedByE.keys().next().value!);
-  }
-  signedByE.delete(nonce);
-  signedByE.set(nonce, { msg, until: now + SIGNED_BY_E_MS });
-  return true;
+/** May E (of `nonce`) sign `msg`? Yes for its first message and that one again; it is noted, in one step. */
+async function oneMessagePerE(shared: Shared, nonce: string, msg: string): Promise<boolean> {
+  const had = await shared.claim(`orientim:e:${nonce}`, msg, SIGNED_BY_E_MS);
+  return had === null || had === msg;
 }
+
+/**
+ * One swap in flight per output account. The minimum-output check is the account's balance at
+ * prepare plus the minimum: two swaps into one account, both signed before either lands, would each
+ * see the other's tokens count towards its own minimum. So finalize holds the account for the
+ * transaction it signs (its message hash and its signature) until that transaction can no longer
+ * land, and signs another swap into the account only once the first has landed or failed on chain,
+ * with the account's balance read again after it (the second swap's prepare must have seen it).
+ */
+const outputKey = (ticket: { wOut?: string; owner: string }) => `orientim:out:${ticket.wOut ?? `${ticket.owner}:sol`}`;
+/** Blocks are about 400 ms; a block height lags the slot a little. Held at least this long, and at most the longest. */
+const BLOCK_MS = 500;
+const HOLD_MIN_MS = 5_000;
+const HOLD_MAX_MS = 150_000;
+const holdMs = (lvbh: bigint, height: bigint | null) =>
+  height === null ? HOLD_MAX_MS : Math.min(HOLD_MAX_MS, Math.max(HOLD_MIN_MS, Number(lvbh - height + 10n) * BLOCK_MS));
 
 export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Response> {
   const auth = await authenticate(req, deps);
@@ -704,6 +718,14 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     return refuse(503, 'unavailable', 'Orientim could not read from the network whether this transaction was already sent, so this request sent nothing. Try finalize again in a few seconds.', {}, { 'retry-after': '5' });
   }
 
+  // The output account this request holds, once it does: given back whenever nothing went out.
+  let holding: { shared: Shared; account: string; mine: string } | null = null;
+  const release = async () => {
+    if (!holding) return;
+    const { shared, account, mine } = holding;
+    holding = null;
+    await shared.drop(account, mine).catch(() => undefined);
+  };
   try {
     const E = await ephemeralFor(secret, ticket.nonce);
     const original: Transaction = { messageBytes: returned.messageBytes, signatures: {} } as Transaction;
@@ -734,10 +756,60 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
         });
       }
     }
-    // Checked and noted in one step, with nothing awaited between: two finalizes at once cannot both pass.
-    if (!oneMessagePerE(ticket.nonce, ticket.msg)) {
+    const shared = deps.shared ?? localShared;
+    const stateDown = () => refuse(503, 'unavailable', 'Orientim could not reach the state its instances share, so this request signed and sent nothing. Try finalize again in a few seconds.', {}, { 'retry-after': '5' });
+    // Checked and noted in one step, for every instance at once: two finalizes cannot both pass.
+    let firstForE: boolean;
+    try {
+      firstForE = await oneMessagePerE(shared, ticket.nonce, ticket.msg);
+    } catch {
+      return stateDown();
+    }
+    if (!firstForE) {
       return refuse(409, 'session-used', 'Orientim already signed another transaction with this one-time key (an earlier round of the same session), and signs one per key. Prepare again without the session; this request signed and sent nothing.');
     }
+    // The output account, held for this transaction until it can no longer land (outputKey).
+    const account = outputKey(ticket);
+    const mine = `${ticket.msg}:${signature}`;
+    let height: bigint | null;
+    try {
+      height = BigInt(await blockHeight);
+    } catch {
+      height = null;
+    }
+    const ttl = holdMs(BigInt(ticket.lvbh), height);
+    let holder: string | null;
+    try {
+      holder = await shared.claim(account, mine, ttl);
+    } catch {
+      return stateDown();
+    }
+    // The same message again (a repeated finalize) holds what it held.
+    if (holder !== null && !holder.startsWith(`${ticket.msg}:`)) {
+      const theirs = holder.slice(holder.indexOf(':') + 1);
+      const inFlight = () => refuse(409, 'output-in-flight', "Another swap into this output account is signed and has not landed or expired yet: its tokens would count towards this swap's minimum, so this request signed and sent nothing. Finalize again once it confirms or expires.", { inFlight: theirs }, { 'retry-after': '5' });
+      const status = (await rpc.getSignatureStatuses([theirs as never]).send()).value[0];
+      if (!status || (status.confirmationStatus !== 'confirmed' && status.confirmationStatus !== 'finalized')) return inFlight();
+      // It landed (or failed) on chain: read the balance again, after it. A swap prepared before it
+      // landed was built on a balance without its tokens, and is refused as any moved balance is.
+      if (ticket.wOut) {
+        const now = tokenAmountOf((await fetchAccounts(rpc, [ticket.wOut as Address])).get(ticket.wOut)?.data);
+        const grew = now - BigInt(ticket.b0!);
+        if (grew < 0n || grew > BigInt(ticket.dust ?? '0')) {
+          return refuse(409, 'output-balance-changed', 'The balance of your output account changed since prepare (a transfer in or out, another swap, or the account was closed), so this request signed and sent nothing.', {
+            balanceAtPrepare: ticket.b0, balanceNow: now,
+          });
+        }
+      }
+      let took: boolean;
+      try {
+        took = await shared.replace(account, holder, mine, ttl);
+      } catch {
+        return stateDown();
+      }
+      if (!took) return inFlight();
+    }
+    holding = { shared, account, mine };
     const signed = await countersign(false);
     // Signed, not sent: the agent sends these bytes itself.
     if (!sendIt) {
@@ -746,9 +818,12 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     // Too late to send and still answer in time: nothing goes out. Once it starts, a send the deadline
     // cuts short is answered `unknown` (sendOnce), with the bytes to confirm on the agent's own RPC.
     if (deadline.signal.aborted) {
+      await release();
       return refuse(503, 'unavailable', "Orientim's Solana RPC was too slow to finish this finalize, so this request sent nothing. Try finalize again in a few seconds.", {}, { 'retry-after': '5' });
     }
     const sent = await sendOnce(rpc, signed);
+    // Refused by the network: it cannot land, and the account is free for the next swap.
+    if (sent.status === 'rejected') await release();
     return json(200, {
       signature: sent.signature,
       status: sent.status,
@@ -762,6 +837,7 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     });
   } catch (e) {
     // Every path here ends before a send: say what this request did, and name the transaction.
+    await release();
     if (e instanceof OrientimError && e.code === 'expired') {
       return refuse(410, 'expired', 'The transaction reached the end of its lifetime before Orientim signed it now.');
     }

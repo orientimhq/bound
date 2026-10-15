@@ -55,6 +55,7 @@ const ERRORS: [string, string, string][] = [
   ['409', 'routes-needed', 'With ownRoutes: fetch requests from Jupiter with your own key and prepare again with session and every route you have (Your own Jupiter key). The skill does this itself.'],
   ['409', 'session-used', 'With ownRoutes: Orientim already signed another transaction from this session (one per session). Check that one’s signature, then prepare again without the session.'],
   ['409', 'output-balance-changed', 'Your balance of the output token moved since prepare. Check the signature, then prepare again.'],
+  ['409', 'output-in-flight', 'Another swap into the same output account (inFlight) is signed and has not landed or expired. Wait Retry-After seconds and finalize again.'],
   ['410', 'expired', 'The transaction’s lifetime passed before finalize. Check the signature, then prepare again.'],
   ['422', 'amount-too-small', 'The amount is below the smallest swap Orientim takes, about 0.004 SOL, or $1 of USDC or USDT (for a swap between two other tokens, its value in SOL). Selling the whole balance of a token (not SOL) is allowed at any size.'],
   ['422', 'unsupported-token, no-route, insufficient-sol, insufficient-balance, simulation-failed, …', 'This swap cannot be built safely right now; message says why.'],

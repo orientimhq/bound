@@ -142,6 +142,7 @@ A prepare answers within 45 seconds in all; one that takes longer, because Jupit
   "temporaryAuthority": "<the one-time key E>",
   "lastValidBlockHeight": "312345678",
   "blocksLeft": "148",
+  "contextSlot": "334567890",
   "amounts": { "amountIn": "5000000", "fee": "106363", "feeMint": "So11111111111111111111111111111111111111112",
                "feeBps": "25", "swapAmount": "5000000", "quotedOut": "42780667", "minOut": "42439063",
                "priceImpactPct": 0.0001 },
@@ -162,6 +163,9 @@ A prepare answers within 45 seconds in all; one that takes longer, because Jupit
 All amounts are strings in base units. The transaction lives 150 blocks, about 40 seconds at
 today's block times (until `lastValidBlockHeight`; `blocksLeft` is what was left when prepare
 answered). Verify, sign and finalize promptly; with fewer than 30 blocks left, prepare again instead.
+`contextSlot` is the slot Orientim built and verified the transaction at: the check waits a few
+seconds for your RPC to reach it, so a node a few slots behind does not refuse a swap built on state
+it has not seen yet (an output account the last swap opened, say).
 
 Before signing, run the verifier: `verifyPrepared(prepared, limits, yourRpc)` from
 `@orientimhq/swap`, where `limits` is what you asked for and the most you accept (fee, network
@@ -185,7 +189,9 @@ account's rent is apart: that account stays yours. `costs.breakdown` gives each 
 amount swapped (`principal`), Orientim's fee in its own token, the network fee, and rent that comes
 back or stays a cost. To hold it to one ceiling of your own, set `maxSolCostLamports`; the check computes it from
 the bytes, not from this statement. The `certificate` and `amounts` are Orientim's statements; the check is what makes them
-evidence, and holds the amounts stated to the policy the bytes are checked against.
+evidence, and holds the amounts stated to the policy the bytes are checked against, and
+`costs.networkFeeLamports` to the most the bytes can pay. A figure that differs is refused as
+`certificate-mismatch: ...`.
 
 `notices.networkBusy` means the network fee is at its limit, so the swap may land late or expire.
 `amounts.priceImpactPct` is `null` when Jupiter
@@ -419,13 +425,14 @@ one to ask") lists what to do with each code.
 | 409 | `routes-needed` | With `ownRoutes`: fetch `requests` from Jupiter with your own key and prepare again with `session` and every route you have (see "Your own Jupiter key"). |
 | 409 | `session-used` | With `ownRoutes`: Orientim already signed another transaction with this session's one-time key, and signs one per key. Prepare again without the session; this request signed and sent nothing. |
 | 409 | `output-balance-changed` | Your balance of the output token moved since prepare, so this request signed nothing. Check `signature` as above, then prepare again. |
+| 409 | `output-in-flight` | Another swap into the same output account (`inFlight`, its signature) is signed and has not landed or expired: its tokens would count towards this swap's minimum, so this request signed nothing. Wait `Retry-After` seconds and finalize again; once that swap has landed, this one is signed if your output balance is still the one prepare saw, and refused as `output-balance-changed` if not. |
 | 410 | `expired` | The transaction's lifetime passed before this finalize signed it. Check `signature` as above, then prepare again. |
 | 422 | `unsupported-token`, `no-route`, `bad-quote`, `insufficient-sol`, `insufficient-balance`, `simulation-failed`, `verification-failed`, `token-data-mismatch`, `output-account-restricted`, `input-account-restricted` | This swap cannot be built safely right now; `message` says why. |
 | 422 | `amount-too-small` | The amount is below the smallest swap Orientim takes, about 0.004 SOL, or $1 of USDC or USDT (for a swap between two other tokens, its value in SOL). Swap a larger amount. Selling the whole balance of a token (not SOL) is allowed at any size. |
 | 426 | `skill-outdated` | This copy of the skill is older than Orientim serves (`minimum`). Download the current one; a swap already signed still finalizes. |
 | 429 | `rate-limited` | Too many requests for this key (per wallet for a self-serve key). Wait `Retry-After` seconds. |
 | 500 | `internal` | Something unexpected failed; nothing was signed by Orientim or sent. Retry later. |
-| 503 | `busy`, `unavailable` | Jupiter or Orientim's Solana RPC is rate limited, overloaded or silent (from finalize: Orientim could not read whether the transaction was already sent). Wait `Retry-After` seconds and retry. |
+| 503 | `busy`, `unavailable` | Jupiter or Orientim's Solana RPC is rate limited, overloaded or silent (from finalize: Orientim could not read whether the transaction was already sent, or could not reach the state its instances share). Wait `Retry-After` seconds and retry. |
 | 503 | `fee-unavailable` | Orientim cannot collect its fee on this swap right now, so it built nothing. Wait `Retry-After` (60) seconds and retry. |
 | 503 | `paused` | Orientim has paused protected swaps, and issues no API keys meanwhile. Your funds are not affected. A transaction already on chain is still reported by finalize. |
 | 503 | `route-format` | Jupiter changed its swap instruction and Orientim refuses what it cannot read. Nothing builds until Orientim is updated: wait `Retry-After` (300) seconds, not less. |

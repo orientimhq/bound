@@ -2,7 +2,9 @@
  * The server-side controls (rate limits, client key, public status): they must hold for direct API calls.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { addressBucket, clientKey, rateLimited, secondsUntilReset } from '../lib/server/rateLimit.ts';
+import { addressBucket, clientKey, limit, rateLimited, secondsUntilReset } from '../lib/server/rateLimit.ts';
+import { memoryShared } from '../lib/server/shared.ts';
+import type { Shared } from '../lib/server/shared.ts';
 
 let n = 0;
 const uniqueIp = () => `203.0.113.${++n % 250}-${n}`;
@@ -38,6 +40,28 @@ describe('the client key comes only from the header the ingress overwrites', () 
     const k = `test:${uniqueIp()}`;
     for (let i = 0; i < 5; i++) expect(rateLimited(k, 5)).toBe(false);
     expect(rateLimited(k, 5)).toBe(true);
+  });
+
+  it('with Redis, a limit counts the requests every instance served, and says Retry-After from its window', async () => {
+    const shared = memoryShared();
+    const k = `keys-challenge:${uniqueIp()}`;
+    // Another instance already served 30 challenges to this address within the hour.
+    for (let i = 0; i < 30; i++) await shared.count(`orientim:rl:${k}`, 3_600_000);
+    const wait = await limit(k, 30, 3_600_000, shared);
+    expect(wait).toBeGreaterThan(3_500);
+    expect(wait).toBeLessThanOrEqual(3_600);
+    // Without Redis this instance's own count decides: one request is not over 30.
+    expect(await limit(`keys-challenge:${uniqueIp()}`, 30, 3_600_000, null)).toBeNull();
+  });
+
+  it('when Redis does not answer, the instance limits on its own count, and a client over it is refused without asking Redis', async () => {
+    let asked = 0;
+    const broken = { kind: 'redis', count: async () => { asked++; throw new Error('redis down'); } } as unknown as Shared;
+    const k = `agent:/api/v1/prepare:${uniqueIp()}`;
+    for (let i = 0; i < 3; i++) expect(await limit(k, 3, 60_000, broken)).toBeNull();
+    expect(asked).toBe(3);
+    expect(await limit(k, 3, 60_000, broken)).toBeGreaterThan(0);
+    expect(asked).toBe(3);
   });
 
   it('says how long until a window ends, for Retry-After', () => {

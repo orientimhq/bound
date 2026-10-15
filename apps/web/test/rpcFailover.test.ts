@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { refusedBeforeBroadcast } from '@orientimhq/swap/solana';
 import { createServerRpc } from '../lib/server/rpcFailover.ts';
+import { memoryShared } from '../lib/server/shared.ts';
 
 const MAIN = 'https://main.rpc.test/';
 const BACKUP = 'https://backup.rpc.test/';
@@ -231,4 +232,44 @@ describe('the agent API RPC with a backup', () => {
     network(down, () => new Response('expired key', { status: 401 }));
     await expect(createServerRpc(MAIN, BACKUP, QUICK).getBalance(ADDRESS).send()).rejects.toThrow(/fetch failed/);
   });
+
+  it('with Redis, an instance that judges the main RPC down tells the others: they go to the backup first', async () => {
+    const shared = memoryShared();
+    const at = '11111111111111111111111111111111' as never;
+    let asked = network(hangs, balance);
+    const one = createServerRpc(MAIN, BACKUP, QUICK, shared);
+    await one.getBalance(at).send();
+    expect(asked).toEqual(['main', 'backup']);
+    expect(Number(await shared.get('orientim:rpc:main-down-until'))).toBeGreaterThan(Date.now());
+    // Another instance: its first call reads the judgement in the background, its next takes it.
+    asked = network(down, balance);
+    const two = createServerRpc(MAIN, BACKUP, QUICK, shared);
+    await two.getBalance(at).send();
+    await two.getBalance(at).send();
+    expect(asked).toEqual(['main', 'backup', 'backup']);
+    // Alone, one quick failure is a blip: the main RPC is asked first again.
+    asked = network(down, balance);
+    const alone = createServerRpc(MAIN, BACKUP, QUICK);
+    await alone.getBalance(at).send();
+    await alone.getBalance(at).send();
+    expect(asked).toEqual(['main', 'backup', 'main', 'backup']);
+  });
+
+  it('with Redis, a transaction one instance gave the main RPC stays "possibly sent" on the others: a refusal from the backup proves nothing', async () => {
+    const shared = memoryShared();
+    const at = '11111111111111111111111111111111' as never;
+    network(() => ok('5igSignature'), refused);
+    expect(await createServerRpc(MAIN, BACKUP, QUICK, shared).sendTransaction('AA==' as never, { encoding: 'base64' }).send()).toBe('5igSignature');
+    // The main RPC is down for every instance now; another one is given the same transaction.
+    await shared.set('orientim:rpc:main-down-until', String(Date.now() + 30_000), 30_000);
+    network(down, refused);
+    const two = createServerRpc(MAIN, BACKUP, QUICK, shared);
+    await two.getBalance(at).send().catch(() => undefined);
+    await expect(two.sendTransaction('AA==' as never, { encoding: 'base64' }).send()).rejects.toThrow(/did not accept the transaction while the main RPC is down/);
+    // A transaction no instance gave the main RPC: the backup's refusal is the answer.
+    const answer = await two.sendTransaction('AQ==' as never, { encoding: 'base64' }).send().then(() => null, (e: Error) => e);
+    expect(answer).toBeInstanceOf(Error);
+    expect(answer!.message).not.toMatch(/did not accept the transaction/);
+  });
 });
+

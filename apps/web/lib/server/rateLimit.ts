@@ -1,9 +1,12 @@
+import { redisFromEnv, type Shared } from './shared';
+
 /**
- * Fixed-window rate limit kept in memory, per instance. Nothing is persisted and nothing about the
- * request body is recorded: only a counter per client key for the current window.
+ * Fixed-window rate limits. `limit` counts in Redis when the deployment has it, so that a limit holds
+ * across instances (shared.ts), and in this instance's memory otherwise. Nothing about the request
+ * body is recorded: only a counter per client key for the current window.
  *
- * This is a local layer only. A limit that holds across instances belongs to the hosting
- * platform's own rate-limit rules (e.g. the Vercel firewall), not to a database of ours.
+ * The hosting firewall's own rules (e.g. Vercel's) stay in front: they hold under a flood, which no
+ * counter behind the function can.
  */
 type Window = { count: number; resetAt: number };
 /**
@@ -65,6 +68,24 @@ export function rateLimited(key: string, limit: number, windowMs = 60_000): bool
   }
   w.count++;
   return w.count > limit;
+}
+
+/**
+ * Is `key` over `limit` requests in its window of `windowMs`? The whole seconds a Retry-After should
+ * say when it is, else null. Counted in Redis when the deployment has it: every instance then counts
+ * the same window. This instance's own count comes first: it is never more than the shared one, so a
+ * client already over the limit here is refused without asking Redis. When Redis does not answer,
+ * the instance's count alone decides, as it did before Redis.
+ */
+export async function limit(key: string, limit: number, windowMs = 60_000, shared: Shared | null = redisFromEnv()): Promise<number | null> {
+  const here = rateLimited(key, limit, windowMs);
+  if (here || !shared) return here ? secondsUntilReset(key) : null;
+  try {
+    const { count, ms } = await shared.count(`orientim:rl:${key}`, windowMs);
+    return count > limit ? Math.max(1, Math.ceil(ms / 1000)) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Whole seconds until `key`'s window ends: what a Retry-After should say once it is limited. */

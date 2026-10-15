@@ -63,7 +63,8 @@ async function world(market: bigint) {
     ...await fundedAccounts(wallet.address, BONK),
   ]);
   const sent: string[] = [];
-  const rpc = fakeRpc(accounts, { sent });
+  // Each sent swap lands at once, as the next swap into the same account needs (one in flight per account).
+  const rpc = fakeRpc(accounts, { sent, landOnSend: true, statuses: new Map() });
   const jupiter = fakeJupiter({ out: market });
   const deps: AgentDeps = {
     rpc, jupiter, secrets: [new Uint8Array(32).fill(3)],

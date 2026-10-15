@@ -2,6 +2,7 @@ import { address } from '@solana/kit';
 import { createJupiterClient, heliusPriorityFee, MIN_FEE } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
 import { createServerRpc } from '../rpcFailover';
+import { redisFromEnv, sharedState } from '../shared';
 import { withSharedReads } from '../sharedReads';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { serverConfig } from '../config';
@@ -139,12 +140,13 @@ export function agentDeps(): AgentDeps | null {
     return null;
   }
   if (treasury === null || feeBps === 0n) sayOnce('The agent API takes no fee: no treasury, or ORIENTIM_API_FEE_BPS is 0.', 'warn');
-  const identity = `${rpcUrl}|${server.rpcFallbackUrl ?? ''}|${jupiterApiKey ?? ''}`;
+  const redis = redisFromEnv();
+  const identity = `${rpcUrl}|${server.rpcFallbackUrl ?? ''}|${jupiterApiKey ?? ''}|${redis ? 'redis' : ''}`;
   if (clients?.for !== identity) {
     clients = {
       for: identity,
       // The blockhash and the rent, read once for the swaps that ask at the same time (sharedReads.ts).
-      rpc: withSharedReads(createServerRpc(rpcUrl, server.rpcFallbackUrl)),
+      rpc: withSharedReads(createServerRpc(rpcUrl, server.rpcFallbackUrl, undefined, redis)),
       priorityFee: heliusPriorityFee(rpcUrl),
       jupiter: createJupiterClient({
         buildUrl: 'https://api.jup.ag/swap/v2/build',
@@ -179,6 +181,7 @@ export function agentDeps(): AgentDeps | null {
     minSkillVersion: /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(minSkillVersion) ? minSkillVersion : null,
     // The smallest swap, about $1, so that no swap costs more to build than it brings.
     minFee: MIN_FEE,
+    shared: sharedState(),
   };
 }
 

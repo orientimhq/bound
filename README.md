@@ -125,13 +125,14 @@ Server only (never sent to the browser):
 | `RPC_URL_FALLBACK` | none | A backup RPC from another provider, asked only when `RPC_URL` does not answer, is rate-limited or fails. After a hang, or two failures within 10 s, calls go to it first for up to 30 s; a failure of the backup, or a background read the main RPC answers, ends that early. A send takes its answer only when it is a success, or as a refusal when the main RPC was never given that transaction |
 | `JUPITER_API_KEY` | — | Required for any real use (free at developers.jup.ag/portal): Jupiter asks for a key on every endpoint and throttles keyless requests after one or two, so quotes fail as "busy". `/api/status` does not say whether it is set; in production the logs say so when it is not |
 | `ORIENTIM_DISABLED` | 0 | Kill switch: `1` (or `true`) makes the server refuse new swaps and new API keys |
-| `ORIENTIM_CLIENT_IP_HEADER` | `x-vercel-forwarded-for` | The one header your ingress overwrites with the client address (Cloudflare: `cf-connecting-ip`). The app's rate limit is per instance; add a rule in the hosting firewall too |
+| `ORIENTIM_CLIENT_IP_HEADER` | `x-vercel-forwarded-for` | The one header your ingress overwrites with the client address (Cloudflare: `cf-connecting-ip`). The app's rate limits count in Redis when it is set (below), else per instance; add a rule in the hosting firewall too |
 | `ORIENTIM_EXCLUDE_DEXES` | `HumidiFi` | DEXes whose per-taker rent is too high to pay on every swap |
 | `ORIENTIM_MAX_NETWORK_FEE_LAMPORTS` | 500000 | F_max, capped at 1,000,000 by the verifier |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` (or `KV_REST_API_URL`, `KV_REST_API_TOKEN`) | none | Redis (Upstash, over REST) that every instance shares. The agent API keeps there: one message per one-time key and one swap in flight per output account (finalize refuses with 503 `unavailable`, signing nothing, while Redis does not answer), the rate limits (each instance's own count decides while Redis does not answer), and whether the main RPC is down and which transactions it was given. Without it all of this holds per instance, and production logs say so. On Vercel, add Upstash Redis from the Marketplace: it sets the `KV_REST_API_*` variables |
 
 ### Deploy: the firewall
 
-The app's own limits are per instance and in memory; the hosting firewall is what holds under load,
+The app's own limits count in Redis when it is set, and per instance otherwise; either way the hosting firewall is what holds under load,
 and what stops a script from spending Orientim's RPC (Helius) and Jupiter quota through the agent API.
 On Vercel, add rate-limit rules per client IP, for example:
 

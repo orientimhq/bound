@@ -21,6 +21,8 @@ import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { ephemeralFor, kidOf, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
 import { issueKey } from '../lib/server/agent/keys.ts';
 import { loggableError, maskedReason, observed } from '../lib/server/agent/events.ts';
+import { memoryShared } from '../lib/server/shared.ts';
+import type { Shared } from '../lib/server/shared.ts';
 
 const KEY = 'ori_test_key_for_the_agent_api_0001';
 const OTHER_KEY = 'ori_test_key_for_another_agent_0002';
@@ -1293,3 +1295,107 @@ async function openSessionOf(session: string) {
   const payload = JSON.parse(Buffer.from(session.split('.')[0], 'base64url').toString('utf8')) as { nonce: string };
   return { taker: (await ephemeralFor(secret(7), payload.nonce)).address };
 }
+
+describe('state the instances share (Redis)', () => {
+  type Asked = { error: { code: string; session: string; taker: string; requests: Record<string, unknown>[] } };
+  const paramsOf = (r: Record<string, unknown>) => ({
+    inputMint: address(r.inputMint as string), outputMint: address(r.outputMint as string), amount: BigInt(r.amount as string),
+    taker: address(r.taker as string), slippageBps: r.slippageBps as number, maxAccounts: r.maxAccounts as number,
+    ...(r.destinationTokenAccount ? { destinationTokenAccount: address(r.destinationTokenAccount as string) } : {}),
+    ...(r.excludeDexes ? { excludeDexes: r.excludeDexes as string[] } : {}),
+  });
+  const preflight = () => new SolanaError(SOLANA_ERROR__JSON_RPC__SERVER_ERROR_SEND_TRANSACTION_PREFLIGHT_FAILURE, {} as never);
+
+  it('one message per E holds across instances: a round replayed on another instance gets no second signature', async () => {
+    const w = await world();
+    const shared = memoryShared();
+    const [one, two] = [{ ...w.deps, shared }, { ...w.deps, shared }];
+    const { minOut: _m, ...noMin } = swapBody(w.W.address);
+    const first = (await (await agentPrepare(post('prepare', { ...noMin, ownRoutes: true }), one)).json() as Asked).error;
+    const agentMarket = fakeJupiter();
+    const routes = await Promise.all(first.requests.map(async r => ({ params: r, response: await agentMarket.build(paramsOf(r)) })));
+    const built: Prepared[] = [];
+    for (const terms of [{ minOut: '1' }, { minOut: '3', slippageBps: 100 }]) {
+      let res!: Response;
+      for (let round = 0; round < 6; round++) {
+        res = await agentPrepare(post('prepare', { ...noMin, ownRoutes: true, session: first.session, routes, ...terms }), one);
+        if (res.status !== 409) break;
+        for (const r of (await res.json() as Asked).error.requests) routes.push({ params: r, response: await agentMarket.build(paramsOf(r)) });
+      }
+      built.push(await res.json() as Prepared);
+    }
+    expect(built[0].messageSha256).not.toBe(built[1].messageSha256);
+    const sign = async (p: Prepared, deps: AgentDeps) => agentFinalize(post('finalize', { ticket: p.ticket, signedTransaction: await signAsWallet(w.W, p.transaction), send: false }), deps);
+    expect((await sign(built[0], one)).status).toBe(200);
+    const res = await sign(built[1], two);
+    expect(res.status).toBe(409);
+    expect((await res.json()).error.code).toBe('session-used');
+  });
+
+  it('one swap in flight per output account: another is signed only once the first landed', async () => {
+    const w = await world();
+    const [p1, p2] = [await prepared(w), await prepared(w)];
+    const s1 = await signAsWallet(w.W, p1.transaction);
+    expect((await finalize(w, p1.ticket, s1)).status).toBe(200);
+    // The first is sent and has not landed: its tokens would count towards the second's minimum.
+    const r = await finalize(w, p2.ticket, await signAsWallet(w.W, p2.transaction));
+    expect(r.status).toBe(409);
+    expect(r.headers.get('retry-after')).toBe('5');
+    const { error } = await r.json();
+    expect(error.code).toBe('output-in-flight');
+    expect(error.inFlight).toBe(signatureOf(s1));
+    expect(error.message).toContain('signed and sent nothing');
+    expect(w.sent).toHaveLength(1);
+    // The same first finalize again still holds the account it held.
+    expect((await finalize(w, p1.ticket, s1)).status).toBe(200);
+    w.statuses.set(signatureOf(s1), { confirmationStatus: 'confirmed', err: null });
+    expect((await finalize(w, p2.ticket, await signAsWallet(w.W, p2.transaction))).status).toBe(200);
+  });
+
+  it('a second swap into a token account, prepared before the first landed, is refused once it has', async () => {
+    const w = await world();
+    const bonk = async () => (await (await agentPrepare(post('prepare', swapBody(w.W.address, { outputMint: BONK })), w.deps)).json()) as Prepared;
+    const [p1, p2] = [await bonk(), await bonk()];
+    const s1 = await signAsWallet(w.W, p1.transaction);
+    expect((await finalize(w, p1.ticket, s1)).status).toBe(200);
+    const s2 = await signAsWallet(w.W, p2.transaction);
+    // The second's own balance read can come before the first lands; the first lands right after it.
+    const ticket = JSON.parse(Buffer.from(p2.ticket.split('.')[0], 'base64url').toString('utf8'));
+    const rpc = w.deps.rpc as unknown as Record<string, (...a: never[]) => { send: () => Promise<unknown> }>;
+    const statuses = rpc.getSignatureStatuses;
+    const wOut = await ataOf(w.W.address, BONK);
+    rpc.getSignatureStatuses = (...a: never[]) => {
+      w.statuses.set(signatureOf(s1), { confirmationStatus: 'confirmed', err: null });
+      const landed = tokenAccount(w.W.address, BONK);
+      new DataView(landed.data.buffer).setBigUint64(64, BigInt(ticket.b0) + 1_000_000n, true);
+      w.accounts.set(wOut, landed);
+      return statuses(...a);
+    };
+    const r = await finalize(w, p2.ticket, s2);
+    expect(r.status).toBe(409);
+    expect((await r.json()).error.code).toBe('output-balance-changed');
+    expect(w.sent).toHaveLength(1);
+  });
+
+  it('a swap the network refused leaves the account free for the next', async () => {
+    const w = await world({ sendError: preflight() });
+    const [p1, p2] = [await prepared(w), await prepared(w)];
+    expect((await (await finalize(w, p1.ticket, await signAsWallet(w.W, p1.transaction))).json()).status).toBe('rejected');
+    expect((await (await finalize(w, p2.ticket, await signAsWallet(w.W, p2.transaction))).json()).status).toBe('rejected');
+  });
+
+  it('when the shared state does not answer, finalize signs and sends nothing, and says to try again', async () => {
+    const w = await world();
+    const down = async () => { throw new Error('redis down'); };
+    const broken = { kind: 'redis', claim: down, replace: down, drop: down, get: down, set: down, count: down } as unknown as Shared;
+    const p = await prepared(w);
+    const r = await agentFinalize(post('finalize', { ticket: p.ticket, signedTransaction: await signAsWallet(w.W, p.transaction) }), { ...w.deps, shared: broken });
+    expect(r.status).toBe(503);
+    expect(r.headers.get('retry-after')).toBe('5');
+    const { error } = await r.json();
+    expect(error.code).toBe('unavailable');
+    expect(error.message).toContain('signed and sent nothing');
+    expect(w.sent).toHaveLength(0);
+  });
+});
+
