@@ -7,6 +7,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@orientimhq/swap": "2.0.1"
+    "@orientimhq/swap": "2.1.0"
   }
 }

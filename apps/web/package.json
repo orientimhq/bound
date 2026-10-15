@@ -11,7 +11,7 @@
   "dependencies": {
     "@orientim/certificate": "*",
     "@orientim/jupiter": "*",
-    "@orientimhq/swap": "2.0.1",
+    "@orientimhq/swap": "2.1.0",
     "@upstash/redis": "1.39.0",
     "@vercel/blob": "2.8.0",
     "@wallet-standard/app": "^1.1.1",

@@ -27,7 +27,7 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
-    "@orientimhq/swap": "2.0.1",
+    "@orientimhq/swap": "2.1.0",
     "@solana-program/compute-budget": "^0.18.1",
     "@solana-program/system": "^0.14.1",
     "@solana-program/token": "^0.16.1",
