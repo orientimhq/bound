@@ -17,12 +17,12 @@ const SUPPORTED: [string, string][] = [
   ['Token-2022 tokens with metadata, groups, close authority or confidential transfers', 'Supported'],
   ['Token-2022 tokens with a transfer tax', 'Supported; the tax is stated before your agent signs'],
   ['Stablecoins whose issuer can move balances with its own key (PYUSD, USDG, AUSD, CASH)', 'Supported, with a warning'],
-  ['Pump.fun launch curve and PumpSwap routes', 'Supported when the route fits and passes verification; otherwise refused'],
-  ['Tokens whose issuer can move balances through a program, or with an active transfer hook, frozen by default, pausable, non-transferable, interest-bearing, requiring a memo, with a scaled UI amount, or with a Token-2022 extension Orientim has not reviewed', 'Refused, with the reason'],
+  ['Pump.fun launch curve and PumpSwap routes', 'Supported when the route fits and passes verification'],
+  ['Tokens whose issuer can move balances through a program, or with an active transfer hook, frozen by default, pausable, non-transferable, interest-bearing, requiring a memo, with a scaled UI amount, or with a Token-2022 extension Orientim has not reviewed', 'Not supported, with the reason'],
   ['Tokens whose issuer can freeze accounts or mint more (USDC and USDT among them)', 'Supported; shown to your agent before it signs'],
-  ['A token account of your wallet that its issuer has frozen', 'Refused, with the reason: the swap could not land'],
-  ['Routes through a market that would leave an account open', 'Refused'],
-  ['Routes too large for one transaction', 'Refused: Orientim never splits a swap'],
+  ['A token account of your wallet that its issuer has frozen', 'Not supported, with the reason: the swap could not land'],
+  ['Routes through a market that would leave an account open', 'Not supported'],
+  ['Routes too large for one transaction', 'Not supported: Orientim never splits a swap'],
 ];
 
 /** The verifier's seven rules (packages/verifier, verify.ts), in the words of the page. */
@@ -88,7 +88,7 @@ export default async function Page() {
         <h2>The 7 rules, checked before your wallet signs</h2>
         <p>
           The open-source verifier decodes the exact bytes your wallet will sign and checks them against seven rules, with
-          every account read from your own RPC. One rule broken, and the transaction is refused before it is signed.
+          every account read from your own RPC. Your wallet signs only a transaction that passes all seven.
         </p>
         <ol className="rules">
           {RULES.map(([id, name, text]) => (
@@ -101,12 +101,12 @@ export default async function Page() {
       </section>
 
       <section>
-        <h2>What it does not cover</h2>
+        <h2>Where the protection ends</h2>
         <ul>
           <li>It protects your wallet, not the price or the future value of the token you buy.</li>
           <li>
-            Tokens Orientim cannot isolate are refused, with the reason: those whose issuer can run code on every transfer or
-            move balances through a program.
+            Orientim swaps only tokens it can isolate, and names the reason for any other: those whose issuer can run code on
+            every transfer or move balances through a program.
           </li>
           <li>It cannot stop an agent that can read the signing key from using it outside Orientim. For unattended funds, keep the key in a separate signer with its own limits and use a wallet funded only for the agent&apos;s job.</li>
           <li>
@@ -123,7 +123,7 @@ export default async function Page() {
             <thead><tr><th>Cost</th><th>Amount</th><th>Who receives it</th></tr></thead>
             <tbody>
               <tr><td>Orientim fee</td><td>{TREASURY ? `${feeText} of the swap: of the amount in, when taken from the input; of the enforced minimum, when taken from the output; of the swap’s value in SOL, when paid in SOL from your wallet` : 'None'}</td><td>Orientim. Inside the transaction you sign: in SOL, USDC or USDT when the swap has one of them, otherwise in the input token or in SOL from your wallet.</td></tr>
-              <tr><td>Network fee</td><td>Usually under 0.0001 SOL; the skill refuses more than 0.001 SOL</td><td>Solana&apos;s validators. The exact amount is stated before your agent signs.</td></tr>
+              <tr><td>Network fee</td><td>Usually under 0.0001 SOL; with the skill, never more than 0.001 SOL</td><td>Solana&apos;s validators. The exact amount is stated before your agent signs.</td></tr>
               <tr><td>Market account fee</td><td>Only on some markets, such as a Pump.fun launch curve</td><td>The market. Stated before your agent signs, with what comes back.</td></tr>
               <tr><td>Token transfer tax</td><td>Only on tokens that tax transfers</td><td>The token&apos;s issuer. Stated before your agent signs.</td></tr>
             </tbody>
@@ -132,14 +132,14 @@ export default async function Page() {
         <ul>
           <li>No fee for an API key, or for a swap your agent does not sign.</li>
           <li>A swap that does not run, because less than the minimum would arrive or its time ran out, costs at most the network fee.</li>
-          <li>Swaps smaller than about 0.004 SOL, or $1 of USDC or USDT, are refused: the costs would be larger than the swap. Selling the whole balance of a token (not SOL) is allowed at any size.</li>
+          <li>Swaps smaller than about 0.004 SOL, or $1 of USDC or USDT, are not taken, so the costs never outweigh the swap. Selling the whole balance of a token (not SOL) is allowed at any size.</li>
         </ul>
       </section>
 
       <section id="supported">
         <h2>Supported tokens and wallets</h2>
         <p>
-          Most Solana tokens are supported. A swap Orientim cannot protect is refused, and the answer says why.
+          Most Solana tokens are supported. Orientim takes only the swaps it can protect, and says why when it cannot.
         </p>
         <div className="table-wrap">
           <table>

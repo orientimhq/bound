@@ -44,7 +44,7 @@ const START_STEPS = [
 
 const THREATS: [string, string, string, string][] = [
   ['prompt', 'A message tells your agent to “swap everything” or “set slippage to 15%”.', 'With your policy file set, the skill stops at your limits: per swap, per day, the tokens you allow and the slippage you set.', 'Blocked before signing'],
-  ['server', 'The swap server itself is hacked.', 'Orientim holds none of your keys. With the skill or verifier, a changed transaction is refused before it is signed.', 'Blocked before signing'],
+  ['server', 'The swap server itself is hacked.', 'Orientim holds none of your keys. With the skill or verifier, your wallet signs only the transaction you asked for; a changed one never gets a signature.', 'Blocked before signing'],
   ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: a swap that would fill below your tolerance (0.5% by default) reverts, and only the network fee is paid.', 'Reverted on chain'],
 ];
 
@@ -150,8 +150,8 @@ export function HomeSections() {
             <p className="eyebrow">What it protects against</p>
             <h2>What your agent can’t be tricked into.</h2>
             <p className="lead">
-              The attacks that can empty a trading agent, and what happens when the swap goes through Orientim. What these checks
-              cannot cover, such as the market itself, is in the <a href="/terms#risks">risks</a>.
+              The attacks that can empty a trading agent, and what happens when the swap goes through Orientim. The market itself
+              is the one thing no check controls; its <a href="/terms#risks">risks</a> are set out in the terms.
             </p>
           </div>
           <div className="glass-stage">
@@ -179,7 +179,7 @@ export function HomeSections() {
               <ul className="policy-chips">
                 <li><span>✓</span> At most 50 USDC a swap</li>
                 <li><span>✓</span> At most 200 USDC a day</li>
-                <li><span>✓</span> Buys only SOL, every other token refused</li>
+                <li><span>✓</span> Buys only SOL</li>
                 <li><span>✓</span> Never more than 3% slippage</li>
               </ul>
             </div>
@@ -195,10 +195,10 @@ export function HomeSections() {
   "allowedOutputMints": ["So11…1112"],`}<span className="dim">{` // buys only SOL`}</span>{`
   "maxSlippageBps": 300,`}<span className="dim">{`         // never more than 3%`}</span>{`
   "stateDir": "/home/agent/.orientim-state"`}<span className="dim">{`  // where every swap is counted`}</span>{`
-}`}{'\n\n'}<span className="dim">{`# the agent is told to swap 500 USDC`}</span>{'\n'}<span className="ok">{`✓ refused: over your limit of 50 USDC a swap`}</span>{'\n'}<span className="dim">{`# the agent is told to buy a token someone named`}</span>{'\n'}<span className="ok">{`✓ refused: not a token you allow it to buy`}</span>{'\n'}<span className="dim">{`# the agent is told to set slippage to 15%`}</span>{'\n'}<span className="ok">{`✓ refused: above your limit of 3%`}</span></pre>
+}`}{'\n\n'}<span className="dim">{`# the agent is told to swap 500 USDC`}</span>{'\n'}<span className="ok">{`✓ your policy holds it to 50 USDC a swap`}</span>{'\n'}<span className="dim">{`# the agent is told to buy a token someone named`}</span>{'\n'}<span className="ok">{`✓ your policy allows only the tokens you chose`}</span>{'\n'}<span className="dim">{`# the agent is told to set slippage to 15%`}</span>{'\n'}<span className="ok">{`✓ your policy caps slippage at 3%`}</span></pre>
             </div>
           </div>
-          <p className="not-covered"><b>Not covered:</b> an agent that can read its own signing key and use it elsewhere, transfers made outside Orientim, a key stolen from your machine, and the value of the token you buy. Keep the key in a separate signer with its own limits.</p>
+          <p className="not-covered"><b>Your part:</b> keep the signing key in a separate signer with its own limits. The protection covers every swap through Orientim; an agent that can read its own key, transfers made outside Orientim, a key stolen from your machine and the value of the token you buy are outside it.</p>
         </div>
       </section>
 

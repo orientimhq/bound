@@ -21,7 +21,7 @@ const feeText = TREASURY ? `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { 
 
 /** Why an agent needs this, before the docs: what a developer gets, in their words. */
 const PITCH: [string, string][] = [
-  ['Refuses what it didn’t ask for', 'An extra instruction, another token, a worse price: the agent sees it in the transaction and does not sign.'],
+  ['Signs only what it asked for', 'An extra instruction, another token, a worse price: the agent sees it in the transaction and does not sign.'],
   ['Your limits, not ours', 'An amount per swap, a daily budget and the tokens it may buy, in the owner’s policy, and a price floor per swap.'],
   ['Safe after a crash', 'The skill records each order and settles it after a restart.'],
   ['No sign-up', 'Your agent’s wallet signs a message and gets a key. Then ask it: “swap 5 USDC to SOL with Orientim”.'],
@@ -744,13 +744,13 @@ POST /api/v1/keys
                   </ul>
                   A swap whose fee cannot be collected is refused with <code>503 fee-unavailable</code>.
                 </li>
-                <li>The skill refuses an Orientim fee above 0.25% (up to 0.3% only when you set <code>maxFeeBps</code>), whatever the server says, and a network fee above 0.001 SOL.</li>
+                <li>With the skill, your agent never pays an Orientim fee above 0.25% (up to 0.3% only when you set <code>maxFeeBps</code>), whatever the server says, nor a network fee above 0.001 SOL.</li>
                 <li>
                   A slippage tolerance of your choice (<code>slippageBps</code>, 0.1% to 15%); 0.5% by default, 3% on a Pump.fun launch
                   curve.
                 </li>
                 <li>
-                  The skill refuses a swap whose price impact is above 5% before anything is prepared (<code>maxPriceImpactBps</code>{' '}
+                  Your agent takes no swap with a price impact above 5%, and stops before anything is prepared (<code>maxPriceImpactBps</code>{' '}
                   raises it, to 20% at most).
                 </li>
                 <li>
@@ -759,7 +759,7 @@ POST /api/v1/keys
                 </li>
                 <li>
                   The owner&apos;s own limits, per swap and per day for each input mint, and the tokens the wallet may buy, in a file (<code>ORIENTIM_POLICY</code>):
-                  a swap outside them is refused before anything is signed.
+                  your policy enforces them before anything is signed.
                 </li>
                 <li>
                   Swaps smaller than about 0.004 SOL, or $1 of USDC or USDT, are not taken, except the sale of a token&apos;s

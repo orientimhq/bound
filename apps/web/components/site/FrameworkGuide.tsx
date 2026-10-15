@@ -64,7 +64,7 @@ export ANTHROPIC_API_KEY=...
 npx tsx agent.ts "Show my wallet, then quote 1 USDC to SOL."`}</code></pre>
         <p>
           Then a swap. The server asks you first, with the amounts; answer <code>yes</code>, and the agent tells you what the
-          swap did. Above your limits, the swap is refused before anything is signed.
+          swap did. Your policy enforces your limits before anything is signed.
         </p>
         <pre tabIndex={0}><code>{`npx tsx agent.ts "Swap 1 USDC to SOL."`}</code></pre>
       </section>
