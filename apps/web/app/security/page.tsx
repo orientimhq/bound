@@ -25,6 +25,17 @@ const SUPPORTED: [string, string][] = [
   ['Routes too large for one transaction', 'Refused: Orientim never splits a swap'],
 ];
 
+/** The verifier's seven rules (packages/verifier, verify.ts), in the words of the page. */
+const RULES: [string, string, string][] = [
+  ['R1', 'Your wallet stays out of reach', 'The swap program never receives your wallet, or any of its token accounts except the one that receives what you buy.'],
+  ['R2', 'Only the instructions expected', 'Every instruction Orientim adds fills one expected place, with the exact accounts and amounts: the approved amount, the minimum checked on chain, the fee to the pinned treasury, the cleanup.'],
+  ['R3', 'A new one-time key', 'The one-time key and its token accounts do not exist on chain yet, so nothing was prepared in them beforehand.'],
+  ['R4', 'A capped network fee', 'The network fee your wallet pays, priority fee included, stays under a fixed maximum.'],
+  ['R5', 'One transaction, nothing left open', 'One transaction within the size limit, each account loaded once, and every temporary account created and closed in it.'],
+  ['R6', 'Only two signers', 'Your wallet pays the fee, and the only signers are your wallet and the one-time key.'],
+  ['R7', 'Only tokens it can isolate', 'Both tokens, and any token the route passes through, are standard tokens or Token-2022 tokens without the features that would break the protection.'],
+];
+
 /**
  * What the product promises, in the words the owner of an agent needs, and no more than the code
  * enforces (README, SECURITY.md). A trust page for people who never read a repository.
@@ -39,7 +50,14 @@ export default async function Page() {
       title="How Orientim protects you"
       lead="A typical swap acts with the wallet's authority for the whole transaction. Orientim builds each swap so that the swap program never gets it: only the amount your agent approves is placed within its reach, under a one-time key that exists for this one transaction."
     >
-      <section>
+      <nav className="sub-nav" aria-label="On this page">
+        <a href="#how">How it is checked</a>
+        <a href="#rules">The 7 rules</a>
+        <a href="#supported">Supported tokens</a>
+        <a href="#fees">Fees ({feeText})</a>
+      </nav>
+
+      <section id="how">
         <h2>What happens when your agent swaps</h2>
         <ol>
           <li>Your agent asks Orientim for a swap. Orientim finds a route across Solana&apos;s markets, builds one transaction around it and checks it against its rules.</li>
@@ -63,6 +81,22 @@ export default async function Page() {
         </ul>
         <p>
           This describes how Orientim is designed. What is and is not guaranteed is set out in the <a href="/terms#protection">Terms</a>.
+        </p>
+      </section>
+
+      <section id="rules">
+        <h2>The 7 rules, checked before your wallet signs</h2>
+        <p>
+          The open-source verifier decodes the exact bytes your wallet will sign and checks them against seven rules, with
+          every account read from your own RPC. One rule broken, and the transaction is refused before it is signed.
+        </p>
+        <ol className="rules">
+          {RULES.map(([id, name, text]) => (
+            <li key={id}><span className="rule-id">{id}</span><div><h3>{name}</h3><p>{text}</p></div></li>
+          ))}
+        </ol>
+        <p>
+          The code is in <a href="https://github.com/orientimhq/orientim-protected-swap/tree/main/packages/verifier">packages/verifier</a>, under Apache-2.0.
         </p>
       </section>
 

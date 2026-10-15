@@ -5,7 +5,7 @@ import { AgentTerminal, CapsuleFlow } from './Motion';
 const CAPSULE_STEPS = [
   ['Your wallet never moves.', 'Your agent names the amount. Only that amount steps out, with the costs shown up front. The rest of your SOL, every other token and every NFT stay exactly where they are.'],
   ['The trade gets its own wallet.', 'The amount moves into a one-time key built for this swap alone. Orientim routes it across Solana’s markets, and the route never sees your wallet.'],
-  ['Your price, or no trade.', 'Your agent sets the minimum before it signs. If the market can’t meet it, the whole swap reverts on chain: nothing is traded, and only the network fee is paid.'],
+  ['Your price, or no trade.', 'Your agent sets the minimum before it signs. If the market can’t meet it, the whole swap reverts on chain: nothing is traded, and only the network fee is paid.', 'Reverted on chain'],
 ];
 
 const AGENT_POINTS = [
@@ -50,10 +50,10 @@ const START_STEPS = [
   ['Ask for a swap', 'Tell your agent: “swap 5 USDC to SOL with Orientim”. It checks the transaction on its own RPC, then signs.'],
 ];
 
-const THREATS: [string, string, string][] = [
-  ['prompt', 'A message tells your agent to “swap everything” or “set slippage to 15%”.', 'With your policy file set, the skill stops at your limits: per swap, per day, the tokens you allow and the slippage you set.'],
-  ['server', 'The swap server itself is hacked.', 'Orientim holds none of your keys. With the skill or verifier, a changed transaction is refused before it is signed.'],
-  ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: a swap that would fill below your tolerance (0.5% by default) reverts, and only the network fee is paid.'],
+const THREATS: [string, string, string, string][] = [
+  ['prompt', 'A message tells your agent to “swap everything” or “set slippage to 15%”.', 'With your policy file set, the skill stops at your limits: per swap, per day, the tokens you allow and the slippage you set.', 'Blocked before signing'],
+  ['server', 'The swap server itself is hacked.', 'Orientim holds none of your keys. With the skill or verifier, a changed transaction is refused before it is signed.', 'Blocked before signing'],
+  ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: a swap that would fill below your tolerance (0.5% by default) reverts, and only the network fee is paid.', 'Reverted on chain'],
 ];
 
 export function HomeSections() {
@@ -175,11 +175,16 @@ export function HomeSections() {
           <div className="glass-stage">
             <div className="ambient" aria-hidden="true" />
             <ul className="threats">
-              {THREATS.map(([k, attack, answer]) => (
+              {THREATS.map(([k, attack, answer, verdict]) => (
                 <li key={k}>
-                  <p className="threat-tag"><span className="x">✕</span> The attack</p>
-                  <h3>{attack}</h3>
-                  <div className="threat-answer"><span className="ok-dot">✓</span><p>{answer}</p></div>
+                  <div className="threat-attack">
+                    <p className="threat-tag"><span className="x">✕</span> The attack</p>
+                    <h3>{attack}</h3>
+                  </div>
+                  <div className="threat-answer">
+                    <p className="threat-verdict"><span className="ok-dot">✓</span> {verdict}</p>
+                    <p>{answer}</p>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -189,6 +194,12 @@ export function HomeSections() {
               <p className="eyebrow eyebrow-cyan">Limits you set</p>
               <h3>Rules in a file only you edit.</h3>
               <p className="lead">Per swap, per day, the tokens it may buy and the most slippage it may take. Your agent can’t raise them.</p>
+              <ul className="policy-chips">
+                <li><span>✓</span> At most 50 USDC a swap</li>
+                <li><span>✓</span> At most 200 USDC a day</li>
+                <li><span>✓</span> Buys only SOL, every other token refused</li>
+                <li><span>✓</span> Never more than 3% slippage</li>
+              </ul>
             </div>
             <div className="terminal policy">
               <div className="terminal-bar"><span /><span /><span /><em>orientim-policy.json, annotated</em></div>
