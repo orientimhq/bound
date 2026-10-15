@@ -650,8 +650,11 @@ async function oneMessagePerE(shared: Shared, nonce: string, msg: string): Promi
  * with the account's balance read again after it (the second swap's prepare must have seen it).
  */
 const outputKey = (ticket: { wOut?: string; owner: string }) => `orientim:out:${ticket.wOut ?? `${ticket.owner}:sol`}`;
-/** Blocks are about 400 ms; a block height lags the slot a little. Held at least this long, and at most the longest. */
-const BLOCK_MS = 500;
+/**
+ * Slots are about 400 ms, but the block height grows only on slots a leader fills: with a third of
+ * them skipped, as under heavy load, a block takes about 600 ms. Held at least this long, and at most the longest.
+ */
+const BLOCK_MS = 650;
 const HOLD_MIN_MS = 5_000;
 const HOLD_MAX_MS = 150_000;
 const holdMs = (lvbh: bigint, height: bigint | null) =>
