@@ -37,8 +37,8 @@ export function FrameworkGuide(props: { framework: string; install: string; code
       <section id="limits">
         <h2>1. Write your limits</h2>
         <p>
-          A policy file the agent cannot edit. Here: at most 5 USDC a swap, and only SOL to buy. Every limit is in{' '}
-          <a href="/developers#env">Environment variables</a>.
+          A policy file the agent cannot edit. Here: at most 5 USDC a swap, and only SOL to buy. Every limit is in the 
+          <a href="https://github.com/orientimhq/orientim-protected-swap/blob/main/skills/orientim-protected-swap/reference/GUIDE.md#setup">guide</a>.
         </p>
         <pre tabIndex={0}><code>{`{
   "maxAmountIn": { "${USDC}": "5000000" },

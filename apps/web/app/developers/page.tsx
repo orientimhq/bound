@@ -35,7 +35,7 @@ const NAV: DevNavGroup[] = [
     items: [['skill', 'AI agents: the skill'], ['cli', 'Bots: the command line'], ['mcp', 'Assistants: the MCP server'], ['how', 'How a protected swap works'], ['verify', 'Verify before you sign'], ['own-routes', 'Your own Jupiter key'], ['recovery', 'Results and recovery']],
   },
   { title: 'API reference', items: [['api', 'Authentication'], ['prepare', 'Prepare'], ['finalize', 'Finalize'], ['keys', 'Key endpoints'], ['errors', 'Errors'], ['limits', 'Rate limits']] },
-  { title: 'Reference', items: [['env', 'Environment variables'], ['fees', 'Fees and limits'], ['supported', 'Tokens and wallets'], ['downloads', 'Downloads']] },
+  { title: 'Reference', items: [['fees', 'Fees and limits'], ['supported', 'Tokens and wallets'], ['downloads', 'Downloads']] },
 ];
 
 /** Every error the API answers with, and what the caller does about it (AGENT-API.md, "Errors"). */
@@ -98,21 +98,6 @@ const EXIT_CODES: [string, string][] = [
   ['3', 'Settle first: an earlier swap may still land, another finalize from this wallet is still running (busy), or the state directory cannot be made or read (a finalize then answers outcome unknown). Run recover; start nothing new.'],
   ['4', 'Orientim said no: error.code is one of the Errors below.'],
   ['5', 'This order id already swapped, or its transaction may still land (prepare, or a finalize of a second transaction for it). It is never swapped twice.'],
-];
-
-const ENV: [string, string][] = [
-  ['ORIENTIM_API_URL', 'https://orientim.com'],
-  ['ORIENTIM_API_KEY', 'Your key, ori_…'],
-  ['SOLANA_RPC_URL', 'Your own RPC, never Orientim’s: the check before signing reads the chain from it.'],
-  ['JUPITER_API_KEY', 'For the agent’s own price floor and, unless ORIENTIM_OWN_ROUTES is 0, the routes Orientim builds around (Your own Jupiter key). It never leaves your process. Free at developers.jup.ag; a busy bot does well with a paid key.'],
-  ['ORIENTIM_OWN_ROUTES', 'Optional: 0 lets Orientim’s key fetch the routes, as without your key. Your key still prices your own floor.'],
-  ['ORIENTIM_WALLET_KEYPAIR', 'The example only: the path to the wallet’s key file, or pass a signing service in code. The command line never reads a key; the bot signs. A key file the example can read, the agent that runs it can read too.'],
-  ['ORIENTIM_POLICY', 'Recommended for agents and unattended bots: the path to a JSON file of the owner’s limits, kept where the agent cannot edit it (/etc/orientim/policy.json, when it exists, is used whatever the environment says). maxAmountIn: the most one swap may spend of each input mint (a mint not listed is refused). maxAmountInPerDay: the most per 24 hours, which needs stateDir. allowedOutputMints: the tokens it may buy. Optional ceilings: maxSlippageBps, maxBelowBps, maxPriceImpactBps. Base units, as strings; an example is in Quickstart.'],
-  ['ORIENTIM_SEND_RPC_URL', 'Optional: an RPC of yours that sends the swap (a staked connection, a sender service). In code, sendTransaction.'],
-  ['ORIENTIM_ARCHIVE_RPC_URL', 'Optional: an RPC that keeps the chain’s full history. It settles a swap your own RPC can no longer prove, after an outage, so the wallet is not left at unknown.'],
-  ['ORIENTIM_MAX_SLIPPAGE_BPS', 'MCP server only: the most slippage the assistant may ask for, in bps (300 by default, 1500 at most). Only the owner raises it.'],
-  ['ORIENTIM_MAX_PRICE_IMPACT_BPS', 'MCP server only: the most price impact the assistant may accept, in bps (500 by default, 2000 at most).'],
-  ['ORIENTIM_STATE_DIR', 'Where swaps in flight and the order book are kept across restarts (.orientim-state by default). Give it an absolute path on a disk that outlives the bot, not a container’s own file system. A policy with a daily limit names its own stateDir instead, and no other directory is used.'],
 ];
 
 /** For developers: everything an agent or a bot needs, one section per entry of the sidebar. */
@@ -200,7 +185,7 @@ export default async function Page() {
                   <pre tabIndex={0}><code>{`npm audit signatures`}</code></pre>
                 </li>
                 <li>
-                  <strong>Set it up</strong>: the <a href="#env">environment variables</a>.
+                  <strong>Set it up</strong>: every setting is in the <a href="https://github.com/orientimhq/orientim-protected-swap/blob/main/skills/orientim-protected-swap/reference/GUIDE.md#setup">guide</a>.
                   <pre tabIndex={0}><code>{`export ORIENTIM_API_URL=https://orientim.com
 export ORIENTIM_API_KEY=ori_...
 export SOLANA_RPC_URL=<your own RPC>
@@ -285,8 +270,7 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | npx ori
               <h2>AI agents: the skill</h2>
               <p>
                 For coding agents: instructions for the agent (<code>SKILL.md</code>), the <code>orientim</code> command and the
-                library, both from <code>@orientimhq/swap</code>, and the check they run before every signature. The agent gets its settings from you, in the{' '}
-                <a href="#env">environment variables</a>, never in chat.
+                library, both from <code>@orientimhq/swap</code>, and the check they run before every signature. The agent gets its settings from you, in its environment, never in chat.
               </p>
               <h3>1. Install it</h3>
               <ul>
@@ -738,17 +722,6 @@ POST /api/v1/keys
                 <li>A key used to overload or attack the service is revoked.</li>
                 <li>For uptime monitors, <code>GET /api/health</code> needs no key: 200 when a swap could go through now, 503 when it could not.</li>
               </ul>
-            </section>
-
-            <section id="env">
-              <h2>Environment variables</h2>
-              <p>The skill and the command line read these. Never put a wallet key in a prompt, a message, a log or a command line.</p>
-              <div className="table-wrap">
-                <table className="table-stack">
-                  <thead><tr><th>Variable</th><th>Value</th></tr></thead>
-                  <tbody>{ENV.map(([name, value]) => <tr key={name}><td><code>{name}</code></td><td>{value}</td></tr>)}</tbody>
-                </table>
-              </div>
             </section>
 
             <section id="fees">

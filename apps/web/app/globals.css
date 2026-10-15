@@ -424,14 +424,5 @@ a.ghost { display: inline-flex; align-items: center; }
   color: var(--text); background: linear-gradient(180deg, rgba(76, 189, 133, .22), rgba(76, 189, 133, .08)); box-shadow: inset 0 0 0 1px rgba(124, 227, 176, .28), 0 0 14px rgba(76, 189, 133, .18); }
 .get-radio-mcp:focus-visible ~ .get-labels .get-label-mcp, .get-radio-skill:focus-visible ~ .get-labels .get-label-skill, .get-radio-sdk:focus-visible ~ .get-labels .get-label-sdk { outline: 2px solid var(--accent); outline-offset: 2px; }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .get-tabs { background: var(--panel); } }
-.proof-band { padding: 28px 0 4px; }
-.proof-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 0; padding: 0; list-style: none; border: 1px solid var(--line-soft); border-radius: 16px; background: rgba(255, 255, 255, .015); }
-.proof-grid li { padding: 20px 22px; border-left: 1px solid var(--line-soft); }
-.proof-grid li:first-child { border-left: 0; }
-.proof-figure { display: block; font-size: 34px; line-height: 1.05; font-weight: 700; letter-spacing: -.02em; color: var(--text); font-variant-numeric: tabular-nums; }
-.proof-label { display: block; margin-top: 4px; font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
-.proof-grid p { margin: 10px 0 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
-@media (max-width: 980px) { .proof-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .proof-grid li:nth-child(3) { border-left: 0; } .proof-grid li:nth-child(n+3) { border-top: 1px solid var(--line-soft); } }
-@media (max-width: 520px) { .proof-grid { grid-template-columns: 1fr; } .proof-grid li { border-left: 0; padding: 16px 18px; } .proof-grid li + li { border-top: 1px solid var(--line-soft); } .proof-figure { font-size: 28px; } }
 @media (max-width: 980px) { .get-tabs { flex-wrap: wrap; } .get-panel { flex-basis: 100%; padding: 0 4px 4px; } }
 @media (max-width: 640px) { .get-panel { flex-wrap: wrap; gap: 8px 14px; } .get-panel pre { flex-basis: 100%; } .get-labels { width: 100%; } .get-label { flex: 1; min-width: 0; text-align: center; padding-inline: 6px; white-space: normal; line-height: 1.25; } }

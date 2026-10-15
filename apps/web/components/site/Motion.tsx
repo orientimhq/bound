@@ -94,7 +94,7 @@ export function CapsuleFlow() {
   return (
     <svg ref={svg} className="capsule" viewBox="0 0 960 300" role="img" aria-labelledby="capsule-title">
       <title id="capsule-title">
-        Only what you approved leaves your wallet, and only the amount goes across the swap route. You get at least your minimum, or nothing
+        Only what you approved leaves your wallet, held by a one-time key made for this swap, and only that amount goes across the swap route. You get at least your minimum, or nothing
         happens. The rest of your wallet never moves.
       </title>
       <GlassDefs p="cf" />
@@ -125,7 +125,8 @@ export function CapsuleFlow() {
       ))}
       <text x="480" y="66" textAnchor="middle" className="svg-label">The swap route</text>
       <text x="480" y="84" textAnchor="middle" className="svg-text">Solana’s markets</text>
-      <text x="244" y="190" className="svg-text">only the approved amount</text>
+      <text x="250" y="186" className="svg-label svg-good">One-time key</text>
+      <text x="250" y="204" className="svg-text">carries only the approved amount</text>
 
       <g transform="translate(710 100)">
         <rect x="0" y="0" width="160" height="100" rx="16" fill={url('cf', 'green')} stroke={url('cf', 'green-edge')} filter={url('cf', 'glow')} />
