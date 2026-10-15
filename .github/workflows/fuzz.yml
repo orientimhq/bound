@@ -40,195 +40,195 @@ jobs:
           - suite: verifier-honest
             shard: 1
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every honest shape'
             proves: "every honest transaction the compiler builds passes"
           - suite: verifier-honest
             shard: 2
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every honest shape'
             proves: "every honest transaction the compiler builds passes"
           - suite: verifier-honest
             shard: 3
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every honest shape'
             proves: "every honest transaction the compiler builds passes"
           - suite: verifier-honest
             shard: 4
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every honest shape'
             proves: "every honest transaction the compiler builds passes"
           - suite: verifier-honest
             shard: 5
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every honest shape'
             proves: "every honest transaction the compiler builds passes"
           - suite: verifier-honest
             shard: 6
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every honest shape'
             proves: "every honest transaction the compiler builds passes"
           - suite: verifier-honest
             shard: 7
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every honest shape'
             proves: "every honest transaction the compiler builds passes"
           - suite: verifier-honest
             shard: 8
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every honest shape'
             proves: "every honest transaction the compiler builds passes"
           - suite: verifier-attacks
             shard: 1
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every attack'
             proves: "every attack on the transaction is refused"
           - suite: verifier-attacks
             shard: 2
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every attack'
             proves: "every attack on the transaction is refused"
           - suite: verifier-attacks
             shard: 3
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every attack'
             proves: "every attack on the transaction is refused"
           - suite: verifier-attacks
             shard: 4
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every attack'
             proves: "every attack on the transaction is refused"
           - suite: verifier-attacks
             shard: 5
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every attack'
             proves: "every attack on the transaction is refused"
           - suite: verifier-attacks
             shard: 6
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every attack'
             proves: "every attack on the transaction is refused"
           - suite: verifier-attacks
             shard: 7
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every attack'
             proves: "every attack on the transaction is refused"
           - suite: verifier-attacks
             shard: 8
             of: 8
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'every attack'
             proves: "every attack on the transaction is refused"
           - suite: verifier-token2022
             shard: 1
             of: 4
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'extension we refuse'
             proves: "a Token-2022 mint with a refused extension never passes"
           - suite: verifier-token2022
             shard: 2
             of: 4
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'extension we refuse'
             proves: "a Token-2022 mint with a refused extension never passes"
           - suite: verifier-token2022
             shard: 3
             of: 4
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'extension we refuse'
             proves: "a Token-2022 mint with a refused extension never passes"
           - suite: verifier-token2022
             shard: 4
             of: 4
-            file: packages/verifier/test/property.test.ts
+            file: public/packages/verifier/test/property.test.ts
             runs: 100000
             filter: 'extension we refuse'
             proves: "a Token-2022 mint with a refused extension never passes"
           - suite: token2022-matrix
             shard: 1
             of: 1
-            file: packages/verifier/test/extensions.test.ts
+            file: public/packages/verifier/test/extensions.test.ts
             runs: 2000000
             proves: "the Token-2022 extension matrix"
           - suite: tolerance-rule
             shard: 1
             of: 8
-            file: packages/verifier/test/slippage.property.test.ts
+            file: public/packages/verifier/test/slippage.property.test.ts
             runs: 150000
             proves: "a route is refused exactly when above the tolerance or below the minimum"
           - suite: tolerance-rule
             shard: 2
             of: 8
-            file: packages/verifier/test/slippage.property.test.ts
+            file: public/packages/verifier/test/slippage.property.test.ts
             runs: 150000
             proves: "a route is refused exactly when above the tolerance or below the minimum"
           - suite: tolerance-rule
             shard: 3
             of: 8
-            file: packages/verifier/test/slippage.property.test.ts
+            file: public/packages/verifier/test/slippage.property.test.ts
             runs: 150000
             proves: "a route is refused exactly when above the tolerance or below the minimum"
           - suite: tolerance-rule
             shard: 4
             of: 8
-            file: packages/verifier/test/slippage.property.test.ts
+            file: public/packages/verifier/test/slippage.property.test.ts
             runs: 150000
             proves: "a route is refused exactly when above the tolerance or below the minimum"
           - suite: tolerance-rule
             shard: 5
             of: 8
-            file: packages/verifier/test/slippage.property.test.ts
+            file: public/packages/verifier/test/slippage.property.test.ts
             runs: 150000
             proves: "a route is refused exactly when above the tolerance or below the minimum"
           - suite: tolerance-rule
             shard: 6
             of: 8
-            file: packages/verifier/test/slippage.property.test.ts
+            file: public/packages/verifier/test/slippage.property.test.ts
             runs: 150000
             proves: "a route is refused exactly when above the tolerance or below the minimum"
           - suite: tolerance-rule
             shard: 7
             of: 8
-            file: packages/verifier/test/slippage.property.test.ts
+            file: public/packages/verifier/test/slippage.property.test.ts
             runs: 150000
             proves: "a route is refused exactly when above the tolerance or below the minimum"
           - suite: tolerance-rule
             shard: 8
             of: 8
-            file: packages/verifier/test/slippage.property.test.ts
+            file: public/packages/verifier/test/slippage.property.test.ts
             runs: 150000
             proves: "a route is refused exactly when above the tolerance or below the minimum"
           - suite: page-swap
@@ -318,49 +318,49 @@ jobs:
           - suite: edges
             shard: 1
             of: 4
-            file: packages/verifier/test/extremes.property.test.ts
+            file: public/packages/verifier/test/extremes.property.test.ts
             runs: 200000
             proves: "fees, minimums and the verifier at any amount, decimals, quote and balance"
           - suite: edges
             shard: 2
             of: 4
-            file: packages/verifier/test/extremes.property.test.ts
+            file: public/packages/verifier/test/extremes.property.test.ts
             runs: 200000
             proves: "fees, minimums and the verifier at any amount, decimals, quote and balance"
           - suite: edges
             shard: 3
             of: 4
-            file: packages/verifier/test/extremes.property.test.ts
+            file: public/packages/verifier/test/extremes.property.test.ts
             runs: 200000
             proves: "fees, minimums and the verifier at any amount, decimals, quote and balance"
           - suite: edges
             shard: 4
             of: 4
-            file: packages/verifier/test/extremes.property.test.ts
+            file: public/packages/verifier/test/extremes.property.test.ts
             runs: 200000
             proves: "fees, minimums and the verifier at any amount, decimals, quote and balance"
           - suite: mutations
             shard: 1
             of: 4
-            file: packages/verifier/test/mutation.property.test.ts
+            file: public/packages/verifier/test/mutation.property.test.ts
             runs: 100000
             proves: "any change to an honest transaction: a verdict every time, nothing harmful accepted"
           - suite: mutations
             shard: 2
             of: 4
-            file: packages/verifier/test/mutation.property.test.ts
+            file: public/packages/verifier/test/mutation.property.test.ts
             runs: 100000
             proves: "any change to an honest transaction: a verdict every time, nothing harmful accepted"
           - suite: mutations
             shard: 3
             of: 4
-            file: packages/verifier/test/mutation.property.test.ts
+            file: public/packages/verifier/test/mutation.property.test.ts
             runs: 100000
             proves: "any change to an honest transaction: a verdict every time, nothing harmful accepted"
           - suite: mutations
             shard: 4
             of: 4
-            file: packages/verifier/test/mutation.property.test.ts
+            file: public/packages/verifier/test/mutation.property.test.ts
             runs: 100000
             proves: "any change to an honest transaction: a verdict every time, nothing harmful accepted"
           - suite: page-price
@@ -462,25 +462,25 @@ jobs:
           - suite: wallet-return
             shard: 1
             of: 4
-            file: packages/verifier/test/wallet.property.test.ts
+            file: packages/certificate/test/wallet.property.test.ts
             runs: 100000
             proves: "a wallet's changed message is accepted only when it adds Lighthouse assertions and nothing else"
           - suite: wallet-return
             shard: 2
             of: 4
-            file: packages/verifier/test/wallet.property.test.ts
+            file: packages/certificate/test/wallet.property.test.ts
             runs: 100000
             proves: "a wallet's changed message is accepted only when it adds Lighthouse assertions and nothing else"
           - suite: wallet-return
             shard: 3
             of: 4
-            file: packages/verifier/test/wallet.property.test.ts
+            file: packages/certificate/test/wallet.property.test.ts
             runs: 100000
             proves: "a wallet's changed message is accepted only when it adds Lighthouse assertions and nothing else"
           - suite: wallet-return
             shard: 4
             of: 4
-            file: packages/verifier/test/wallet.property.test.ts
+            file: packages/certificate/test/wallet.property.test.ts
             runs: 100000
             proves: "a wallet's changed message is accepted only when it adds Lighthouse assertions and nothing else"
           - suite: many-clients
@@ -587,6 +587,21 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
       - run: npm ci --ignore-scripts
+      # The verifier's suites are in @orientimhq/swap's own repository: run there, at the version
+      # package.json pins, so the code fuzzed is the code the server runs.
+      - name: The pinned version of @orientimhq/swap
+        if: startsWith(matrix.file, 'public/')
+        id: pinned
+        run: echo "ref=v$(node -p "require('./package.json').dependencies['@orientimhq/swap']")" >> "$GITHUB_OUTPUT"
+      - if: startsWith(matrix.file, 'public/')
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: orientimhq/orientim-protected-swap
+          ref: ${{ steps.pinned.outputs.ref }}
+          path: public
+      - if: startsWith(matrix.file, 'public/')
+        run: npm ci --ignore-scripts
+        working-directory: public
       - name: Fuzz
         env:
           ORIENTIM_FUZZ_RUNS: ${{ matrix.runs }}
@@ -599,6 +614,7 @@ jobs:
           echo "seed $ORIENTIM_FUZZ_SEED, $ORIENTIM_FUZZ_RUNS cases, $FILE ${FILTER:+(\"$FILTER\")}"
           started=$(date +%s)
           vitest="$GITHUB_WORKSPACE/node_modules/vitest/vitest.mjs"
+          if [ "${FILE#public/}" != "$FILE" ]; then cd public; FILE=${FILE#public/}; vitest="$PWD/node_modules/vitest/vitest.mjs"; fi
           set +e
           if [ -n "$FILTER" ]; then node "$vitest" run "$FILE" --mode fuzz -t "$FILTER"; else node "$vitest" run "$FILE" --mode fuzz; fi
           status=$?

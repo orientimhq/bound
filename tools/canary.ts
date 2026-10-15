@@ -31,9 +31,9 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { address, getAddressDecoder, getBase64EncodedWireTransaction } from '@solana/kit';
 import type { Address } from '@solana/kit';
-import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
-import type { FeeSide, TxVersion } from '@orientim/core';
-import { createEphemeral, createRetryingRpc, fetchAccounts, fetchMints, httpStatusOf } from '@orientim/solana';
+import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import type { FeeSide, TxVersion } from '@orientimhq/swap/core';
+import { createEphemeral, createRetryingRpc, fetchAccounts, fetchMints, httpStatusOf } from '@orientimhq/swap/solana';
 import { OrientimError, createJupiterClient, DEFAULT_SETTINGS, JupiterError, prepareProtectedSwap } from '@orientim/jupiter';
 import type { PreparedSwap } from '@orientim/jupiter';
 

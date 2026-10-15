@@ -3,7 +3,7 @@ import { createJupiterClient, heliusPriorityFee, MIN_FEE } from '@orientim/jupit
 import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
 import { createServerRpc } from '../rpcFailover';
 import { withSharedReads } from '../sharedReads';
-import type { SolanaRpc } from '@orientim/solana';
+import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { serverConfig } from '../config';
 import { treasurySetting } from '../../settings';
 import { DEFAULT_KEYS_PER_HOUR, type AccessDeps } from './access';

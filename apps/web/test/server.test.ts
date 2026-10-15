@@ -113,16 +113,26 @@ describe('the public status and the settings behind it', () => {
   });
 });
 
-describe('the skill hashes the site publishes', () => {
-  it('/skill/SHA256SUMS lists every shipped file, with the version, and matches the skill folder', async () => {
-    const { GET } = await import('../app/skill/SHA256SUMS/route.ts');
-    const res = GET();
-    const text = await res.text();
+describe('the package the site points agents to', () => {
+  it('is the version installed and pinned here, so the site names only what it was tested with', async () => {
+    const { SKILL_VERSION, SKILL_EXTENSION } = await import('../lib/server/skill.ts');
     const { readFileSync } = await import('node:fs');
     const { join } = await import('node:path');
-    const onDisk = readFileSync(join(import.meta.dirname, '../../../skills/orientim-protected-swap/SHA256SUMS'), 'utf8').replace(/\r\n/g, '\n');
-    expect(text).toBe(onDisk);
-    expect(text).toMatch(/^[0-9a-f]{64} {2}lib\/orientim-verify\.mjs$/m);
-    expect(res.headers.get('x-orientim-skill-version')).toBe(JSON.parse(readFileSync(join(import.meta.dirname, '../../../skills/orientim-protected-swap/package.json'), 'utf8')).version);
+    const root = join(import.meta.dirname, '../../..');
+    const installed = JSON.parse(readFileSync(join(root, 'node_modules/@orientimhq/swap/package.json'), 'utf8')).version;
+    expect(SKILL_VERSION).toBe(installed);
+    expect(JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).dependencies['@orientimhq/swap']).toBe(SKILL_VERSION);
+    expect(JSON.parse(readFileSync(join(root, 'apps/web/package.json'), 'utf8')).dependencies['@orientimhq/swap']).toBe(SKILL_VERSION);
+    const { SKILL_VERSION: packaged } = await import('@orientimhq/swap');
+    expect(packaged).toBe(SKILL_VERSION);
+    expect(SKILL_EXTENSION).toContain(`/v${SKILL_VERSION}/orientim.mcpb`);
+  });
+
+  it('AGENT-API.md is the reference the package ships', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const root = join(import.meta.dirname, '../../..');
+    expect(readFileSync(join(root, 'AGENT-API.md'), 'utf8'))
+      .toBe(readFileSync(join(root, 'node_modules/@orientimhq/swap/skills/orientim-protected-swap/reference/AGENT-API.md'), 'utf8'));
   });
 });

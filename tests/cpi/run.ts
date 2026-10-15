@@ -19,7 +19,7 @@
 import { signTransaction } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { MAX_ROUTE_KEPT_LAMPORTS, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@orientim/core';
+import { MAX_ROUTE_KEPT_LAMPORTS, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@orientimhq/swap/core';
 import {
   approve, balancesOf, CLOSE_ACCOUNT, deliver, invariants, IX, MIN_OUT, MIN_OUT_SOL, OUT_DECIMALS, protectedSwap, requireProgram,
   send, setAuthority, setup, SOL, SWAP_AMOUNT, takeFrom, transfer, transferChecked, transferSol,

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { SKILL_ARCHIVE, SKILL_EXTENSION, SKILL_VERSION } from '@/lib/server/skillSums';
+import { SKILL_EXTENSION, SKILL_FOLDER, SKILL_VERSION } from '@/lib/server/skill';
 import { AgentTerminal, CapsuleFlow } from './Motion';
 
 const CAPSULE_STEPS = [
@@ -16,17 +16,17 @@ const AGENT_POINTS = [
 /** The three ways in, one line each; the developer page has each in full. */
 const GET_IT: { id: string; label: string; line: string; note: ReactNode; docs: string }[] = [
   {
-    id: 'mcp', label: 'MCP server', line: `npx -y orientim-mcp@${SKILL_VERSION}`,
-    note: <>Or <a href={SKILL_EXTENSION} download>one click in Claude Desktop</a></>,
+    id: 'mcp', label: 'MCP server', line: `npx -y @orientimhq/swap@${SKILL_VERSION} mcp`,
+    note: <>Or <a href={SKILL_EXTENSION}>one click in Claude Desktop</a></>,
     docs: '/developers#mcp',
   },
   {
-    id: 'skill', label: 'Agent skill', line: 'unzip orientim-protected-swap.zip -d .claude/skills/',
-    note: <><a href={SKILL_ARCHIVE} download>Download v{SKILL_VERSION}</a></>,
+    id: 'skill', label: 'Agent skill', line: 'cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skills/',
+    note: <>After <code>npm install @orientimhq/swap@{SKILL_VERSION}</code>, or <a href={SKILL_FOLDER}>on GitHub</a></>,
     docs: '/developers#skill',
   },
   {
-    id: 'cli', label: 'Command line', line: 'node bin/orientim-verify.mjs prepare < intent.json',
+    id: 'cli', label: 'Command line', line: `npx -y @orientimhq/swap@${SKILL_VERSION} prepare < intent.json`,
     note: <>Any language: JSON in, JSON out</>,
     docs: '/developers#cli',
   },
@@ -35,7 +35,7 @@ const GET_IT: { id: string; label: string; line: string; note: ReactNode; docs: 
 /** How an agent starts: the key, the skill, the first swap (the developer page has each in full). */
 const START_STEPS = [
   ['Get an API key', 'Sign Orientim’s message with your agent’s wallet. The key comes at once and lasts 90 days; signing moves nothing. The MCP server gets one itself.'],
-  ['Download the skill', 'Instructions for your agent, a working example, a command line for bots, and the verifier that checks every swap.'],
+  ['Install the package', 'One npm package, @orientimhq/swap: instructions for your agent, the MCP server, a command line for bots, and the verifier that checks every swap.'],
   ['Ask for a swap', 'Tell your agent: “swap 5 USDC to SOL with Orientim”. It checks the transaction on its own RPC, then signs.'],
 ];
 

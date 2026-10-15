@@ -4,8 +4,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { compileProtectedSwap, JUPITER_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@orientim/core';
-import type { TxVersion } from '@orientim/core';
+import { compileProtectedSwap, JUPITER_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, withTakerRent } from '@orientimhq/swap/core';
+import type { TxVersion } from '@orientimhq/swap/core';
 import { certificateJson, certify, VERIFIER_VERSION } from '../src/index.ts';
 import { BONK, compileRaw, cuIxs, honest, LIFETIME, randomAddress, scenario, USDC } from './fixtures.ts';
 import type { Scenario } from './fixtures.ts';
@@ -82,5 +82,15 @@ describe('certificate', () => {
     const s = await scenario();
     const result = await certify(compileHonest(s, 1), s.policy, s.snapshot);
     expect(result.ok && result.certificate.output.mint).toBe(WSOL_MINT);
+  });
+});
+
+describe('rent a route needs the temporary key to pay (PumpSwap)', () => {
+  it('the certificate states the rent, so the page can show it', async () => {
+    const RENT = 132_080n;
+    const s = await scenario();
+    const policy = withTakerRent(s.policy, RENT);
+    const c = await certify(compileHonest({ ...s, policy }, 0), policy, s.snapshot);
+    expect(c.ok && c.certificate.routeRentLamports).toBe(RENT);
   });
 });

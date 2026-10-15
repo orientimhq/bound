@@ -10,15 +10,15 @@ import {
   LAMPORTS_PER_SIGNATURE, MAX_ROUTE_KEPT_LAMPORTS, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, withTakerRent,
   V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, variantOf, withMinOut, WSOL_MINT, USDC_MINT, USDT_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM,
   PUMP_AMM_PROGRAM, eventAuthorityOf, routeAccountOf, withRouteRefund, FEE_TOKENS, feeSideFor, minimumForReceived, minimumReceived, outputFeeFor,
-} from '@orientim/core';
-import type { AccountState, OrientimConfig, IntermediateAta, Lifetime, Policy, RouteRefund, TxVersion, Violation } from '@orientim/core';
-import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, simulate } from '@orientim/solana';
+} from '@orientimhq/swap/core';
+import type { AccountState, OrientimConfig, IntermediateAta, Lifetime, Policy, RouteRefund, TxVersion, Violation } from '@orientimhq/swap/core';
+import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, simulate } from '@orientimhq/swap/solana';
 import {
-  certify, hasTransferFee, jupiterFloor, jupiterRouteArgs, MAX_ADDED_COMPUTE_UNITS, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension,
-  verifyWalletReturn,
-} from '@orientim/verifier';
-import type { Certificate } from '@orientim/verifier';
-import type { SendResult, SendStatus, Simulation, SolanaRpc } from '@orientim/solana';
+  hasTransferFee, jupiterFloor, jupiterRouteArgs, memoRequired, transferFeeOf, transferFeeOn, unsupportedExtension,
+} from '@orientimhq/swap/verifier';
+import { certify, MAX_ADDED_COMPUTE_UNITS, verifyWalletReturn } from '@orientim/certificate';
+import type { Certificate } from '@orientim/certificate';
+import type { SendResult, SendStatus, Simulation, SolanaRpc } from '@orientimhq/swap/solana';
 import { JupiterError, toKitInstruction } from './client.ts';
 import { PROVIDED_ROUTE_TOLERANCE_BPS, ROUTE_LEVELS, RoutesNeeded, RoutesUntrusted } from './provided.ts';
 import type { ApiInstruction, BuildResponse, JupiterClient } from './client.ts';
@@ -333,7 +333,7 @@ async function routeAccountIn(r: BuildResponse, E: Address): Promise<Omit<RouteR
 /** Jupiter's label for the Pump.fun bonding curve; PumpSwap, after it, is `Pump.fun Amm`. */
 export const BONDING_CURVE_LABEL = 'Pump.fun';
 /** The Pump.fun bonding-curve program, which a route through the curve invokes. */
-export { PUMP_CURVE_PROGRAM } from '@orientim/core';
+export { PUMP_CURVE_PROGRAM } from '@orientimhq/swap/core';
 
 type Slippages = Pick<SwapSettings, 'slippageBps' | 'curveSlippageBps' | 'chosenSlippageBps'>;
 

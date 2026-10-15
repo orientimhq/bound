@@ -3,7 +3,7 @@
  * same time, never a failure kept, and a caller's own deadline ending only its own wait.
  */
 import { describe, expect, it } from 'vitest';
-import type { SolanaRpc } from '@orientim/solana';
+import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { withSharedReads } from '../lib/server/sharedReads.ts';
 
 /** An RPC whose answers the test releases by hand; counts the calls that reach it. */

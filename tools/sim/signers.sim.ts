@@ -43,8 +43,8 @@ import { getTransferSolInstruction } from '@solana-program/system';
 import {
   createFileStore, loadPolicy, MIN_BLOCKS_TO_FINALIZE, OrientimOrderError, PendingSwapError, PolicyError, prepareChecked, protectedSwap,
   recoverPending, signAsWallet, signerFromSignTransaction,
-} from '../../skills/orientim-protected-swap/examples/swap.ts';
-import type { Checked, OwnerPolicy } from '../../skills/orientim-protected-swap/examples/swap.ts';
+} from '@orientimhq/swap';
+import type { Checked, OwnerPolicy } from '@orientimhq/swap';
 import {
   agentRpc, codeOf, esc, JUPITER_API_KEY, ms, newTally, OFFLINE, offlineWorld, orientim, percentile, RPC_URL, SOL, solPrice, tallyOf, USDC, writeReport,
 } from './common.ts';

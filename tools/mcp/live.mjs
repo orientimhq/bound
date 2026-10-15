@@ -2,8 +2,8 @@
 // orientim.com, the owner's RPC and Jupiter. .github/workflows/mcp-live.yml runs it on Linux, macOS and
 // Windows, by hand.
 //
-//   node tools/mcp/live.mjs npx -y orientim-mcp@1.12.1
-//   node tools/mcp/live.mjs node skills/orientim-protected-swap/bin/orientim-mcp.mjs
+//   node tools/mcp/live.mjs npx -y @orientimhq/swap@2.0.1 mcp
+//   node tools/mcp/live.mjs node node_modules/@orientimhq/swap/dist/bin/orientim.mjs mcp
 //
 //   SOLANA_RPC_URL, JUPITER_API_KEY   the owner's RPC and Jupiter key
 //   LIVE_WALLET_KEYPAIR               optional: a test wallet's keypair file, holding 0.02 SOL or more

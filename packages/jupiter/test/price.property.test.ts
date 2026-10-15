@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { address, generateKeyPairSigner } from '@solana/kit';
 import type { Address } from '@solana/kit';
-import { JUPITER_PROGRAM, WSOL_MINT } from '@orientim/core';
+import { JUPITER_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
 import { DEFAULT_SETTINGS, OrientimError, prepareProtectedSwap } from '../src/swap.ts';
 import { BONK, DECIMALS, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, USDC } from './fakes.ts';
 import type { Account } from './fakes.ts';

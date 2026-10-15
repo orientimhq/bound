@@ -1,14 +1,14 @@
 import { connection } from 'next/server';
 import { FrameworkGuide } from '@/components/site/FrameworkGuide';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
-import { SKILL_VERSION } from '@/lib/server/skillSums';
+import { SKILL_VERSION } from '@/lib/server/skill';
 
 export const metadata = {
   title: 'Orientim in Vercel AI SDK — Orientim',
   description: 'The Orientim MCP server in the Vercel AI SDK: protected Solana swaps for an AI SDK agent, with a working example.',
 };
 
-/** agent.ts, as checked with tsc against the framework's packages and run against orientim-mcp from npm. */
+/** agent.ts, as checked with tsc against the framework's packages and run against @orientimhq/swap from npm. */
 const CODE = `import { createInterface } from 'node:readline/promises';
 import { anthropic } from '@ai-sdk/anthropic';
 import { createMCPClient, ElicitationRequestSchema } from '@ai-sdk/mcp';
@@ -18,7 +18,7 @@ import { generateText, isStepCount } from 'ai';
 const orientim = await createMCPClient({
   transport: new StdioMCPTransport({
     command: 'npx',
-    args: ['-y', 'orientim-mcp@${SKILL_VERSION}'],
+    args: ['-y', '@orientimhq/swap@${SKILL_VERSION}', 'mcp'],
     env: {
       SOLANA_RPC_URL: process.env.SOLANA_RPC_URL!,
       ORIENTIM_WALLET_KEYPAIR: '/home/agent/agent-wallet.json',

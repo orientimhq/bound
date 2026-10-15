@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "test:fuzz": "vitest run packages/verifier/test/property.test.ts packages/verifier/test/extensions.test.ts packages/verifier/test/slippage.property.test.ts packages/jupiter/test/slippage.property.test.ts apps/web/test/agents.property.test.ts apps/web/test/pure.property.test.ts packages/verifier/test/extremes.property.test.ts packages/verifier/test/mutation.property.test.ts packages/jupiter/test/price.property.test.ts apps/web/test/agents.limits.property.test.ts packages/verifier/test/wallet.property.test.ts apps/web/test/agents.load.property.test.ts apps/web/test/agents.ceilings.property.test.ts apps/web/test/agents.routes.property.test.ts --mode fuzz",
+    "test:fuzz": "vitest run packages/jupiter/test/slippage.property.test.ts apps/web/test/agents.property.test.ts apps/web/test/pure.property.test.ts packages/jupiter/test/price.property.test.ts apps/web/test/agents.limits.property.test.ts packages/certificate/test/wallet.property.test.ts apps/web/test/agents.load.property.test.ts apps/web/test/agents.ceilings.property.test.ts apps/web/test/agents.routes.property.test.ts --mode fuzz",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit && tsc -p tools/sim/tsconfig.json --noEmit",
     "integration": "node tests/integration/mainnet.ts",
     "thresholds": "node tests/integration/thresholds.ts",
@@ -27,6 +27,7 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
+    "@orientimhq/swap": "2.0.1",
     "@solana-program/compute-budget": "^0.18.1",
     "@solana-program/system": "^0.14.1",
     "@solana-program/token": "^0.16.1",

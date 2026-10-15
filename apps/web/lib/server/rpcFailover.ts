@@ -1,6 +1,6 @@
 import { createDefaultRpcTransport, createSolanaRpcFromTransport } from '@solana/kit';
-import { createRetryingRpc, httpStatusOf, retryingTransport } from '@orientim/solana';
-import type { SolanaRpc } from '@orientim/solana';
+import { createRetryingRpc, httpStatusOf, retryingTransport } from '@orientimhq/swap/solana';
+import type { SolanaRpc } from '@orientimhq/swap/solana';
 
 type Transport = ReturnType<typeof createDefaultRpcTransport>;
 type Config = Parameters<Transport>[0];

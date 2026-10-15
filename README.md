@@ -54,26 +54,24 @@ so they cannot use Orientim. The API key itself is signed for with any wallet th
 ```text
 bound/
 ├── packages/
-│   ├── core/       intent → policy, compiler, constants (pure, no network)
-│   ├── verifier/   the 7 rules and the certificate (pure, no network, independent of the compiler) + tests
-│   ├── solana/     chain snapshot, simulation, send/confirm, ephemeral key
-│   └── jupiter/    Jupiter Swap API V2 client, prepare → finalize pipeline, route repair
+│   ├── certificate/   the certificate a prepared swap carries, and the check of what a wallet hands back
+│   └── jupiter/       Jupiter Swap API V2 client, prepare → finalize pipeline, route repair
 ├── apps/web/       Next.js site (home, developer docs, API keys, legal), CSP proxy, /api/status, /api/health
 │                   and the agent API (/api/v1/prepare, /api/v1/finalize, /api/v1/keys)
-├── skills/orientim-protected-swap/   the package agents and bots download: SKILL.md, the verifier bundle,
-│                                  the `orientim-verify` command and the example (AGENT-API.md)
 ├── tests/
 │   ├── integration/   mainnet simulations: T4, T1 and T5 (mainnet.ts), T7 sizes (large.ts), T9 cost of
 │   │                  protection (thresholds.ts), Jupiter's floor, Pump.fun, Token-2022 and issuer stablecoins
 │   └── cpi/           T6: a malicious swap program (Rust) executed against the protected transaction in a real Solana VM
-├── tools/          skill build, release digest, live check, canary, agent API keys
+├── tools/          release digest, live check, canary, monitor, agent API keys
 ├── docs/           OPERATORS.md (running the agent API)
 └── .github/        CI, fuzz, T6, canary, monitor, release and live-check workflows
 ```
 
-The verifier (`packages/verifier`, `@orientim/verifier`) imports only `@solana/kit`, the token program
-client and Orientim's constants and types, never the compiler or the policy builder, and takes its
-limits from `constants.ts`; a test enforces all of it. After a transaction passes every rule it
+The compiler, the verifier and the chain reads come from the npm package `@orientimhq/swap`
+(`/core`, `/verifier`, `/solana`), the same code agents run, pinned to one version and published
+with npm's provenance from github.com/orientimhq/orientim-protected-swap, where its tests live. The
+verifier imports only `@solana/kit`, the token program client and Orientim's constants and types,
+never the compiler or the policy builder. After a transaction passes every rule, `packages/certificate`
 issues a certificate bound to the message's SHA-256, which travels with the prepared swap for a
 wallet, an agent or an auditor; the prepare answer states the minimum and the costs.
 
@@ -98,8 +96,7 @@ npm run build             # production build of the site and the agent API
 npm run start -w @orientim/web   # serve it on http://localhost:3000
 node tools/agent-key.ts <id>   # an API key for the agent API (docs/OPERATORS.md)
 node tools/agent-key.ts --key-secret   # the secret that turns on self-serve API keys (/developers#access)
-node skills/orientim-protected-swap/examples/swap.ts   # the agent skill's example (SKILL.md); prints its usage
-node tools/build-skill.ts             # rebuild the verifier bundled in the skill (CI checks it)
+npx orientim                          # the agents' command, from @orientimhq/swap; prints its usage
 node tests/integration/jupiter-floor.ts   # Jupiter's on-chain floor and where it is measured, on mainnet state
 node tools/canary.ts                  # do seven protected swaps, with every kind of fee, v1 and Pump.fun, still build and execute?
 npm run build:digest      # one hash over everything the browser loads, to compare with a release

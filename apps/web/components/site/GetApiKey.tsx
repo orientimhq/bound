@@ -13,7 +13,7 @@ class Said extends Error {}
 /** What went wrong, in a sentence; `detail` is the raw error, kept for someone who wants it. */
 type Failure = { text: string; detail?: string };
 
-/** The skill as one download, public: its path on this site and its version. */
+/** Where the page says how to install @orientimhq/swap, and its version. */
 export type SkillDownload = { href: string; version: string };
 
 /**
@@ -87,11 +87,11 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
         <ol className="key-next">
           <li>Save it as <code>ORIENTIM_API_KEY</code> where your agent reads its settings.</li>
           <li>
-            <a className="button primary-link" href={skill.href} download>Download the skill</a>
-            <span className="hint">v{skill.version}: instructions for your agent, a working example, the command line and the verifier</span>
+            <a className="button primary-link" href={skill.href}>Install @orientimhq/swap</a>
+            <span className="hint">v{skill.version}: instructions for your agent, the command line, the MCP server and the verifier</span>
           </li>
           <li>
-            Unzip it, run <code>npm ci</code>, and set <code>ORIENTIM_API_URL=https://orientim.com</code>, your own RPC as{' '}
+            Set <code>ORIENTIM_API_URL=https://orientim.com</code>, your own RPC as{' '}
             <code>SOLANA_RPC_URL</code> and your own Jupiter key as <code>JUPITER_API_KEY</code> (free at developers.jup.ag). Then follow{' '}
             <code>SKILL.md</code>.
           </li>

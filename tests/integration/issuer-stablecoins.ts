@@ -22,9 +22,9 @@ import type { Address } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import {
   ataOf, JUPITER_PROGRAM, TOKEN_2022_PROGRAM, tokenAccountSizeFor, tokenAmountOf, WSOL_MINT,
-} from '@orientim/core';
-import { createEphemeral, createRetryingRpc, fetchAccounts } from '@orientim/solana';
-import { unsupportedExtension } from '@orientim/verifier';
+} from '@orientimhq/swap/core';
+import { createEphemeral, createRetryingRpc, fetchAccounts } from '@orientimhq/swap/solana';
+import { unsupportedExtension } from '@orientimhq/swap/verifier';
 import { OrientimError, createJupiterClient, DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
 
 const rpc = createRetryingRpc(process.env.RPC_URL ?? 'https://api.mainnet-beta.solana.com', 8);

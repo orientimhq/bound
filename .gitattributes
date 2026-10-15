@@ -1,9 +1,0 @@
-# The command a bot runs directly (#!/usr/bin/env node) must keep LF line ends on every checkout, and
-# every file the skill ships keeps them too, so that SHA256SUMS matches a copy from any checkout.
-skills/orientim-protected-swap/** text eol=lf
-
-# The skill as one download: a zip, never touched by line-end conversion.
-apps/web/public/skill/*.zip binary
-
-# The Claude Desktop extension: a zip too.
-apps/web/public/skill/*.mcpb binary

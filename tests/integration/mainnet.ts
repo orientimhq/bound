@@ -25,10 +25,10 @@ import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } 
 import { AuthorityType, getCloseAccountInstruction, getSetAuthorityInstruction, getTransferInstruction } from '@solana-program/token';
 import { getTransferSolInstruction } from '@solana-program/system';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { ataOf, buildPolicy, JUPITER_PROGRAM, protectedInstructions, TOKEN_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
-import { verify } from '@orientim/verifier';
-import type { TxVersion } from '@orientim/core';
-import { createEphemeral, createRetryingRpc, fetchMints, fetchSnapshot } from '@orientim/solana';
+import { ataOf, buildPolicy, JUPITER_PROGRAM, protectedInstructions, TOKEN_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientimhq/swap/core';
+import { verify } from '@orientimhq/swap/verifier';
+import type { TxVersion } from '@orientimhq/swap/core';
+import { createEphemeral, createRetryingRpc, fetchMints, fetchSnapshot } from '@orientimhq/swap/solana';
 import { OrientimError, createJupiterClient, DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
 
 const arg = (name: string, fallback: string) => {

@@ -3,7 +3,7 @@
  * and for a send, trusted only when it answers with a success.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { refusedBeforeBroadcast } from '@orientim/solana';
+import { refusedBeforeBroadcast } from '@orientimhq/swap/solana';
 import { createServerRpc } from '../lib/server/rpcFailover.ts';
 
 const MAIN = 'https://main.rpc.test/';

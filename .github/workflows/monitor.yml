@@ -1,9 +1,9 @@
 name: Monitor
 
-# Is production up, on tested code, and serving the skill its source says? tools/monitor.ts asks
-# /api/health (three tries, 20 s apart, before an outage is called one), /api/status (the commit it
-# was built from, the skill it serves), and checks that commit is on main, that its CI passed, and
-# that /skill/SHA256SUMS is the repository's at that commit. A failed run makes GitHub tell the
+# Is production up, on tested code, and pointing to a package npm says its release built? tools/monitor.ts
+# asks /api/health (three tries, 20 s apart, before an outage is called one), /api/status (the commit it
+# was built from, the version of @orientimhq/swap it names), and checks that commit is on main, that
+# its CI passed, and that the version is on npm with the release workflow's provenance. A failed run makes GitHub tell the
 # owner of this workflow. On by default, every thirty minutes (within GitHub's free minutes on a private repository): the
 # repository variable ORIENTIM_MONITOR set to 0 turns it off, and ORIENTIM_SITE_URL names another
 # site than https://orientim.com. GitHub pauses a schedule after 60 days without a commit.

@@ -7,8 +7,6 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@orientim/core": "*",
-    "@orientim/solana": "*",
-    "@orientim/verifier": "*"
+    "@orientimhq/swap": "2.0.1"
   }
 }

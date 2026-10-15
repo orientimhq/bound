@@ -19,7 +19,7 @@ const RISKS: [string, string][] = [
   ['The network', 'A transaction can be delayed, fail, expire, or land later than expected. One that does not execute moves nothing but may still cost its network fee.'],
   ['An outcome not yet known', 'While the network has not confirmed a transaction, it may still land. The skill starts no new swap from the same wallet until it knows the outcome, as long as it keeps its state directory; another copy without it does not know about it.'],
   ['Your wallet and device', 'A compromised wallet, machine, key or seed phrase, or malicious software where your agent runs, can lead to loss. Orientim will never ask for your seed phrase. Give your agent a wallet holding only what it may swap, and keep its signing key where the agent cannot read it.'],
-  ['Impostor sites and copies', 'Open Orientim only at orientim.com, and get the Software only from orientim.com, github.com/orientimhq/orientim-protected-swap or the npm package orientim-mcp. A copy elsewhere is not Orientim and may steal your funds.'],
+  ['Impostor sites and copies', 'Open Orientim only at orientim.com, and get the Software only from orientim.com, github.com/orientimhq/orientim-protected-swap or the npm package @orientimhq/swap (formerly orientim-mcp). A copy elsewhere is not Orientim and may steal your funds.'],
   ['Law and taxes', 'Laws on digital assets differ by country and change, and may affect your use of the Services or the value of your assets. You are responsible for those that apply to you, and for your taxes.'],
 ];
 
@@ -127,7 +127,7 @@ export default async function Page() {
         <h2>5. Your responsibilities</h2>
         <ul>
           <li>You are responsible for the security of your wallet, keys, seed phrase, devices, API keys, and any agent, bot or signing service you use.</li>
-          <li>You open Orientim&apos;s website only at orientim.com, get the Software only from orientim.com, its GitHub repository or the npm package <code>orientim-mcp</code>, and you or the check your agent runs read every transaction before it is signed.</li>
+          <li>You open Orientim&apos;s website only at orientim.com, get the Software only from orientim.com, its GitHub repository or the npm package <code>@orientimhq/swap</code> (formerly <code>orientim-mcp</code>), and you or the check your agent runs read every transaction before it is signed.</li>
           <li>
             Where you use the API or the Software, you run the check the Software provides, on your own RPC, before you sign. If you
             skip or change it, you rely on the transaction as our servers prepared it, at your own risk.

@@ -1,14 +1,14 @@
 name: MCP live
 
-# The MCP server as a customer installs it (npx -y orientim-mcp@<version>, or the skill's own file), on
+# The MCP server as a customer installs it (npx -y @orientimhq/swap@<version> mcp), on
 # Linux, macOS and Windows, against orientim.com, mainnet and Jupiter: tools/mcp/live.mjs. Without a
 # test wallet: the protocol, balances on the RPC, Orientim's key message signed and answered, refused
 # input. With the secret TEST_WALLET_KEYPAIR (a solana-keygen file of a wallet kept only for these tests, holding
 # 0.02 SOL or more): quotes of majors, memecoins, an LST and a Token-2022 token, and the owner's
 # limits, nothing signed. swaps set to 1 also swaps for real on each system, 0.002 SOL to USDC and
-# back; full also, on Linux, buys and sells back every kind of token the skill takes (a stablecoin, a
-# DeFi token, memecoins, an LST, a Token-2022 token, one token for another). Then through the skill's
-# two other ways in (tools/live-channels.mjs): the agent's command line and orientim-verify, each fee
+# back; full also, on Linux, buys and sells back every kind of token the package takes (a stablecoin, a
+# DeFi token, memecoins, an LST, a Token-2022 token, one token for another). Then through the package's
+# two other ways in (tools/live-channels.mjs): orientim swap and the JSON commands, each fee
 # side, an order run again, recover, and tools/pilot-report.ts on the chain. A few cents of fees from the test wallet in all. The report is each job's summary.
 #
 # By hand only. It uses CANARY_RPC_URL and CANARY_JUPITER_API_KEY, the canary's keys apart from
@@ -16,12 +16,8 @@ name: MCP live
 on:
   workflow_dispatch:
     inputs:
-      source:
-        description: 'npm: the published package, as customers run it; repo: the skill''s bin/orientim-mcp.mjs at this commit'
-        required: false
-        default: 'npm'
       version:
-        description: 'With source npm: the version (empty: the skill''s, in skills/orientim-protected-swap/package.json)'
+        description: 'The version of @orientimhq/swap from npm (empty: the one package.json pins)'
         required: false
         default: ''
       swaps:
@@ -58,17 +54,11 @@ jobs:
       - name: The server's command
         id: server
         env:
-          SOURCE: ${{ inputs.source }}
           VERSION: ${{ inputs.version }}
         run: |
-          if [ "$SOURCE" = repo ]; then
-            (cd skills/orientim-protected-swap && npm ci --ignore-scripts)
-            echo "command=node skills/orientim-protected-swap/bin/orientim-mcp.mjs" >> "$GITHUB_OUTPUT"
-          else
-            v="${VERSION:-$(node -p "require('./skills/orientim-protected-swap/package.json').version")}"
-            [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a version: $v"; exit 2; }
-            echo "command=npx -y orientim-mcp@$v" >> "$GITHUB_OUTPUT"
-          fi
+          v="${VERSION:-$(node -p "require('./package.json').dependencies['@orientimhq/swap']")}"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a version: $v"; exit 2; }
+          echo "command=npx -y @orientimhq/swap@$v mcp" >> "$GITHUB_OUTPUT"
       - name: The test wallet
         env:
           KEYPAIR: ${{ secrets.TEST_WALLET_KEYPAIR }}
@@ -104,8 +94,14 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm ci --ignore-scripts
-        working-directory: skills/orientim-protected-swap
+      - name: The package
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          v="${VERSION:-$(node -p "require('./package.json').dependencies['@orientimhq/swap']")}"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "not a version: $v"; exit 2; }
+          npm install --prefix "$RUNNER_TEMP/package" --ignore-scripts --no-audit --no-fund "@orientimhq/swap@$v"
+          echo "ORIENTIM_BIN=$RUNNER_TEMP/package/node_modules/@orientimhq/swap/dist/bin/orientim.mjs" >> "$GITHUB_ENV"
       - name: The test wallet
         env:
           KEYPAIR: ${{ secrets.TEST_WALLET_KEYPAIR }}

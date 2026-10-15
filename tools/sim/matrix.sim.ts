@@ -45,18 +45,18 @@ import {
   address, getAddressDecoder, getCompiledTransactionMessageDecoder, getCompiledTransactionMessageEncoder, getTransactionDecoder, getTransactionEncoder,
 } from '@solana/kit';
 import type { Address, Rpc, SolanaRpcApi } from '@solana/kit';
-import { ataOf, JUPITER_PROGRAM, WSOL_MINT } from '@orientim/core';
-import { jupiterDestination, jupiterRouteArgs } from '@orientim/verifier';
+import { ataOf, JUPITER_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { jupiterDestination, jupiterRouteArgs } from '@orientimhq/swap/verifier';
 import { createJupiterClient, heliusPriorityFee, MIN_FEE } from '@orientim/jupiter';
-import { createRetryingRpc } from '@orientim/solana';
+import { createRetryingRpc } from '@orientimhq/swap/solana';
 import { agentPrepare } from '../../apps/web/lib/server/agent/api.ts';
 import type { AgentDeps } from '../../apps/web/lib/server/agent/api.ts';
 import {
   checkPolicy, checkPrepared, FloorError, IntentError, OrientimApiError, PolicyError, prepareChecked, PriceImpactError,
-} from '../../skills/orientim-protected-swap/examples/swap.ts';
-import type { Checked, Intent, OwnerPolicy, Prepared } from '../../skills/orientim-protected-swap/examples/swap.ts';
-import { runCli } from '../../skills/orientim-protected-swap/src/cli.ts';
-import { ORIENTIM_TREASURY } from '../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
+} from '@orientimhq/swap';
+import type { Checked, Intent, OwnerPolicy, Prepared } from '@orientimhq/swap';
+import { runCli } from '@orientimhq/swap';
+import { ORIENTIM_TREASURY } from '@orientimhq/swap';
 
 const OFFLINE = process.env.SIM_OFFLINE === '1';
 const RPC_URL = process.env.RPC_URL || 'https://api.mainnet-beta.solana.com';

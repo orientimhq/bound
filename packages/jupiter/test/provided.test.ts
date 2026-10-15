@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { address, generateKeyPairSigner } from '@solana/kit';
 import type { Address, KeyPairSigner } from '@solana/kit';
-import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
+import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
 import { DEFAULT_SETTINGS, OrientimError, prepareProtectedSwap } from '../src/swap.ts';
 import { MAX_PROVIDED_ROUTES, parseProvidedRoutes, providedRoutes, routeKey, RoutesNeeded, RoutesUntrusted } from '../src/provided.ts';
 import type { ProvidedRoute, RouteRequest } from '../src/provided.ts';

@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["packages/*/src", "packages/*/test", "tests", "skills"]
+  "include": ["packages/*/src", "packages/*/test", "tests"]
 }

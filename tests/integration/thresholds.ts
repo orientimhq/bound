@@ -18,9 +18,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import {
   ataOf, buildPolicy, compileProtectedSwap, JUPITER_PROGRAM, LEGACY_SIZE_LIMIT, TOKEN_2022_PROGRAM, TOKEN_PROGRAM,
   withMinOut, WSOL_MINT,
-} from '@orientim/core';
-import type { IntermediateAta } from '@orientim/core';
-import { createEphemeral, createRetryingRpc, fetchMints } from '@orientim/solana';
+} from '@orientimhq/swap/core';
+import type { IntermediateAta } from '@orientimhq/swap/core';
+import { createEphemeral, createRetryingRpc, fetchMints } from '@orientimhq/swap/solana';
 import {
   compileIfFits, createJupiterClient, DEFAULT_SETTINGS, intermediatesFromSetup, routeFloor, toKitInstruction,
 } from '@orientim/jupiter';

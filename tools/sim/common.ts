@@ -11,11 +11,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { address, createDefaultRpcTransport, createSolanaRpcFromTransport } from '@solana/kit';
 import type { Rpc, SolanaRpcApi } from '@solana/kit';
-import { retryingTransport } from '@orientim/solana';
+import { retryingTransport } from '@orientimhq/swap/solana';
 import { agentFinalize, agentPrepare } from '../../apps/web/lib/server/agent/api.ts';
 import type { AgentDeps } from '../../apps/web/lib/server/agent/api.ts';
 import { agentDeps } from '../../apps/web/lib/server/agent/config.ts';
-import { ORIENTIM_TREASURY } from '../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
+import { ORIENTIM_TREASURY } from '@orientimhq/swap';
 
 /** The test fakes instead of mainnet: checks the simulation itself, with no network and no key. */
 export const OFFLINE = process.env.SIM_OFFLINE === '1';
@@ -269,7 +269,7 @@ export type OfflineWorld = {
 export async function offlineWorld(keyCount = 1): Promise<OfflineWorld> {
   const { generateKeyPairSigner } = await import('@solana/kit');
   const fakes = await import('../../packages/jupiter/test/fakes.ts');
-  const { ataOf } = await import('@orientim/core');
+  const { ataOf } = await import('@orientimhq/swap/core');
   const wallet = await generateKeyPairSigner();
   const accounts = new Map<string, import('../../packages/jupiter/test/fakes.ts').Account>([
     [fakes.USDC, fakes.mint(6)], [SOL, fakes.mint(9)],

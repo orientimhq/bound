@@ -1,9 +1,9 @@
 import { decompileTransactionMessage, getCompiledTransactionMessageDecoder } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
-import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@orientim/core/constants';
-import type { ChainSnapshot, Policy, Violation } from '@orientim/core/types';
-import { verify } from './verify.ts';
-import type { VerifyOptions } from './verify.ts';
+import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@orientimhq/swap/core';
+import type { ChainSnapshot, Policy, Violation } from '@orientimhq/swap/core';
+import { verify } from '@orientimhq/swap/verifier';
+import type { VerifyOptions } from '@orientimhq/swap/verifier';
 
 /** Changes whenever a rule changes; every certificate names the verifier that issued it. */
 export const VERIFIER_VERSION = '0.9.0';

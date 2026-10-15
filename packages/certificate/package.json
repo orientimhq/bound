@@ -1,12 +1,12 @@
 {
-  "name": "@orientim/verifier",
-  "version": "0.2.0",
+  "name": "@orientim/certificate",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@orientim/core": "*"
+    "@orientimhq/swap": "2.0.1"
   }
 }

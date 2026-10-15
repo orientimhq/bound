@@ -80,9 +80,9 @@ is compromised, the key can take the fees it holds and nothing else. Then:
 1. Stop sending fees there: pause (runbook above, step 2).
 2. Move what is left to a safe wallet, if the key is still yours.
 3. Make a new treasury, with its USDC and USDT accounts. Put it in `NEXT_PUBLIC_ORIENTIM_TREASURY`
-   (in Vercel and in the repository variables) and in the skill (`ORIENTIM_TREASURY` in
-   `skills/orientim-protected-swap/src/verify.ts`), then rebuild the skill. Agents refuse a fee to
-   any treasury but the one pinned in their copy of the skill.
+   (in Vercel and in the repository variables) and in `@orientimhq/swap` (`ORIENTIM_TREASURY` in its
+   `src/verify.ts`), then release a new version of the package and pin it here. Agents refuse a fee
+   to any treasury but the one pinned in their version of the package.
 4. Release, redeploy and promote. Agents on an older copy of the skill refuse every swap until they
    update, so raise `ORIENTIM_MIN_SKILL_VERSION` to the new skill's version and tell them.
 5. Record the old and the new address, with the date of the change.
@@ -117,7 +117,7 @@ mail and in the notifications: make sure that account receives them.
 
 | Workflow | Every | Fails when | Off with the repository variable |
 | --- | --- | --- | --- |
-| `monitor.yml` (`tools/monitor.ts`) | 30 minutes | `/api/health` is not ok three times 20 s apart; the agent API is off; production runs a commit not on `main`, or one whose CI failed; `/skill/SHA256SUMS` is not the repository's at that commit. A pause and a deploy stuck behind `main` are said as warnings. | `ORIENTIM_MONITOR=0` |
+| `monitor.yml` (`tools/monitor.ts`) | 30 minutes | `/api/health` is not ok three times 20 s apart; the agent API is off; production runs a commit not on `main`, or one whose CI failed; the version of `@orientimhq/swap` it names is not on npm with the release workflow's provenance. A pause and a deploy stuck behind `main` are said as warnings. | `ORIENTIM_MONITOR=0` |
 | `canary.yml` (`tools/canary.ts`) | 6 hours | A swap no longer builds on mainnet state (Jupiter's format, a Pump.fun or token program changed), a fee is not taken where it should be, or a promised market could not be proven. | `ORIENTIM_CANARY=0` |
 | `live-check.yml` (`tools/check-live.ts`) | 6 hours | Production runs a tagged release and serves other bytes than its digest. Untagged commits are said and pass. | `ORIENTIM_LIVE_CHECK=0` |
 

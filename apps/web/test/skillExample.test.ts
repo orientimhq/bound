@@ -1,5 +1,5 @@
 /**
- * The skill's example (skills/orientim-protected-swap/examples/swap.ts) is what agents will copy, so it
+ * @orientimhq/swap (protectedSwap, the `orientim` command) is what agents run against this server, so it
  * runs here end to end against the real agent API handlers. Its check must hold against a server
  * that lies: every answer below is one a compromised server, relay or impostor URL
  * could send, and each must be refused before the wallet signs.
@@ -19,7 +19,7 @@ import {
   AuthorityType, getApproveInstruction, getSetAuthorityInstruction, getTransferCheckedInstruction,
 } from '@solana-program/token';
 import { getSetComputeUnitPriceInstruction } from '@solana-program/compute-budget';
-import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
+import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
 import { BONK, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, USDC } from '../../../packages/jupiter/test/fakes.ts';
 import { priceImpactOf } from '@orientim/jupiter';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
@@ -31,20 +31,23 @@ import {
   fillAgainstQuote, PriceImpactError, receivedFor, FloorError, prepareChecked, ownFloor, IntentError,
   APPROVAL_MS, ERROR_MEANINGS, exitCodeOf, failureCause, networkCause, outcomeMeaning, LockBusyError, loadPolicy, policyPathFor, PolicyError, preparedData, releaseHeldLocks, stateDirFor, recordApproval, approvalFor, keypairFileWarning, keptApproval, temporaryAuthorityOf,
   forgetApproval, isApiKeyMessage, lockHeld,
-} from '../../../skills/orientim-protected-swap/examples/swap.ts';
-import type { OrderBook, OrderRecord, Signed } from '../../../skills/orientim-protected-swap/examples/swap.ts';
-import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
+} from '@orientimhq/swap';
+import type { OrderBook, OrderRecord, Signed } from '@orientimhq/swap';
+import { runCli } from '@orientimhq/swap';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, chownSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   ORIENTIM_TREASURY, MAX_BELOW_BPS, autoSlippageBps, fetchRoutes, inputTransferFee, noticesOf, ownMinimum, ownQuote, rateLimitResetMs, solFeeOf, tokenNotices, tokenRisk,
-} from '../../../skills/orientim-protected-swap/lib/orientim-verify.mjs';
-import { jupiterRouteArgs, routeAccountFor } from '@orientim/verifier';
+} from '@orientimhq/swap';
+import { jupiterRouteArgs, routeAccountFor } from '@orientimhq/swap/verifier';
 import { JupiterError } from '../../../packages/jupiter/src/client.ts';
 import type { JupiterClient } from '../../../packages/jupiter/src/client.ts';
-import type { Intent, Prepared } from '../../../skills/orientim-protected-swap/examples/swap.ts';
+import type { Intent, Prepared } from '@orientimhq/swap';
+
+/** The `orientim` command of @orientimhq/swap, as installed, run from the repository's root. */
+const BIN = 'node_modules/@orientimhq/swap/dist/bin/orientim.mjs';
 
 const KEY = 'ori_skill_example_test_key_0001';
 /** A v0 message, as the tests read it: its accounts and its instructions. */
@@ -1193,9 +1196,9 @@ describe('orientim-verify, the command for bots in other languages', () => {
     expect((await runCli('prepare', {}, deps)).code).toBe(2);
     expect((await runCli('finalize', { checked: {} }, deps)).code).toBe(2);
     expect((await runCli('swap', {}, deps)).code).toBe(2);
-    const run = spawnSync(process.execPath, ['skills/orientim-protected-swap/bin/orientim-verify.mjs'], { encoding: 'utf8', cwd: join(import.meta.dirname, '../../..') });
+    const run = spawnSync(process.execPath, [BIN], { encoding: 'utf8', cwd: join(import.meta.dirname, '../../..') });
     expect(run.status).toBe(2);
-    expect(JSON.parse(run.stdout).error).toContain('usage: orientim-verify');
+    expect(JSON.parse(run.stdout).error).toContain('usage: orientim');
   });
 
   it('finalize asked again while a stopped run still holds the lock: unknown and busy, never "not sent"', async () => {
@@ -1233,7 +1236,7 @@ describe('orientim-verify, the command for bots in other languages', () => {
     }
     expect(calls).toBe(0);
     expect(b.sent).toHaveLength(0);
-    const run = spawnSync(process.execPath, ['skills/orientim-protected-swap/bin/orientim-verify.mjs', 'recover'], {
+    const run = spawnSync(process.execPath, [BIN, 'recover'], {
       encoding: 'utf8', cwd: join(import.meta.dirname, '../../..'), input: '',
       env: { ...process.env, SOLANA_RPC_URL: 'http://127.0.0.1:1', ORIENTIM_STATE_DIR: notADir },
     });
@@ -1244,7 +1247,7 @@ describe('orientim-verify, the command for bots in other languages', () => {
 
 describe('the skill names its version', () => {
   it("SKILL_VERSION is the package's version, and every call to Orientim carries it", async () => {
-    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '../../../skills/orientim-protected-swap/package.json'), 'utf8')) as { version: string };
+    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '../../../node_modules/@orientimhq/swap/package.json'), 'utf8')) as { version: string };
     expect(SKILL_VERSION).toBe(pkg.version);
     const b = await orientim();
     const seen: string[] = [];
@@ -2232,14 +2235,14 @@ describe('the skill holds its own limits and its state against what it is handed
     const key = join(dir, 'key');
     writeFileSync(key, 'Nx8TkWq3JfSecretKeyInBase58');
     const env = { ...process.env, ORIENTIM_API_URL: 'http://127.0.0.1:1', ORIENTIM_API_KEY: 'k', SOLANA_RPC_URL: 'http://127.0.0.1:1', ORIENTIM_WALLET_KEYPAIR: key, JUPITER_API_KEY: 'j' };
-    const example = 'skills/orientim-protected-swap/examples/swap.ts';
+    const example = [BIN, 'swap'];
     const cwd = join(import.meta.dirname, '../../..');
-    const dry = spawnSync(process.execPath, [example, '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--owner', WSOL_MINT, '--dry-run'], {
+    const dry = spawnSync(process.execPath, [...example, '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--owner', WSOL_MINT, '--dry-run'], {
       encoding: 'utf8', cwd, env: { ...env, ORIENTIM_POLICY: policy },
     });
     expect(dry.status).toBe(1);
     expect(dry.stderr).toContain('mint-not-allowed');
-    const run = spawnSync(process.execPath, [example, '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--id', 'k'], {
+    const run = spawnSync(process.execPath, [...example, '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--id', 'k'], {
       encoding: 'utf8', cwd, env: { ...env, ORIENTIM_STATE_DIR: join(dir, 'state') },
     });
     // A keypair file it cannot use is a configuration error: exit 2.
@@ -2253,9 +2256,9 @@ describe('the skill holds its own limits and its state against what it is handed
     const policy = join(dir, 'policy.json');
     writeFileSync(policy, JSON.stringify({ maxAmountIn: { [USDC]: '1000000' }, maxSlippageBps: 100 }));
     const env = { ...process.env, ORIENTIM_API_URL: 'http://127.0.0.1:1', ORIENTIM_API_KEY: 'k', SOLANA_RPC_URL: 'http://127.0.0.1:1', JUPITER_API_KEY: 'j', ORIENTIM_STATE_DIR: join(dir, 'state') };
-    const example = 'skills/orientim-protected-swap/examples/swap.ts';
+    const example = [BIN, 'swap'];
     const cwd = join(import.meta.dirname, '../../..');
-    const dry = (slippage: string, extra: Record<string, string> = {}) => spawnSync(process.execPath, [example, '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--owner', WSOL_MINT, '--dry-run', '--slippage-bps', slippage], {
+    const dry = (slippage: string, extra: Record<string, string> = {}) => spawnSync(process.execPath, [...example, '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--owner', WSOL_MINT, '--dry-run', '--slippage-bps', slippage], {
       encoding: 'utf8', cwd, env: { ...env, ...extra },
     });
     const outOfRange = dry('5');
@@ -2272,7 +2275,7 @@ describe('the skill holds its own limits and its state against what it is handed
     writeFileSync(policy, '{"maxAmountIn": {}, "maxSlippageBps": "wide"}');
     const cwd = join(import.meta.dirname, '../../..');
     const env = { ...process.env, SOLANA_RPC_URL: 'http://127.0.0.1:1', ORIENTIM_POLICY: policy, ORIENTIM_STATE_DIR: join(dir, 'state'), ORIENTIM_ARCHIVE_RPC_URL: 'http://127.0.0.1:1' };
-    const cli = 'skills/orientim-protected-swap/bin/orientim-verify.mjs';
+    const cli = BIN;
     const prepare = spawnSync(process.execPath, [cli, 'prepare'], { encoding: 'utf8', cwd, env, input: '{}' });
     expect(prepare.status).toBe(2);
     expect(JSON.parse(prepare.stdout).error).toContain('maxSlippageBps');
@@ -2533,7 +2536,7 @@ describe("the owner's ceilings on tolerance, floor and price impact, and the aut
     const policy = join(dir, 'policy.json');
     writeFileSync(policy, JSON.stringify({ maxAmountIn: { [USDC]: '1000000000' }, allowedOutputMints: [BONK] }));
     const env = { ...process.env, ORIENTIM_API_URL: 'http://127.0.0.1:1', ORIENTIM_API_KEY: 'k', SOLANA_RPC_URL: 'http://127.0.0.1:1', JUPITER_API_KEY: 'j', ORIENTIM_POLICY: policy };
-    const dry = spawnSync(process.execPath, ['skills/orientim-protected-swap/examples/swap.ts', '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--owner', WSOL_MINT, '--dry-run'], {
+    const dry = spawnSync(process.execPath, [BIN, 'swap', '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--owner', WSOL_MINT, '--dry-run'], {
       encoding: 'utf8', cwd: join(import.meta.dirname, '../../..'), env,
     });
     expect(dry.status).toBe(1);
@@ -2567,13 +2570,6 @@ describe("the owner's ceilings on tolerance, floor and price impact, and the aut
     expect(policyPathFor(undefined, system)).toBe(system);
     expect(policyPathFor(system, system)).toBe(system);
     expect(() => policyPathFor(other, system)).toThrow('which is not used');
-    // Both entry points read it through policyPathFor, never ORIENTIM_POLICY alone.
-    const example = readFileSync(join(import.meta.dirname, '../../../skills/orientim-protected-swap/examples/swap.ts'), 'utf8');
-    const cli = readFileSync(join(import.meta.dirname, '../../../skills/orientim-protected-swap/src/cli.ts'), 'utf8');
-    expect(example).toContain('policyPathFor(process.env.ORIENTIM_POLICY || undefined)');
-    expect(cli).toContain('policyPathFor(process.env.ORIENTIM_POLICY || undefined)');
-    expect(example).not.toContain('loadPolicy(process.env.ORIENTIM_POLICY)');
-    expect(cli).not.toContain('loadPolicy(process.env.ORIENTIM_POLICY)');
   });
 
   it('orientim-verify: "auto" in prepare, a checked answer carries the number, and check asks for the number', async () => {
@@ -3207,10 +3203,10 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
 });
 
 describe('one request, one swap; a yes and a lock that stay their own (14 October 2026 review)', () => {
-  const example = 'skills/orientim-protected-swap/examples/swap.ts';
+  const example = [BIN, 'swap'];
   const cwd = join(import.meta.dirname, '../../..');
   const env = { ...process.env, ORIENTIM_API_URL: 'http://127.0.0.1:1', ORIENTIM_API_KEY: 'k', SOLANA_RPC_URL: 'http://127.0.0.1:1', JUPITER_API_KEY: 'j' };
-  const dry = (stateDir: string) => spawnSync(process.execPath, [example, '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--owner', WSOL_MINT, '--dry-run'], {
+  const dry = (stateDir: string) => spawnSync(process.execPath, [...example, '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--owner', WSOL_MINT, '--dry-run'], {
     encoding: 'utf8', cwd, env: { ...env, ORIENTIM_STATE_DIR: stateDir },
   });
 
@@ -3284,7 +3280,7 @@ describe('one request, one swap; a yes and a lock that stay their own (14 Octobe
 
   it('refuses an amount that is not whole base units before anything is asked', () => {
     for (const amount of ['-5', '0x10', '0', '1.5']) {
-      const run = spawnSync(process.execPath, [example, '--in', USDC, '--out', WSOL_MINT, '--amount', amount, '--owner', WSOL_MINT, '--dry-run'], { encoding: 'utf8', cwd, env });
+      const run = spawnSync(process.execPath, [...example, '--in', USDC, '--out', WSOL_MINT, '--amount', amount, '--owner', WSOL_MINT, '--dry-run'], { encoding: 'utf8', cwd, env });
       expect(run.status, amount).toBe(2);
       expect(run.stderr).toContain('whole number of base units');
     }
@@ -3292,11 +3288,11 @@ describe('one request, one swap; a yes and a lock that stay their own (14 Octobe
 
   it('orientim-verify reads JSON written with a byte-order mark', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'orientim-r14-bom-'));
-    const run = spawnSync(process.execPath, ['skills/orientim-protected-swap/bin/orientim-verify.mjs', 'recover'], {
+    const run = spawnSync(process.execPath, [BIN, 'recover'], {
       encoding: 'utf8', cwd, input: '﻿{}', env: { ...env, ORIENTIM_STATE_DIR: dir },
     });
     expect(run.stdout).not.toContain('not JSON');
-    const prepare = spawnSync(process.execPath, ['skills/orientim-protected-swap/bin/orientim-verify.mjs', 'prepare'], {
+    const prepare = spawnSync(process.execPath, [BIN, 'prepare'], {
       encoding: 'utf8', cwd, input: `﻿${JSON.stringify({ intent: { owner: WSOL_MINT, inputMint: USDC, outputMint: WSOL_MINT, amountIn: '-5', id: 'x' } })}`, env: { ...env, ORIENTIM_STATE_DIR: dir },
     });
     expect(prepare.status).toBe(2);

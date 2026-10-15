@@ -1,6 +1,6 @@
-import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@orientim/core';
+import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@orientimhq/swap/core';
 import { maxNetworkFeeSetting } from '../settings';
-import { SKILL_VERSION } from './skillSums';
+import { SKILL_VERSION } from './skill';
 
 /**
  * Server-only settings. Secrets (RPC URLs, API keys) never reach the browser.

@@ -6,9 +6,9 @@ import { GetApiKey } from '@/components/site/GetApiKey';
 import { KeyAccess } from '@/components/site/KeyAccess';
 import { FEE_BPS, TREASURY } from '@/lib/client/config';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
-import { SKILL_ARCHIVE, SKILL_EXTENSION, SKILL_VERSION } from '@/lib/server/skillSums';
+import { SKILL_EXTENSION, SKILL_FOLDER, SKILL_RELEASE, SKILL_VERSION } from '@/lib/server/skill';
 
-/** The skill's public source: the same files, and a build that gives the same zip (tools/build-skill.ts). */
+/** The package's public source, and the workflow that publishes it to npm with provenance. */
 const SKILL_SOURCE = 'https://github.com/orientimhq/orientim-protected-swap';
 
 export const metadata = {
@@ -89,7 +89,7 @@ const PREPARE_ANSWER: [string, string][] = [
   ['certificate, policy', 'What this exact transaction does, and the rules it was verified against.'],
 ];
 
-/** What `orientim-verify` exits with (skills/orientim-protected-swap/src/cli.ts). */
+/** What `orientim` exits with (src/cli.ts in @orientimhq/swap). */
 const EXIT_CODES: [string, string][] = [
   ['0', 'Done. prepare: sign message. finalize: confirmed, with received. recover: all settled. check: safe to sign.'],
   ['1', 'Refused, or not swapped (failed, expired or rejected), including error.code floor-too-low, price-impact-high, unavailable (a service did not answer: try again after retryAfter) and the owner’s limits (mint-not-allowed, output-not-allowed, amount-over-limit, daily-limit). Nothing is left to settle.'],
@@ -174,35 +174,33 @@ export default async function Page() {
                 <li>An RPC of your own.</li>
                 <li>A Jupiter API key of your own (free at developers.jup.ag), for the agent&apos;s own price. It never leaves your machine.</li>
                 <li>A wallet that signs first and hands the transaction back: a local key or a signing service.</li>
-                <li>Node 22.18 or later, for the skill and the command line (20.18 for the MCP server; Claude Desktop brings its own).</li>
+                <li>Node 20.18 or later (Claude Desktop brings its own).</li>
               </ul>
             </section>
 
             <section id="start">
               <h2>Quickstart</h2>
               <p>
-                <strong>Using Claude Desktop?</strong> Download <a href={SKILL_EXTENSION} download>orientim.mcpb</a>, open it and
+                <strong>Using Claude Desktop?</strong> Download <a href={SKILL_EXTENSION}>orientim.mcpb</a>, open it and
                 answer its questions: no API key and nothing else to install (<a href="#mcp">MCP server</a>). For a bot or a coding
                 agent, follow these steps.
               </p>
               <ol>
                 <li><strong>Get an API key</strong> with the wallet your agent swaps from, in <a href="#access">API keys</a>.</li>
                 <li>
-                  <strong>Download the skill</strong>: <a href={SKILL_ARCHIVE} download>orientim-protected-swap.zip</a> (v{SKILL_VERSION}).
-                  It holds the instructions for your agent, a working example, the command line and the verifier. Its source is
-                  open, under Apache-2.0, at <a href={SKILL_SOURCE}>github.com/orientimhq/orientim-protected-swap</a>.
+                  <strong>Install the package</strong>, <code>@orientimhq/swap</code> (v{SKILL_VERSION}), in a folder of its own. It
+                  holds the instructions for your agent, the <code>orientim</code> command, the MCP server and the verifier. Its source
+                  is open, under Apache-2.0, at <a href={SKILL_SOURCE}>github.com/orientimhq/orientim-protected-swap</a>.
+                  <pre tabIndex={0}><code>{`npm install --save-exact @orientimhq/swap@${SKILL_VERSION}`}</code></pre>
                 </li>
                 <li>
-                  <strong>Check it</strong>, before you unzip it, against GitHub rather than this site (with the{' '}
-                  <a href="https://cli.github.com">GitHub CLI</a>):
-                  <pre tabIndex={0}><code>{`gh attestation verify orientim-protected-swap.zip -R orientimhq/orientim-protected-swap`}</code></pre>
-                  Each release on GitHub also lists the zip&apos;s own sha256 in <code>RELEASE-SHA256SUMS</code>. Then unzip it; the
-                  folder&apos;s <code>SHA256SUMS</code> lists every file in it. On Windows, see <a href="#downloads">Downloads</a>.
+                  <strong>Check it</strong> against GitHub rather than this site: npm&apos;s provenance names the repository, the
+                  workflow and the commit it was built from.
+                  <pre tabIndex={0}><code>{`npm audit signatures`}</code></pre>
                 </li>
                 <li>
-                  <strong>Set it up</strong>: in that folder, <code>npm ci</code> and the <a href="#env">environment variables</a>.
-                  <pre tabIndex={0}><code>{`npm ci
-export ORIENTIM_API_URL=https://orientim.com
+                  <strong>Set it up</strong>: the <a href="#env">environment variables</a>.
+                  <pre tabIndex={0}><code>{`export ORIENTIM_API_URL=https://orientim.com
 export ORIENTIM_API_KEY=ori_...
 export SOLANA_RPC_URL=<your own RPC>
 export JUPITER_API_KEY=<your Jupiter key>
@@ -220,15 +218,15 @@ export ORIENTIM_POLICY=/home/agent/orientim-policy.json`}</code></pre>
                 </li>
                 <li>
                   <strong>Try it without signing</strong>: 5 USDC to SOL, prepared and verified on your RPC, with what it would cost.
-                  <pre tabIndex={0}><code>{`node examples/swap.ts --in EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \\
+                  <pre tabIndex={0}><code>{`npx orientim swap --in EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \\
   --out So11111111111111111111111111111111111111112 --amount 5000000 \\
   --owner <wallet> --dry-run`}</code></pre>
                 </li>
                 <li>
-                  <strong>Swap</strong>, with one order id, the same on every retry. The example signs with the wallet&apos;s key file;
+                  <strong>Swap</strong>, with one order id, the same on every retry. It signs with the wallet&apos;s key file;
                   for a signing service, see <a href="#skill">AI agents</a> or <a href="#cli">Bots</a>.
                   <pre tabIndex={0}><code>{`export ORIENTIM_WALLET_KEYPAIR=/path/to/wallet.json
-node examples/swap.ts --in EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \\
+npx orientim swap --in EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \\
   --out So11111111111111111111111111111111111111112 --amount 5000000 --id order-1`}</code></pre>
                 </li>
                 <li>
@@ -254,17 +252,15 @@ node examples/swap.ts --in EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \\
                       <>
                         <p>
                           For a wallet in a key file or a signing service (Turnkey, Privy and others). The agent signs with its
-                          own key; the key file never leaves the machine. In the unzipped{' '}
-                          <a href={SKILL_ARCHIVE} download>skill</a> folder:
+                          own key; the key file never leaves the machine. With <code>@orientimhq/swap</code> installed:
                         </p>
-                        <pre tabIndex={0}><code>{`npm ci
-export ORIENTIM_API_URL=https://orientim.com
-echo '{"wallet": "<the agent wallet address>"}' | node bin/orientim-verify.mjs key-challenge
+                        <pre tabIndex={0}><code>{`export ORIENTIM_API_URL=https://orientim.com
+echo '{"wallet": "<the agent wallet address>"}' | npx orientim key-challenge
 # sign the bytes of "message" (the same bytes as "messageBase64", decoded) with the agent's key, then
 # send "message" as it came, in plain text, not base64:
-echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bin/orientim-verify.mjs key`}</code></pre>
+echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | npx orientim key`}</code></pre>
                         <p>
-                          In code, <code>requestApiKey</code> from the skill does both steps. It signs only Orientim&apos;s key message
+                          In code, <code>requestApiKey</code> from <code>@orientimhq/swap</code> does both steps. It signs only Orientim&apos;s key message
                           for that wallet, and refuses anything else. The HTTP calls are in <a href="#keys">Keys</a>.
                         </p>
                       </>
@@ -276,7 +272,7 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bi
                     content: (
                       <>
                         <p>For a wallet in a browser extension (Phantom, Solflare, Backpack): connect it and sign.</p>
-                        <GetApiKey skill={{ href: SKILL_ARCHIVE, version: SKILL_VERSION }} />
+                        <GetApiKey skill={{ href: '#start', version: SKILL_VERSION }} />
                       </>
                     ),
                   },
@@ -287,25 +283,26 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bi
             <section id="skill">
               <h2>AI agents: the skill</h2>
               <p>
-                For coding agents: instructions for the agent (<code>SKILL.md</code>), a working example that needs only{' '}
-                <code>@solana/kit</code>, and the check it runs before every signature. The agent gets its settings from you, in the{' '}
+                For coding agents: instructions for the agent (<code>SKILL.md</code>), the <code>orientim</code> command and the
+                library, both from <code>@orientimhq/swap</code>, and the check they run before every signature. The agent gets its settings from you, in the{' '}
                 <a href="#env">environment variables</a>, never in chat.
               </p>
               <h3>1. Install it</h3>
               <ul>
+                <li>Install and check <code>@orientimhq/swap</code> (see <a href="#start">Quickstart</a>). The skill is in it.</li>
                 <li>
-                  <strong>Claude Code</strong>: unzip it into <code>.claude/skills/</code> in your project (it makes <code>orientim-protected-swap/</code>), or into{' '}
+                  <strong>Claude Code</strong>: copy the skill into <code>.claude/skills/</code> in your project, or into{' '}
                   <code>~/.claude/skills/</code> for every project. The agent picks it up when a task needs a swap.
+                  <pre tabIndex={0}><code>{`cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skills/`}</code></pre>
                 </li>
-                <li><strong>Any other agent</strong>: put the folder in your project and point the agent to <code>SKILL.md</code>.</li>
-                <li>Then, in that folder: check it (see <a href="#start">Quickstart</a>) and run <code>npm ci</code>.</li>
+                <li><strong>Any other agent</strong>: point it to that folder&apos;s <code>SKILL.md</code> (also <a href={SKILL_FOLDER}>on GitHub</a>).</li>
               </ul>
               <h3>2. Try it without signing</h3>
-              <pre tabIndex={0}><code>{`node examples/swap.ts --in <mint> --out <mint> --amount 5000000 \\
+              <pre tabIndex={0}><code>{`npx orientim swap --in <mint> --out <mint> --amount 5000000 \\
   --owner <wallet> --dry-run`}</code></pre>
               <p>This prepares and verifies a swap on your RPC and prints what it would cost. Nothing is signed.</p>
               <h3>3. Swap</h3>
-              <pre tabIndex={0}><code>{`node examples/swap.ts --in <mint> --out <mint> --amount 5000000 --id order-42`}</code></pre>
+              <pre tabIndex={0}><code>{`npx orientim swap --in <mint> --out <mint> --amount 5000000 --id order-42`}</code></pre>
               <p>
                 The same order id on every retry: the skill&apos;s order book stops an order that swapped or may still land from being swapped again. Or ask your agent,
                 in plain words: <em>&ldquo;swap 5 USDC to SOL with Orientim&rdquo;</em>.
@@ -313,7 +310,7 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | node bi
               <h3>4. In your own code</h3>
               <pre tabIndex={0}><code>{`import { createKeyPairSignerFromBytes, createSolanaRpc } from '@solana/kit';
 import { readFileSync } from 'node:fs';
-import { acquireLock, createFileStore, loadPolicy, protectedSwap, recoverPending, stateDirFor } from './examples/swap.ts';
+import { acquireLock, createFileStore, loadPolicy, protectedSwap, recoverPending, stateDirFor } from '@orientimhq/swap';
 
 const rpc = createSolanaRpc(process.env.SOLANA_RPC_URL!);
 const wallet = await createKeyPairSignerFromBytes(
@@ -331,7 +328,7 @@ const store = createFileStore(dir);
 const release = acquireLock(dir, wallet.address);
 try {
   // Settle what a stopped run left before anything new.
-  const { unknown, bookkeepingErrors } = await recoverPending(store, rpc, { orders: store });
+  const { unknown, bookkeepingErrors } = await recoverPending(store, rpc, { orders: store, spends: store });
   if (unknown.length || bookkeepingErrors.length) throw new Error('An earlier swap may still land');
 
   const result = await protectedSwap({
@@ -385,10 +382,11 @@ try {
             <section id="cli">
               <h2>Bots: the command line</h2>
               <p>
-                <code>bin/orientim-verify.mjs</code> in the skill runs the whole flow for a bot written in Python, Rust, Go or anything
+                The <code>orientim</code> command of <code>@orientimhq/swap</code> runs the whole flow for a bot written in Python, Rust, Go or anything
                 that can start a process: JSON in on stdin, JSON out on stdout, and an exit code. It does everything the skill does:
                 your own floor, the check on your RPC, the record kept before finalize, and the outcome read on chain. The bot keeps
-                its key and signs one message itself. Run <code>npm ci</code> in the skill folder first.
+                its key and signs one message itself. Install the package in the bot&apos;s folder first:{' '}
+                <code>npm install --save-exact @orientimhq/swap@{SKILL_VERSION}</code>.
               </p>
               <h3>The flow</h3>
               <ol>
@@ -403,9 +401,11 @@ try {
               <h3>In Python</h3>
               <pre tabIndex={0}><code>{`import base64, json, subprocess
 
+ORIENTIM = "node_modules/@orientimhq/swap/dist/bin/orientim.mjs"
+
 def orientim(command, payload=None):
     # No short timeout: finalize waits for the chain. If it is stopped anyway, run recover first.
-    run = subprocess.run(["node", "bin/orientim-verify.mjs", command],
+    run = subprocess.run(["node", ORIENTIM, command],
                          input=json.dumps(payload or {}), capture_output=True, text=True)
     return run.returncode, json.loads(run.stdout)
 
@@ -440,7 +440,7 @@ if code == 0:
             <section id="mcp">
               <h2>Assistants: the MCP server</h2>
               <p>
-                The skill as an MCP server, for Claude Desktop, Claude Code, Cursor and any client that starts a local MCP server.
+                <code>orientim mcp</code>, the MCP server of <code>@orientimhq/swap</code>, for Claude Desktop, Claude Code, Cursor and any client that starts a local MCP server.
                 It gives the assistant four tools, and every swap runs the skill&apos;s own code: the check on your RPC, your limits and
                 the record of each order.
               </p>
@@ -458,8 +458,8 @@ if code == 0:
               </p>
               <h3>Claude Desktop: one click</h3>
               <p>
-                Download <a href={SKILL_EXTENSION} download>orientim.mcpb</a> (version {SKILL_VERSION}), check it against GitHub as
-                the skill (<code>gh attestation verify orientim.mcpb -R orientimhq/orientim-protected-swap</code>), and open it. Claude Desktop
+                Download <a href={SKILL_EXTENSION}>orientim.mcpb</a> (version {SKILL_VERSION}) from the GitHub release, check it
+                (<code>gh attestation verify orientim.mcpb -R orientimhq/orientim-protected-swap</code>), and open it. Claude Desktop
                 asks for your RPC, the wallet&apos;s keypair file and, if you like, your Jupiter key and your limits, and keeps the
                 secrets itself. Nothing else to install: Claude Desktop brings its own Node.
               </p>
@@ -468,7 +468,7 @@ if code == 0:
   "mcpServers": {
     "orientim": {
       "command": "npx",
-      "args": ["-y", "orientim-mcp@${SKILL_VERSION}"],
+      "args": ["-y", "@orientimhq/swap@${SKILL_VERSION}", "mcp"],
       "env": {
         "SOLANA_RPC_URL": "https://your-own-rpc.example/...",
         "ORIENTIM_WALLET_KEYPAIR": "/path/to/agent-wallet.json",
@@ -478,7 +478,7 @@ if code == 0:
   }
 }`}</code></pre>
               <p>
-                In Claude Code: <code>{`claude mcp add --transport stdio orientim --env SOLANA_RPC_URL=... --env ORIENTIM_WALLET_KEYPAIR=... -- npx -y orientim-mcp@${SKILL_VERSION}`}</code>.
+                In Claude Code: <code>{`claude mcp add --transport stdio orientim --env SOLANA_RPC_URL=... --env ORIENTIM_WALLET_KEYPAIR=... -- npx -y @orientimhq/swap@${SKILL_VERSION} mcp`}</code>.
               </p>
               <h3>Agent frameworks</h3>
               <p>
@@ -515,7 +515,7 @@ if code == 0:
                 <strong>Without it, you are trusting Orientim&apos;s server with your whole wallet.</strong>
               </p>
               <p>
-                <code>checkPrepared(prepared, intent, yourRpc)</code>, in the skill, does all of it and returns the problems it found;
+                <code>checkPrepared(prepared, intent, yourRpc)</code>, in <code>@orientimhq/swap</code>, does all of it and returns the problems it found;
                 sign only when there are none. The skill and the command line run it for you.
               </p>
               <ul>
@@ -529,7 +529,7 @@ if code == 0:
               </p>
               <p>
                 Calling the API yourself, in any language? Pipe prepare&apos;s answer to the command line before you sign:{' '}
-                <code>{'{"prepared": ..., "intent": {...}}'}</code> into <code>node bin/orientim-verify.mjs check</code> exits 0 only when it is safe
+                <code>{'{"prepared": ..., "intent": {...}}'}</code> into <code>npx orientim check</code> exits 0 only when it is safe
                 to sign.
               </p>
             </section>
@@ -594,7 +594,7 @@ if code == 0:
                 </li>
                 <li>
                   Run one swap per wallet at a time. The skill does all of this for you (<code>protectedSwap</code>,{' '}
-                  <code>recoverPending</code>), and <code>node bin/orientim-verify.mjs resolve</code> settles a swap by hand.
+                  <code>recoverPending</code>), and <code>npx orientim resolve</code> settles a swap by hand.
                 </li>
               </ul>
               <h3>On every start, for a direct API client</h3>
@@ -806,25 +806,20 @@ POST /api/v1/keys
             <section id="downloads">
               <h2>Downloads</h2>
               <ul>
-                <li><a href={SKILL_ARCHIVE} download>orientim-protected-swap.zip</a>: the skill, version {SKILL_VERSION}.</li>
-                <li><a href={SKILL_EXTENSION} download>orientim.mcpb</a>: the MCP server for Claude Desktop, the same version (<a href="#mcp">how to use it</a>).</li>
+                <li>
+                  <a href={`https://www.npmjs.com/package/@orientimhq/swap/v/${SKILL_VERSION}`}>@orientimhq/swap</a> on npm, version{' '}
+                  {SKILL_VERSION}: the library, the <code>orientim</code> command, the MCP server and the skill. Check it with{' '}
+                  <code>npm audit signatures</code>.
+                </li>
+                <li><a href={SKILL_EXTENSION}>orientim.mcpb</a>: the MCP server for Claude Desktop, the same version (<a href="#mcp">how to use it</a>).</li>
                 <li>
                   Check a download against GitHub, not this site: <code>gh attestation verify &lt;file&gt; -R
                   orientimhq/orientim-protected-swap</code>, or its sha256 against <code>RELEASE-SHA256SUMS</code> on the{' '}
-                  <a href={`${SKILL_SOURCE}/releases/tag/v${SKILL_VERSION}`}>GitHub release</a>. In PowerShell:{' '}
-                  <code>(Get-FileHash orientim-protected-swap.zip -Algorithm SHA256).Hash</code>.
+                  <a href={SKILL_RELEASE}>GitHub release</a>. In PowerShell:{' '}
+                  <code>(Get-FileHash orientim.mcpb -Algorithm SHA256).Hash</code>.
                 </li>
-                <li>
-                  <a href="/skill/SHA256SUMS">SHA256SUMS</a>: the checksum of every file in it, the same list as in the zip. On
-                  Windows, in PowerShell, in the unzipped folder; every line must say OK:
-                  <pre tabIndex={0}><code>{`cd orientim-protected-swap
-(irm https://orientim.com/skill/SHA256SUMS) -split "\`n" | ? { $_.Trim() } | % {
-  $hash, $file = $_.Trim() -split '\\s+', 2
-  if ((Get-FileHash $file -Algorithm SHA256).Hash -eq $hash) { "\${file}: OK" } else { "\${file}: FAILED" }
-}`}</code></pre>
-                </li>
-                <li><a href={SKILL_SOURCE}>Source on GitHub</a>: the skill and its verifier, Apache-2.0, with a build that gives this same zip, byte for byte.</li>
-                <li>The full API reference, every field and recovery step, is <code>reference/AGENT-API.md</code> in the download.</li>
+                <li><a href={SKILL_SOURCE}>Source on GitHub</a>: the package and its verifier, Apache-2.0, with a build that gives the same files, byte for byte.</li>
+                <li>The full API reference, every field and recovery step, is <code>reference/AGENT-API.md</code> in the skill folder.</li>
               </ul>
             </section>
           </article>

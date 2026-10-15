@@ -26,10 +26,10 @@ import {
   setTransactionMessageLifetimeUsingBlockhash,
 } from '@solana/kit';
 import type { Address, Instruction } from '@solana/kit';
-import { ataOf } from '@orientim/core';
-import { createRetryingRpc } from '@orientim/solana';
+import { ataOf } from '@orientimhq/swap/core';
+import { createRetryingRpc } from '@orientimhq/swap/solana';
 import { createJupiterClient, toKitInstruction, withFloorAtLeast } from '@orientim/jupiter';
-import { jupiterDestination, jupiterFloor, jupiterRouteArgs } from '@orientim/verifier';
+import { jupiterDestination, jupiterFloor, jupiterRouteArgs } from '@orientimhq/swap/verifier';
 
 const RPC = process.env.RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 const USDC = address('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');

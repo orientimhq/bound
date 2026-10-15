@@ -10,7 +10,7 @@ import fc from 'fast-check';
 import { generateKeyPairSigner } from '@solana/kit';
 import type { Rpc, SolanaRpcApi } from '@solana/kit';
 import { issueKey, newChallenge, openKey } from '../lib/server/agent/keys.ts';
-import { isApiKeyMessage, receivedFor } from '../../../skills/orientim-protected-swap/examples/swap.ts';
+import { isApiKeyMessage, receivedFor } from '@orientimhq/swap';
 
 const MODE = (import.meta as { env?: { MODE?: string } }).env?.MODE;
 const RUNS = Number(process.env.ORIENTIM_FUZZ_RUNS ?? (MODE === 'fuzz' ? 500_000 : 2_000));
