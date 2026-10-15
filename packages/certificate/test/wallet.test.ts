@@ -4,7 +4,7 @@ import {
   getTransactionEncoder, partiallySignTransaction, signBytes,
 } from '@solana/kit';
 import type { Transaction } from '@solana/kit';
-import { compileProtectedSwap } from '@orientim/core';
+import { compileProtectedSwap } from '@orientimhq/swap/core';
 import { LIGHTHOUSE_PROGRAM, verifyWalletReturn } from '../src/index.ts';
 import { LIFETIME, scenario } from './fixtures.ts';
 

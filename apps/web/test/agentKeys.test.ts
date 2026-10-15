@@ -17,7 +17,7 @@ import { LEGAL } from '../lib/legal.ts';
 import { agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { address } from '@solana/kit';
-import { SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
+import { SYSTEM_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
 import { DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, USDC } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import type { BuildParams } from '../../../packages/jupiter/src/client.ts';
@@ -185,7 +185,7 @@ describe('the endpoints', () => {
     const body = await old.json() as { error: { code: string; minimum: string; message: string } };
     expect(body.error.code).toBe('skill-outdated');
     expect(body.error.minimum).toBe(MIN_KEY_SKILL_VERSION);
-    expect(body.error.message).toMatch(/npx -y orientim-mcp@\d+\.\d+\.\d+/);
+    expect(body.error.message).toMatch(/npx -y @orientimhq\/swap@\d+\.\d+\.\d+ mcp/);
     expect(body.error.message).toMatch(/orientim\.mcpb/);
     expect(body.error.message).toMatch(/skill folder/);
     const c = await newChallenge(secret(5), { domain: 'orientim.com', uri: 'u', wallet: W.address, now: NOW });

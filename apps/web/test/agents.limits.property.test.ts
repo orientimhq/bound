@@ -27,15 +27,15 @@ import {
   address, generateKeyPairSigner, getBase58Decoder, getCompiledTransactionMessageDecoder, getTransactionDecoder, signBytes,
 } from '@solana/kit';
 import type { KeyPairSigner, Rpc, SolanaRpcApi } from '@solana/kit';
-import { ataOf, JUPITER_PROGRAM, WSOL_MINT } from '@orientim/core';
-import { jupiterFloor, jupiterRouteArgs } from '@orientim/verifier';
+import { ataOf, JUPITER_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { jupiterFloor, jupiterRouteArgs } from '@orientimhq/swap/verifier';
 import { BONK, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, USDC } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
-import { createFileStore, FloorError, PolicyError, protectedSwap } from '../../../skills/orientim-protected-swap/examples/swap.ts';
-import type { Intent, OwnerPolicy } from '../../../skills/orientim-protected-swap/examples/swap.ts';
-import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
+import { createFileStore, FloorError, PolicyError, protectedSwap } from '@orientimhq/swap';
+import type { Intent, OwnerPolicy } from '@orientimhq/swap';
+import { runCli } from '@orientimhq/swap';
 
 const MODE = (import.meta as { env?: { MODE?: string } }).env?.MODE;
 const RUNS = Number(process.env.ORIENTIM_FUZZ_RUNS ?? (MODE === 'fuzz' ? 5_000 : 25));

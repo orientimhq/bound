@@ -1,8 +1,8 @@
 import { address, isAddress } from '@solana/kit';
-import type { SolanaRpc } from '@orientim/solana';
+import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { readBodyLimited } from '../body';
 import { clientKey, rateLimited, secondsUntilReset } from '../rateLimit';
-import { SKILL_VERSION } from '../skillSums';
+import { SKILL_VERSION } from '../skill';
 import { olderThan } from './api';
 import { LEGAL } from '../../legal';
 import { acceptChallenge, issueKey, newChallenge } from './keys';
@@ -79,8 +79,8 @@ function outdated(req: Request, deps: AccessDeps): Response | null {
     error: {
       code: 'skill-outdated',
       message: `This copy of the Orientim skill (${skill}) is older than ${minimum}, the oldest that can get an API key. `
-        + `Update it, then ask again: in an MCP config, run npx -y orientim-mcp@${SKILL_VERSION}; in Claude Desktop, install the current orientim.mcpb again; `
-        + 'otherwise replace the skill folder or the orientim-verify CLI with the current one from https://orientim.com/developers. Nothing was signed.',
+        + `Update it, then ask again: in an MCP config, run npx -y @orientimhq/swap@${SKILL_VERSION} mcp; in Claude Desktop, install the current orientim.mcpb again; `
+        + `otherwise install @orientimhq/swap@${SKILL_VERSION} in place of the skill folder or the orientim-verify CLI (https://orientim.com/developers). Nothing was signed.`,
       minimum,
     },
   });

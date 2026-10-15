@@ -9,10 +9,9 @@
     "start": "next start -p 3000"
   },
   "dependencies": {
-    "@orientim/core": "*",
+    "@orientim/certificate": "*",
     "@orientim/jupiter": "*",
-    "@orientim/solana": "*",
-    "@orientim/verifier": "*",
+    "@orientimhq/swap": "2.0.1",
     "@vercel/blob": "2.8.0",
     "@wallet-standard/app": "^1.1.1",
     "@wallet-standard/base": "^1.1.1",

@@ -3,7 +3,7 @@
  * a tampered challenge answer cannot add lines for the wallet to sign under orientim.com.
  */
 import { describe, expect, it } from 'vitest';
-import { isApiKeyMessage } from '../../../skills/orientim-protected-swap/examples/swap.ts';
+import { isApiKeyMessage } from '@orientimhq/swap';
 import { isKeyMessage } from '../lib/client/keyMessage.ts';
 import { challengeMessage } from '../lib/server/agent/keys.ts';
 

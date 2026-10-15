@@ -1,6 +1,6 @@
-// Real swaps from the test wallet through the skill's two other ways in, against orientim.com: the
-// agent's command line (examples/swap.ts, as an agent runs it) and orientim-verify (as a bot in
-// another language runs it, signing the message itself). .github/workflows/mcp-live.yml runs it after
+// Real swaps from the test wallet through the package's two other ways in, against orientim.com: the
+// agent's command line (orientim swap, as an agent runs it) and the JSON commands (orientim prepare
+// and finalize, as a bot in another language runs them, signing the message itself). .github/workflows/mcp-live.yml runs it after
 // the MCP server's own swaps, when swaps is 1.
 //
 //   node tools/live-channels.mjs
@@ -20,7 +20,8 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } f
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-const SKILL = resolve('skills/orientim-protected-swap');
+// The `orientim` command of @orientimhq/swap: the installed one, or ORIENTIM_BIN (mcp-live.yml).
+const ORIENTIM = resolve(process.env.ORIENTIM_BIN || 'node_modules/@orientimhq/swap/dist/bin/orientim.mjs');
 const SOL = 'So11111111111111111111111111111111111111112';
 const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const BONK = 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263';
@@ -67,13 +68,13 @@ const env = { ...process.env, ORIENTIM_WALLET_KEYPAIR: process.env.LIVE_WALLET_K
 for (const name of ['ORIENTIM_POLICY', 'ORIENTIM_API_KEY']) delete env[name];
 
 function verify(command, input) {
-  const r = spawnSync(process.execPath, ['bin/orientim-verify.mjs', command], { cwd: SKILL, env, input: JSON.stringify(input ?? {}), encoding: 'utf8', timeout: 600_000 });
+  const r = spawnSync(process.execPath, [ORIENTIM, command], { env, input: JSON.stringify(input ?? {}), encoding: 'utf8', timeout: 600_000 });
   let answer;
   try { answer = JSON.parse(r.stdout); } catch { answer = undefined; }
   return { code: r.status, answer, stderr: r.stderr };
 }
 function agent(args) {
-  const r = spawnSync(process.execPath, ['examples/swap.ts', ...args], { cwd: SKILL, env, encoding: 'utf8', timeout: 600_000 });
+  const r = spawnSync(process.execPath, [ORIENTIM, 'swap', ...args], { env, encoding: 'utf8', timeout: 600_000 });
   let answer;
   try { answer = JSON.parse(r.stdout); } catch { answer = undefined; }
   const last = r.stderr.trim().split('\n').at(-1) ?? '';
@@ -118,7 +119,7 @@ function agentSwap(name, input, output, amount, id) {
   return ok ? r.answer : undefined;
 }
 
-// ── The agent: examples/swap.ts ───────────────────────────────────────────────────────────────────
+// ── The agent: orientim swap ──────────────────────────────────────────────────────────────────────
 {
   const first = agentSwap('SOL → USDC (fee from the input)', SOL, USDC, '3000000', `${run}-agent-1`);
   if (first) {
@@ -133,7 +134,7 @@ function agentSwap(name, input, output, amount, id) {
   }
 }
 
-// ── The bot: orientim-verify prepare, its own signature, finalize ─────────────────────────────────
+// ── The bot: orientim prepare, its own signature, finalize ────────────────────────────────────────
 function botSwap(name, inputMint, outputMint, amountIn, id) {
   const intent = { owner: wallet, inputMint, outputMint, amountIn, id };
   let p = verify('prepare', { intent });

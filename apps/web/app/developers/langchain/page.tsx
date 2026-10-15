@@ -1,14 +1,14 @@
 import { connection } from 'next/server';
 import { FrameworkGuide } from '@/components/site/FrameworkGuide';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
-import { SKILL_VERSION } from '@/lib/server/skillSums';
+import { SKILL_VERSION } from '@/lib/server/skill';
 
 export const metadata = {
   title: 'Orientim in LangChain — Orientim',
   description: 'The Orientim MCP server in LangChain.js: protected Solana swaps for a LangChain agent, with a working example.',
 };
 
-/** agent.ts, as checked with tsc against the framework's packages and run against orientim-mcp from npm. */
+/** agent.ts, as checked with tsc against the framework's packages and run against @orientimhq/swap from npm. */
 const CODE = `import { createInterface } from 'node:readline/promises';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { MCPAdapter } from '@langchain/mcp-adapters';
@@ -21,7 +21,7 @@ const orientim = new MCPAdapter({
   servers: {
     orientim: {
       command: 'npx',
-      args: ['-y', 'orientim-mcp@${SKILL_VERSION}'],
+      args: ['-y', '@orientimhq/swap@${SKILL_VERSION}', 'mcp'],
       env: {
         SOLANA_RPC_URL: process.env.SOLANA_RPC_URL!,
         ORIENTIM_WALLET_KEYPAIR: '/home/agent/agent-wallet.json',

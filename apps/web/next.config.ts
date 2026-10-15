@@ -1,5 +1,6 @@
 import type { NextConfig } from 'next';
 import { checkDeploymentSettings } from './lib/settings';
+import { SKILL_EXTENSION } from './lib/server/skill';
 
 // A wrong setting stops the build with what to fix, instead of a page that does not load, refuses
 // every swap, or runs without its fee (lib/settings.ts).
@@ -8,7 +9,7 @@ checkDeploymentSettings(process.env);
 // The Content-Security-Policy for pages is set per request, with a nonce, in proxy.ts.
 // API responses are JSON (and the skill's files) under nosniff.
 const config: NextConfig = {
-  transpilePackages: ['@orientim/core', '@orientim/verifier', '@orientim/solana', '@orientim/jupiter'],
+  transpilePackages: ['@orientim/certificate', '@orientim/jupiter'],
   poweredByHeader: false,
   reactStrictMode: true,
   // Next adds a hash to the script tags it writes, so a browser refuses those scripts when they are
@@ -19,6 +20,14 @@ const config: NextConfig = {
   // the same output, which is what makes `tools/build-digest.ts` worth publishing. Vercel names the
   // commit itself, so a deploy of a tag builds what release.yml published for it.
   generateBuildId: () => process.env.ORIENTIM_BUILD_ID ?? process.env.VERCEL_GIT_COMMIT_SHA ?? 'orientim',
+  // The downloads this site served before @orientimhq/swap: the extension is now on the GitHub
+  // release, and the skill comes with the package.
+  async redirects() {
+    return [
+      { source: '/skill/orientim.mcpb', destination: SKILL_EXTENSION, permanent: false },
+      { source: '/skill/:path*', destination: '/developers#start', permanent: false },
+    ];
+  },
   async headers() {
     return [
       {

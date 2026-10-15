@@ -45,7 +45,7 @@ export const LEGAL = {
   logRetentionDays: '',
 
   /** The date the texts take effect, as shown at the top of each page: '1 November 2026'. */
-  lastUpdated: '4 October 2026',
+  lastUpdated: '15 October 2026',
   /** true once a lawyer has approved the Terms and the Privacy Notice; removes the Draft banner. */
   reviewedByLawyer: false,
 };

@@ -10,12 +10,12 @@ import {
 import type { Address, Transaction } from '@solana/kit';
 import {
   ataOf, ATA_PROGRAM, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
-} from '@orientim/core';
-import type { SolanaRpc } from '@orientim/solana';
+} from '@orientimhq/swap/core';
+import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { OrientimError, DEFAULT_SETTINGS, LEFT_UNDER_KEY_MESSAGE, MIN_FEE, prepareProtectedSwap, revertedOnPrice, withFloorAtLeast } from '../src/swap.ts';
 import type { SwapSettings } from '../src/swap.ts';
-import { jupiterFloor, jupiterRouteArgs } from '@orientim/verifier';
-import type { JupiterRouteArgs } from '@orientim/verifier';
+import { jupiterFloor, jupiterRouteArgs } from '@orientimhq/swap/verifier';
+import type { JupiterRouteArgs } from '@orientimhq/swap/verifier';
 import { JupiterError } from '../src/client.ts';
 import type { BuildParams, BuildResponse, JupiterClient } from '../src/client.ts';
 

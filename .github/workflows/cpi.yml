@@ -3,22 +3,19 @@ name: CPI
 # T6: build the malicious swap program and run it against Orientim's protected transaction inside a
 # real Solana VM. Separate from CI because it needs the Rust and Solana toolchains.
 on:
-  # When what T6 exercises changes (the transaction it builds, the verifier, its dependencies), on main
+  # When what T6 exercises changes (the transaction it builds and the verifier, both from
+  # @orientimhq/swap in package-lock.json, and its dependencies), on main
   # and in pull requests; by hand otherwise. Running it on every push to main would cost more minutes
   # than a private repository's plan affords.
   push:
     branches: [main]
     paths:
       - 'tests/cpi/**'
-      - 'packages/core/**'
-      - 'packages/verifier/**'
       - 'package-lock.json'
       - '.github/workflows/cpi.yml'
   pull_request:
     paths:
       - 'tests/cpi/**'
-      - 'packages/core/**'
-      - 'packages/verifier/**'
       - 'package-lock.json'
       - '.github/workflows/cpi.yml'
   workflow_dispatch:

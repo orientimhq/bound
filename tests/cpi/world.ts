@@ -19,9 +19,9 @@ import { existsSync } from 'node:fs';
 import {
   ataOf, buildPolicy, compileProtectedSwap, MINT_SIZE, SYSTEM_PROGRAM, tokenAmountOf, TOKEN_2022_PROGRAM,
   TOKEN_PROGRAM, withTakerRent, WSOL_MINT,
-} from '@orientim/core';
-import type { AccountState, ChainSnapshot, Policy } from '@orientim/core';
-import { verify } from '@orientim/verifier';
+} from '@orientimhq/swap/core';
+import type { AccountState, ChainSnapshot, Policy } from '@orientimhq/swap/core';
+import { verify } from '@orientimhq/swap/verifier';
 
 export const SO = 'tests/cpi/attacker/target/deploy/orientim_attacker.so';
 

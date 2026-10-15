@@ -1,18 +1,17 @@
 /**
- * Is production up, on tested code, and serving the skill its source says? For a scheduled workflow
+ * Is production up, on tested code, and pointing to a package npm says was built by its release? For a scheduled workflow
  * (`.github/workflows/monitor.yml`), which fails, so GitHub tells its owner, when:
  *
  *   - `/api/health` does not answer 200 with `ok` three times, 20 seconds apart (an outage, not a blip);
  *   - the deployment says it was built from a commit that is not on `main`, or whose CI failed;
- *   - the skill it serves (`/skill/SHA256SUMS`, and the bytes of the zip and of the `.mcpb`) is not the
- *     one in the repository at that commit.
+ *   - the version of @orientimhq/swap it names is not on npm with the release workflow's provenance.
  *
  * A pause by the kill switch (`paused`, or `/api/status` `enabled: false`) is said, not failed: it is
  * the operator's own decision. Production behind `main` is said too, with how far.
  *
  * A check that could not be made (`/api/status` not answering or naming no commit, GitHub not
  * answering, no finished CI run for the commit) is INCOMPLETE, not passed, and fails the run too: a
- * green run means that the version, its CI and the skill served were all checked.
+ * green run means that the version, its CI and the package named were all checked.
  *
  *   node tools/monitor.ts --site https://orientim.com [--repo owner/name]   (GH_TOKEN for the repository checks)
  */
@@ -136,30 +135,22 @@ if (build && repo) {
   else if (run.conclusion === 'success') rows.push(['CI', 'passed']);
   else failures.push(`production runs ${build.slice(0, 7)}, whose CI ended ${run.conclusion}: ${run.html_url}`);
 
-  // 4. The skill served is the one in the repository at that commit.
-  const served = (await get(`${site}/skill/SHA256SUMS`))?.text;
-  const source = await gh<{ content: string }>(`/contents/skills/orientim-protected-swap/SHA256SUMS?ref=${build}`);
-  if (!served || !source) incomplete.push('could not compare the skill served with its source');
-  else if (served.trim() !== Buffer.from(source.content, 'base64').toString('utf8').trim()) {
-    failures.push('the skill served at /skill/SHA256SUMS is not the one in the repository at the deployed commit');
-  } else rows.push(['skill', `the source's, at ${build.slice(0, 7)}`]);
-
-  // 5. The downloads themselves, byte for byte: the list above says nothing about the zip and the
-  // `.mcpb` a user actually gets.
-  for (const file of ['orientim-protected-swap.zip', 'orientim.mcpb']) {
-    const got = await bytesOf(`${site}/skill/${file}`);
-    const want = repo ? await bytesOf(`https://api.github.com/repos/${repo}/contents/apps/web/public/skill/${file}?ref=${build}`, {
-      accept: 'application/vnd.github.raw', ...(token ? { authorization: `Bearer ${token}` } : {}),
-    }) : null;
-    if (!got || !want) incomplete.push(`could not compare /skill/${file} with its source`);
-    else if (sha256(got) !== sha256(want)) failures.push(`/skill/${file} is not the file in the repository at the deployed commit`);
-    else rows.push([file, `the source's, sha256 ${sha256(got).slice(0, 16)}…`]);
-  }
+  // 4. The package the site points agents to (/api/status skillVersion): on npm, as the version's
+  // release workflow built it (npm's provenance), and its Claude Desktop extension on that release.
+  const version = status?.skillVersion;
+  const published = version ? json<{ dist?: { attestations?: { provenance?: { predicateType?: string } } } }>(
+    (await get(`https://registry.npmjs.org/@orientimhq%2fswap/${version}`))?.text) : null;
+  if (!version || !published) incomplete.push(`could not find @orientimhq/swap@${version ?? '?'} on npm`);
+  else if (!published.dist?.attestations?.provenance) failures.push(`@orientimhq/swap@${version} on npm has no provenance: it was not published by the release workflow`);
+  else rows.push(['package', `@orientimhq/swap@${version}, with npm's provenance`]);
+  const mcpb = version ? await bytesOf(`https://github.com/orientimhq/orientim-protected-swap/releases/download/v${version}/orientim.mcpb`) : null;
+  if (!mcpb) incomplete.push(`could not download orientim.mcpb from the v${version ?? '?'} release`);
+  else rows.push(['orientim.mcpb', `on the v${version} release, sha256 ${sha256(mcpb).slice(0, 16)}…`]);
 } else if (!build) {
   incomplete.push(status
-    ? '/api/status does not say which commit it was built from: its CI and the skill served were not checked'
-    : '/api/status did not answer: the version, its CI and the skill served were not checked');
-} else incomplete.push('no repository named (--repo or GITHUB_REPOSITORY): the commit, its CI and the skill served were not checked');
+    ? '/api/status does not say which commit it was built from: its CI and the package named were not checked'
+    : '/api/status did not answer: the version, its CI and the package named were not checked');
+} else incomplete.push('no repository named (--repo or GITHUB_REPOSITORY): the commit, its CI and the package named were not checked');
 
 // The report: a table in the run's summary, and the exit code.
 const verdict = failures.length ? 'FAILED' : incomplete.length ? 'INCOMPLETE' : 'PASSED';

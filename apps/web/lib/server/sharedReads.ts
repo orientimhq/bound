@@ -1,4 +1,4 @@
-import type { SolanaRpc } from '@orientim/solana';
+import type { SolanaRpc } from '@orientimhq/swap/solana';
 
 /**
  * Reads whose answer is the same for every swap, shared by the requests an instance serves: one call

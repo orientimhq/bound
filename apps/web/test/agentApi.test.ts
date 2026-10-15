@@ -12,7 +12,7 @@ import {
   partiallySignTransaction, signBytes, verifySignature,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
-import { ataOf, SYSTEM_PROGRAM, WSOL_MINT } from '@orientim/core';
+import { ataOf, SYSTEM_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
 import { fakeJupiter, fakeRpc, fundedAccounts, mint, OUT, POOL, DEX, tokenAccount, USDC, BONK } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import type { BuildParams } from '../../../packages/jupiter/src/client.ts';

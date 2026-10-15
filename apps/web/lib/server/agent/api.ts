@@ -4,15 +4,15 @@ import {
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED,
 } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
-import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientim/core';
-import { TOKEN_2022_PROGRAM } from '@orientim/core/constants';
-import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientim/core/constants';
-import type { AccountState, TxVersion } from '@orientim/core';
+import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientimhq/swap/core';
+import { TOKEN_2022_PROGRAM } from '@orientimhq/swap/core';
+import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientimhq/swap/core';
+import type { AccountState, TxVersion } from '@orientimhq/swap/core';
 import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, parseProvidedRoutes, prepareProtectedSwap, providedRoutes, RoutesNeeded, RoutesUntrusted } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel, ReferencePrice, SolValue } from '@orientim/jupiter';
-import { fetchAccounts, httpStatusOf, mintInfoOf, sendOnce } from '@orientim/solana';
-import { hasPermanentDelegate } from '@orientim/verifier';
-import type { SolanaRpc } from '@orientim/solana';
+import { fetchAccounts, httpStatusOf, mintInfoOf, sendOnce } from '@orientimhq/swap/solana';
+import { hasPermanentDelegate } from '@orientimhq/swap/verifier';
+import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { readBodyLimited } from '../body';
 import { loggableError, logEvent, maskedReason } from './events';
 import { rateLimited, secondsUntilReset } from '../rateLimit';

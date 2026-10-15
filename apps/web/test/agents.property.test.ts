@@ -22,15 +22,15 @@ import {
   address, generateKeyPairSigner, getBase58Decoder, getCompiledTransactionMessageDecoder, getTransactionDecoder, signBytes,
 } from '@solana/kit';
 import type { Rpc, SolanaRpcApi } from '@solana/kit';
-import { ataOf, JUPITER_PROGRAM, WSOL_MINT } from '@orientim/core';
-import { jupiterRouteArgs } from '@orientim/verifier';
+import { ataOf, JUPITER_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { jupiterRouteArgs } from '@orientimhq/swap/verifier';
 import { BONK, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, USDC } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
-import { protectedSwap } from '../../../skills/orientim-protected-swap/examples/swap.ts';
-import type { Intent } from '../../../skills/orientim-protected-swap/examples/swap.ts';
-import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
+import { protectedSwap } from '@orientimhq/swap';
+import type { Intent } from '@orientimhq/swap';
+import { runCli } from '@orientimhq/swap';
 
 const MODE = (import.meta as { env?: { MODE?: string } }).env?.MODE;
 const RUNS = Number(process.env.ORIENTIM_FUZZ_RUNS ?? (MODE === 'fuzz' ? 20_000 : 40));

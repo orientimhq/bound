@@ -1,7 +1,7 @@
 import { getCompiledTransactionMessageDecoder, getPublicKeyFromAddress, getTransactionDecoder, verifySignature } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
-import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, LAMPORTS_PER_SIGNATURE } from '@orientim/core/constants';
-import type { Verdict, Violation } from '@orientim/core/types';
+import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, LAMPORTS_PER_SIGNATURE } from '@orientimhq/swap/core';
+import type { Verdict, Violation } from '@orientimhq/swap/core';
 
 const sameBytes = (a: ArrayLike<number>, b: ArrayLike<number>) => {
   if (a.length !== b.length) return false;

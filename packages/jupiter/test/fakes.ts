@@ -10,8 +10,8 @@ import type { Address } from '@solana/kit';
 import {
   ataOf, ATA_PROGRAM, bondingCurveOf, CLOSE_USER_VOLUME_ACCUMULATOR, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM,
   TOKEN_PROGRAM, WSOL_MINT,
-} from '@orientim/core';
-import type { SolanaRpc } from '@orientim/solana';
+} from '@orientimhq/swap/core';
+import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { JupiterError } from '../src/client.ts';
 import type { BuildParams, BuildResponse, JupiterClient } from '../src/client.ts';
 

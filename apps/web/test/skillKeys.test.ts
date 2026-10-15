@@ -5,8 +5,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { generateKeyPairSigner, getBase58Decoder, signBytes } from '@solana/kit';
-import { isApiKeyMessage, requestApiKey } from '../../../skills/orientim-protected-swap/examples/swap.ts';
-import { runCli } from '../../../skills/orientim-protected-swap/src/cli.ts';
+import { isApiKeyMessage, requestApiKey } from '@orientimhq/swap';
+import { runCli } from '@orientimhq/swap';
 import { keyChallenge, keyIssue } from '../lib/server/agent/access.ts';
 import type { AccessDeps } from '../lib/server/agent/access.ts';
 import { openKey } from '../lib/server/agent/keys.ts';

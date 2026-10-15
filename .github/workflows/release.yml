@@ -27,11 +27,10 @@ jobs:
           # No cache where a release is built and signed: only the lockfile's hashes decide what is installed.
           package-manager-cache: false
       - run: npm ci --ignore-scripts
-      # Nothing is published that has not passed the tests and the skill bundle's check: a digest
+      # Nothing is published that has not passed the tests: a digest
       # says which code runs, not that it was tested.
       - run: npm run typecheck
       - run: npm test
-      - run: node tools/build-skill.ts --check
       - run: ORIENTIM_BUILD_ID=$GITHUB_SHA npm run build
       - run: npm run build:digest
       - name: Publish the release

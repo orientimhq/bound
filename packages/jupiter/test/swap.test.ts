@@ -9,7 +9,7 @@ import {
   generateKeyPairSigner, pipe, setTransactionMessageFeePayerSigner, setTransactionMessageLifetimeUsingBlockhash,
 } from '@solana/kit';
 import type { Address, Blockhash } from '@solana/kit';
-import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, tokenAccountSizeFor } from '@orientim/core';
+import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, tokenAccountSizeFor } from '@orientimhq/swap/core';
 import {
   compileIfFits, DEFAULT_SETTINGS, isMinimumOutputCheckInstruction, PUMP_CURVE_PROGRAM, quotedMinimum, slippageFor,
   strictMinimumOutput,

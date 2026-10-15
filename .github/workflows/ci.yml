@@ -1,7 +1,7 @@
 name: CI
 
 # The tests run on each change to the code; a change only to the docs runs nothing. AGENT-API.md is
-# not a doc here: the skill bundle carries a copy of it, which the tests check. The reproducible
+# not a doc here: @orientimhq/swap carries a copy of it, which the tests check. The reproducible
 # build (three full builds) runs on a release tag and by hand, not on every push: on a private
 # repository each billed minute counts against the plan.
 on:
@@ -27,35 +27,21 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm test
-      # The agent skill ships a bundle of the verifier; it must be exactly what the source builds.
-      - run: node tools/build-skill.ts --check
       - run: npm run build
 
-  public-skill:
-    # The skill Orientim serves must be the one in the public repository, byte for byte: the
-    # public "check your copy" (git checkout, npm run check, compare with /skill/SHA256SUMS) is worth
-    # nothing if the two drift. Red here means one side was changed without the other.
+  package:
+    # @orientimhq/swap, as package-lock.json pins it, is what its public repository's release
+    # workflow published: npm's provenance names that repository, the workflow and the commit. The
+    # server and the agents it serves run the same verifier only while this holds.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: orientimhq/orientim-protected-swap
-          path: public-repo
-      - name: The served skill is the public one
-        run: |
-          diff -r --exclude=node_modules skills/orientim-protected-swap public-repo/skills/orientim-protected-swap
-          diff skills/orientim-protected-swap/SHA256SUMS public-repo/skills/orientim-protected-swap/SHA256SUMS
-      # The same bytes must also come out of the public repository's own source: a change to the
-      # packages the bundle is built from, made here and not there, shows only when it builds.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
-      - name: The public source builds the served skill
-        working-directory: public-repo
-        run: |
-          npm ci --ignore-scripts
-          npm run check
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm audit signatures
 
   reproducible:
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
