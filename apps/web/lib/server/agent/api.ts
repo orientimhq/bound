@@ -87,6 +87,12 @@ export function olderThan(version: string, minimum: string): boolean {
 
 const MAX_U64 = 2n ** 64n - 1n;
 const MAX_BODY_BYTES = 16 * 1024;
+/**
+ * The output balance may grow by the minimum over this much between prepare and finalize (dust
+ * anyone can send it) and the swap is still signed: 100,000, a thousandth of a percent.
+ */
+export const DUST_DIVISOR = 100_000n;
+
 /** A prepare may carry the routes an agent brought from Jupiter: up to 24 answers, with their lookup tables. */
 const MAX_PREPARE_BODY_BYTES = 1024 * 1024;
 const UINT = /^\d{1,20}$/;
@@ -377,6 +383,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   // What the input was worth in SOL, for a fee in SOL from the wallet, as an earlier round sealed it.
   let sessionSol: SessionSolValue | null = null;
   // How many routes the agent brought this round (for the operator's count).
+  let sessionSecret: Uint8Array | null = null;
   let providedCount = 0;
   if (ownRoutes) {
     const parsed = parseProvidedRoutes(body.routes ?? []);
@@ -387,8 +394,9 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     if (body.session !== undefined) {
       const opened = await openSession(deps.secrets, body.session);
       const s = opened?.session;
-      // A session opens only for the swap, the key and the secret it was sealed for.
-      if (!s || opened.secret !== deps.secrets[0] || s.key !== key || s.owner !== owner || s.inputMint !== inputMint
+      // A session opens only for the swap and the key it was sealed for, under any secret still
+      // accepted: a rotation does not end the sessions open at that moment (two minutes at most).
+      if (!s || s.key !== key || s.owner !== owner || s.inputMint !== inputMint
         || s.outputMint !== outputMint || s.amountIn !== amountIn.toString() || s.version !== version) {
         return fail(400, 'bad-session', 'This session is expired, or was opened for another swap or key: prepare again without it. Nothing was built.');
       }
@@ -400,6 +408,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         return fail(400, 'bad-session', 'This session was opened for other terms (slippageBps, acceptCostBps, routingMode or minOut): prepare again without it, with the terms you want. Nothing was built.');
       }
       sessionNonce = s.nonce;
+      // E comes from the secret that opened the session, as finalize derives it from the ticket's.
+      sessionSecret = opened.secret;
       sessionExp = s.exp;
       sessionRef = s.ref ?? null;
       sessionSol = s.sol ?? null;
@@ -412,7 +422,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     const [inMint, outMint] = [inputMint as Address, outputMint as Address];
     // The mints are read once, by the build itself, which refuses a token Orientim cannot swap.
     const nonce = sessionNonce ?? newNonce();
-    const [secret] = deps.secrets;
+    const secret = sessionSecret ?? deps.secrets[0];
     const E = await ephemeralFor(secret, nonce);
     // The session the agent's next round carries, when its routes are its own.
     // Orientim's own price for a fee on the output, asked once and kept for the rounds that follow
@@ -509,7 +519,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     const ticket = await sealTicket(secret, {
       v: 1, kid: await kidOf(secret), nonce, key, owner: owner as string, msg: messageSha256,
       lvbh: prepared.lifetime.lastValidBlockHeight.toString(),
-      ...(wOut ? { wOut, b0: prepared.outputBalanceBefore.toString() } : {}),
+      ...(wOut ? { wOut, b0: prepared.outputBalanceBefore.toString(), dust: (prepared.policy.minOut / DUST_DIVISOR).toString() } : {}),
     });
     // Never a swap without the agent's own minimum: a first round can only ask for routes.
     if (minOut === undefined) return fail(400, 'bad-request', 'minOut is required to build the swap. Prepare again with it.');
@@ -529,6 +539,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       version,
       lastValidBlockHeight: prepared.lifetime.lastValidBlockHeight,
       ...(height === null ? {} : { blocksLeft: prepared.lifetime.lastValidBlockHeight - BigInt(height) }),
+      // The slot the swap was built and verified on: the agent's own check reads its RPC no older.
+      ...(prepared.contextSlot > 0n ? { contextSlot: prepared.contextSlot } : {}),
       amounts: {
         // Like Jupiter's fee: in SOL first, then USDC or USDT, on whichever side; otherwise the input;
         // and SOL from the wallet for a pair neither token of which can carry it (`policy.feeSide` sol).
@@ -715,7 +727,8 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     // tokens: sign nothing. Run one swap per output token until it is confirmed.
     if (outputNow) {
       const now = await outputNow;
-      if (now !== BigInt(ticket.b0!)) {
+      const grew = now - BigInt(ticket.b0!);
+      if (grew < 0n || grew > BigInt(ticket.dust ?? '0')) {
         return refuse(409, 'output-balance-changed', 'The balance of your output account changed since prepare (a transfer in or out, another swap, or the account was closed), so this request signed and sent nothing.', {
           balanceAtPrepare: ticket.b0, balanceNow: now,
         });

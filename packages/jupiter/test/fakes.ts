@@ -4,7 +4,7 @@
  */
 import {
   address, decompileTransactionMessage, getAddressEncoder, getCompiledTransactionMessageDecoder, getSignatureFromTransaction,
-  getTransactionDecoder,
+  getTransactionDecoder, getTransactionMessageComputeUnitLimit, getTransactionMessageComputeUnitPrice, getTransactionMessagePriorityFeeLamports,
 } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import {
@@ -139,6 +139,25 @@ export function lamportsSentToTaker(wire: string): {
  */
 const pumpCurves = new Map<string, Account>();
 
+/**
+ * What the cluster charges for a message, as getFeeForMessage prices it: 5,000 lamports a signature,
+ * and the priority fee its compute budget sets (a v0 message's limit times its price, rounded up; a
+ * v1 message's own priority fee). The tests' messages load nothing from tables.
+ */
+export function clusterFeeOf(message: string): bigint {
+  const compiled = getCompiledTransactionMessageDecoder().decode(Buffer.from(message, 'base64'));
+  const msg = decompileTransactionMessage(compiled) as never;
+  const signatures = BigInt((compiled as unknown as { header: { numSignerAccounts: number } }).header.numSignerAccounts);
+  let priority: bigint;
+  if ((compiled as { version: unknown }).version === 1) priority = getTransactionMessagePriorityFeeLamports(msg) ?? 0n;
+  else {
+    const units = getTransactionMessageComputeUnitLimit(msg);
+    const price = getTransactionMessageComputeUnitPrice(msg);
+    priority = units !== undefined && price !== undefined ? (BigInt(units) * BigInt(price) + 999_999n) / 1_000_000n : 0n;
+  }
+  return 5_000n * signatures + priority;
+}
+
 export function fakeRpc(
   accounts: Map<string, Account>,
   opts: {
@@ -190,6 +209,8 @@ export function fakeRpc(
       }),
     })),
     getLatestBlockhash: call(() => ({ value: { blockhash: '11111111111111111111111111111111', lastValidBlockHeight: 1_000n } })),
+    // The slot every read answers at: the one the server builds at, and the agent's RPC is at.
+    getSlot: call(() => 300_000_000n),
     getBlockHeight: call(() => opts.height ?? 1n),
     sendTransaction: call((wire: string) => {
       if (opts.sendError) throw opts.sendError;
@@ -297,9 +318,9 @@ export function fakeRpc(
         },
       };
     }),
-    getFeeForMessage: call(() => {
+    getFeeForMessage: call((message: string) => {
       if (opts.feeFails) throw new Error('RPC unavailable');
-      return { value: 15_000n };
+      return { value: clusterFeeOf(message) };
     }),
     getMinimumBalanceForRentExemption: call((size: bigint) => (
       BigInt(size) === 0n ? 650_240n : BigInt(size) === BigInt(ROUTE_ACCOUNT_SIZE) ? 1_346_200n : 1_488_440n)),

@@ -16,7 +16,7 @@ import { ataOf, SYSTEM_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
 import { fakeJupiter, fakeRpc, fundedAccounts, mint, OUT, POOL, DEX, tokenAccount, USDC, BONK } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import type { BuildParams } from '../../../packages/jupiter/src/client.ts';
-import { agentFinalize, agentPrepare, FINALIZE_DEADLINE_MS, olderThan, PREPARE_DEADLINE_MS, withinDeadline } from '../lib/server/agent/api.ts';
+import { agentFinalize, agentPrepare, DUST_DIVISOR, FINALIZE_DEADLINE_MS, olderThan, PREPARE_DEADLINE_MS, withinDeadline } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { ephemeralFor, kidOf, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
 import { issueKey } from '../lib/server/agent/keys.ts';
@@ -548,15 +548,46 @@ describe('E, derived rather than stored', () => {
 });
 
 describe('further safeguards on the API', () => {
+  it('dust sent to the output account between prepare and finalize does not block the swap; more does, and so does less', async () => {
+    const w = await world();
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address, { outputMint: BONK })), w.deps);
+    const p = (await res.json()) as Prepared;
+    const ticket = JSON.parse(Buffer.from(p.ticket.split('.')[0], 'base64url').toString('utf8'));
+    // A thousandth of a percent of the minimum the check holds the balance to.
+    expect(BigInt(ticket.dust)).toBe(BigInt((p as unknown as { policy: { minOut: string } }).policy.minOut) / DUST_DIVISOR);
+    expect(BigInt(ticket.dust)).toBeGreaterThan(0n);
+    const wOut = await ataOf(w.W.address, BONK);
+    const holding = (amount: bigint) => {
+      const a = tokenAccount(w.W.address, BONK);
+      new DataView(a.data.buffer).setBigUint64(64, amount, true);
+      w.accounts.set(wOut, a);
+    };
+    const signed = await signAsWallet(w.W, p.transaction);
+    const b0 = BigInt(ticket.b0);
+    holding(b0 + BigInt(ticket.dust));
+    expect((await finalize(w, p.ticket, signed)).status).toBe(200);
+    // A balance that fell would make the check ask for more than the swap delivers: not signed.
+    const w2 = await world();
+    const p2 = (await (await agentPrepare(post('prepare', swapBody(w2.W.address, { outputMint: BONK })), w2.deps)).json()) as Prepared;
+    const t2 = JSON.parse(Buffer.from(p2.ticket.split('.')[0], 'base64url').toString('utf8'));
+    if (BigInt(t2.b0) > 0n) {
+      const a = tokenAccount(w2.W.address, BONK);
+      new DataView(a.data.buffer).setBigUint64(64, BigInt(t2.b0) - 1n, true);
+      w2.accounts.set(await ataOf(w2.W.address, BONK), a);
+      expect((await finalize(w2, p2.ticket, await signAsWallet(w2.W, p2.transaction))).status).toBe(409);
+    }
+  });
+
   it('a swap into a token whose balance moved since prepare is not signed', async () => {
     const w = await world();
     const res = await agentPrepare(post('prepare', swapBody(w.W.address, { outputMint: BONK })), w.deps);
     expect(res.status).toBe(200);
     const p = (await res.json()) as Prepared;
-    // Another swap into BONK lands between prepare and finalize.
+    // Another swap into BONK lands between prepare and finalize: more than dust.
+    const dust = BigInt(JSON.parse(Buffer.from(p.ticket.split('.')[0], 'base64url').toString('utf8')).dust);
     const wOut = await ataOf(w.W.address, BONK);
     const landed = tokenAccount(w.W.address, BONK);
-    new DataView(landed.data.buffer).setBigUint64(64, 5_000n, true);
+    new DataView(landed.data.buffer).setBigUint64(64, dust + 1n, true);
     w.accounts.set(wOut, landed);
     const signed = await signAsWallet(w.W, p.transaction);
     const r = await finalize(w, p.ticket, signed);
@@ -1014,21 +1045,38 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     return { ...narrow, build: (q: Parameters<typeof narrow.build>[0]) => ((q.maxAccounts ?? 64) > 48 ? wide.build(q) : narrow.build(q)) } as ReturnType<typeof fakeJupiter>;
   }
   /** Rounds as the skill makes them, with a body of its own for each round. */
-  async function roundsWith(w: Awaited<ReturnType<typeof world>>, agentMarket: ReturnType<typeof fakeJupiter>, extra: (round: number) => Record<string, unknown> = () => ({})) {
+  async function roundsWith(
+    w: Awaited<ReturnType<typeof world>>, agentMarket: ReturnType<typeof fakeJupiter>, extra: (round: number) => Record<string, unknown> = () => ({}),
+    depsAt: (round: number) => typeof w.deps = () => w.deps,
+  ) {
     const routes: { params: Record<string, unknown>; response: unknown }[] = [];
+    const takers: string[] = [];
     let session: string | undefined;
     let res: Response | undefined;
     let rounds = 0;
     for (; rounds < 8; rounds++) {
-      res = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true, routes, ...(session ? { session } : {}), ...extra(rounds) })), w.deps);
+      res = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true, routes, ...(session ? { session } : {}), ...extra(rounds) })), depsAt(rounds));
       if (res.status !== 409) break;
       const asked = (await res.json() as Asked).error;
+      takers.push(...asked.requests.map(r => (r as { taker: string }).taker));
       session = asked.session;
       for (const r of asked.requests) routes.push({ params: r, response: await agentMarket.build(paramsOf(r)) });
     }
-    return { res: res!, rounds: rounds + 1 };
+    return { res: res!, rounds: rounds + 1, takers };
   }
   const baselineAsks = (asked: unknown[]) => asked.filter(a => !(a as { excludeDexes?: string[] }).excludeDexes?.length).length;
+
+  it('a secret rotated between rounds keeps the session open: the same one-time key, and a ticket finalize opens', async () => {
+    const w = await world({ treasuryWallet: true });
+    const rotated = { ...w.deps, secrets: [secret(8), secret(7)] };
+    const { res, takers } = await roundsWith(w, await narrowMarket(), () => ({}), round => (round === 0 ? w.deps : rotated));
+    expect(res.status).toBe(200);
+    const p = (await res.json()) as Prepared;
+    // E is the one the first round named, from the secret that opened the session.
+    expect(new Set(takers)).toEqual(new Set([p.temporaryAuthority]));
+    const signed = await signAsWallet(w.W, p.transaction);
+    expect((await finalize({ ...w, deps: rotated }, p.ticket, signed)).status).toBe(200);
+  });
 
   it('three rounds within the price\'s freshness ask Orientim\'s key for its price once', async () => {
     const own = counting();

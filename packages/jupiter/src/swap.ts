@@ -161,7 +161,10 @@ export type PreparedSwap = {
   policy: Policy;
   version: TxVersion;
   transaction: Transaction;
-  /** The slot the blockhash was read at; a wallet's own simulation should not use older state. */
+  /**
+   * The latest slot the swap was built and verified on (its blockhash, the verifier's snapshot, the
+   * simulation): a wallet's own check should not read older state, and is told so (`contextSlot`).
+   */
   contextSlot: bigint;
   lifetime: Lifetime;
   size: number;
@@ -1543,7 +1546,7 @@ export async function prepareProtectedSwap(deps: {
         version: req.version,
         transaction: final.transaction,
         lifetime: finalLifetime,
-        contextSlot,
+        contextSlot: contextSlot > seenAt ? contextSlot : seenAt,
         size: final.size,
         computeUnits: units,
         quote: {

@@ -20,7 +20,7 @@ import { JupiterError } from '../src/client.ts';
 import type { BuildParams, BuildResponse, JupiterClient } from '../src/client.ts';
 
 import {
-  b64, BONK, DECIMALS, DEX, fakeJupiter, fakeRpc, feeMint, fundedAccounts, hookMint, lamportsSentToTaker, mint, OUT, plain2022Mint, POOL, PUMP,
+  b64, BONK, clusterFeeOf, DECIMALS, DEX, fakeJupiter, fakeRpc, feeMint, fundedAccounts, hookMint, lamportsSentToTaker, mint, OUT, plain2022Mint, POOL, PUMP,
   tokenAccount, USDC,
 } from './fakes.ts';
 import type { Account } from './fakes.ts';
@@ -258,8 +258,10 @@ describe('the network fee check fails closed', () => {
     expect(await codeOf(prepare(WSOL_MINT, { feeFails: true }))).toBe('unavailable');
   });
 
-  it('the exact fee is returned for display', async () => {
-    expect((await prepare(WSOL_MINT)).networkFeeLamports).toBe(15_000n);
+  it('the exact fee is returned for display: what the cluster prices the message at', async () => {
+    const prepared = await prepare(WSOL_MINT);
+    expect(prepared.networkFeeLamports).toBe(clusterFeeOf(Buffer.from(prepared.transaction.messageBytes).toString('base64')));
+    expect(prepared.networkFeeLamports).toBeGreaterThan(10_000n);
   });
 });
 

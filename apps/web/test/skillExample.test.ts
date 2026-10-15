@@ -389,7 +389,7 @@ describe('what the rules cannot see, the agent checks itself', () => {
     const problems = await checkPrepared(lie, { ...intentFor(b.wallet), maxRouteCostLamports: 5_000_000 }, b.agentRpc);
     expect(problems).toContain('the one-time key would keep 5000000 lamports after the swap');
     // The rent it states beside the bytes is not the policy's either, and is refused as such.
-    expect(problems[0]).toMatch(/^the figures stated differ from the policy .*costs\.routeRentLamports/);
+    expect(problems[0]).toMatch(/^certificate-mismatch: the figures stated differ from the policy .*costs\.routeRentLamports/);
   });
 
   it('rent the route keeps is refused beyond the limit the agent sets, 0.001 SOL by default', async () => {
@@ -463,6 +463,48 @@ describe('what the rules cannot see, the agent checks itself', () => {
     } as unknown as Rpc<SolanaRpcApi>;
     expect(await checkPrepared(honest, intentFor(b.wallet), lagging)).toEqual([]);
     expect(behind).toBe(-1);
+  });
+
+  it('the answer names the slot the swap was built at, and an RPC a few slots behind it is waited for, then read no older', async () => {
+    const b = await orientim();
+    const honest = await honestAnswer(b);
+    expect(honest.contextSlot).toBe('300000000');
+    // The agent's node is three slots behind at first, and catches up a slot every time it is asked.
+    let slot = 299_999_997n;
+    const asked: unknown[] = [];
+    const behind = {
+      ...b.agentRpc,
+      getSlot: () => ({ send: async () => slot++ }),
+      getMultipleAccounts: (addresses: Address[], config: { minContextSlot?: bigint }) => {
+        asked.push(config.minContextSlot);
+        return (b.agentRpc.getMultipleAccounts as unknown as (a: Address[], c: unknown) => unknown)(addresses, config);
+      },
+    } as unknown as Rpc<SolanaRpcApi>;
+    expect(await checkPrepared(honest, intentFor(b.wallet), behind)).toEqual([]);
+    expect(slot).toBeGreaterThan(300_000_000n);
+    expect(asked[0]).toBe(300_000_000n);
+  });
+
+  it('an RPC that never catches up to the slot is read as it is, as before', async () => {
+    const b = await orientim();
+    const honest = await honestAnswer(b);
+    const stuck = { ...b.agentRpc, getSlot: () => ({ send: async () => 299_999_990n }) } as unknown as Rpc<SolanaRpcApi>;
+    const started = Date.now();
+    expect(await checkPrepared(honest, intentFor(b.wallet), stuck)).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    // Far ahead of the agent's RPC, the slot is not waited for at all.
+    const far = { ...b.agentRpc, getSlot: () => ({ send: async () => 1n }) } as unknown as Rpc<SolanaRpcApi>;
+    const quick = Date.now();
+    expect(await checkPrepared(honest, intentFor(b.wallet), far)).toEqual([]);
+    expect(Date.now() - quick).toBeLessThan(2_000);
+  }, 20_000);
+
+  it('a network fee stated below what the bytes can pay is a certificate mismatch', async () => {
+    const b = await orientim();
+    const honest = await honestAnswer(b);
+    const cheaper = { ...honest, costs: { ...honest.costs, networkFeeLamports: '5000', keptSolLamports: String(BigInt(honest.costs.keptSolLamports!) - BigInt(honest.costs.networkFeeLamports) + 5000n) } };
+    const problems = await checkPrepared(cheaper, intentFor(b.wallet), b.agentRpc);
+    expect(problems).toEqual([expect.stringMatching(/^certificate-mismatch: the network fee stated is 5000 lamports; the transaction can pay up to \d+$/)]);
   });
 
   it('a route that fails in simulation once and passes a moment later is checked on the pass', async () => {
@@ -3237,8 +3279,8 @@ describe('one request, one swap; a yes and a lock that stay their own (14 Octobe
   it('a fresh lock of a process still at work is never taken over, whatever was judged stale before it', () => {
     const dir = mkdtempSync(join(tmpdir(), 'orientim-r14-race-'));
     const path = join(dir, `lock-${WSOL_MINT}`);
-    // A fresh lock of another process, still at work on this host.
-    writeFileSync(path, JSON.stringify({ pid: process.pid, host: hostname(), at: Date.now(), token: 'fresh' }));
+    // A fresh lock of another process, still at work on this host (this one's parent).
+    writeFileSync(path, JSON.stringify({ pid: process.ppid, host: hostname(), at: Date.now(), token: 'fresh' }));
     expect(() => acquireLock(dir, WSOL_MINT)).toThrow(LockBusyError);
     expect(JSON.parse(readFileSync(path, 'utf8')).token).toBe('fresh');
   });

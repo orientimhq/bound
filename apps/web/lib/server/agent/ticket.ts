@@ -35,6 +35,12 @@ export type Ticket = {
    */
   wOut?: string;
   b0?: string;
+  /**
+   * How much the output balance may have grown since prepare and still be signed (with `wOut`): a
+   * thousandth of a percent of the minimum, so that dust anyone can send does not block the swap.
+   * Every unit it grew by is one the swap may deliver less, so it stays that small. Absent: none.
+   */
+  dust?: string;
 };
 
 const enc = new TextEncoder();
@@ -206,6 +212,7 @@ export async function openTicket(secrets: readonly Uint8Array[], token: string):
     if (fields.some(f => typeof f !== 'string') || !/^[0-9a-f]{64}$/.test(t.msg) || !/^\d{1,20}$/.test(t.lvbh)) return null;
     if ((t.wOut === undefined) !== (t.b0 === undefined)) return null;
     if (t.wOut !== undefined && (typeof t.wOut !== 'string' || typeof t.b0 !== 'string' || !/^\d{1,20}$/.test(t.b0))) return null;
+    if (t.dust !== undefined && (t.wOut === undefined || typeof t.dust !== 'string' || !/^\d{1,20}$/.test(t.dust))) return null;
     return { ticket: t, secret };
   }
   return null;
