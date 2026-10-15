@@ -397,10 +397,10 @@ a.ghost { display: inline-flex; align-items: center; }
 .get-prompt { color: var(--accent); user-select: none; }
 .get-note { flex: none; margin: 0; color: var(--muted); font-size: 13.5px; white-space: nowrap; }
 .get-docs { flex: none; white-space: nowrap; font-size: 13.5px; font-weight: 600; }
-.get-radio-mcp:checked ~ .get-panel-mcp, .get-radio-skill:checked ~ .get-panel-skill, .get-radio-cli:checked ~ .get-panel-cli { display: flex; }
-.get-radio-mcp:checked ~ .get-labels .get-label-mcp, .get-radio-skill:checked ~ .get-labels .get-label-skill, .get-radio-cli:checked ~ .get-labels .get-label-cli {
+.get-radio-mcp:checked ~ .get-panel-mcp, .get-radio-skill:checked ~ .get-panel-skill, .get-radio-sdk:checked ~ .get-panel-sdk { display: flex; }
+.get-radio-mcp:checked ~ .get-labels .get-label-mcp, .get-radio-skill:checked ~ .get-labels .get-label-skill, .get-radio-sdk:checked ~ .get-labels .get-label-sdk {
   color: var(--text); background: linear-gradient(180deg, rgba(76, 189, 133, .22), rgba(76, 189, 133, .08)); box-shadow: inset 0 0 0 1px rgba(124, 227, 176, .28), 0 0 14px rgba(76, 189, 133, .18); }
-.get-radio-mcp:focus-visible ~ .get-labels .get-label-mcp, .get-radio-skill:focus-visible ~ .get-labels .get-label-skill, .get-radio-cli:focus-visible ~ .get-labels .get-label-cli { outline: 2px solid var(--accent); outline-offset: 2px; }
+.get-radio-mcp:focus-visible ~ .get-labels .get-label-mcp, .get-radio-skill:focus-visible ~ .get-labels .get-label-skill, .get-radio-sdk:focus-visible ~ .get-labels .get-label-sdk { outline: 2px solid var(--accent); outline-offset: 2px; }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .get-tabs { background: var(--panel); } }
 @media (max-width: 980px) { .get-tabs { flex-wrap: wrap; } .get-panel { flex-basis: 100%; padding: 0 4px 4px; } }
-@media (max-width: 640px) { .get-panel { flex-wrap: wrap; gap: 8px 14px; } .get-panel pre { flex-basis: 100%; } .get-labels { width: 100%; } .get-label { flex: 1; text-align: center; padding-inline: 6px; } }
+@media (max-width: 640px) { .get-panel { flex-wrap: wrap; gap: 8px 14px; } .get-panel pre { flex-basis: 100%; } .get-labels { width: 100%; } .get-label { flex: 1; min-width: 0; text-align: center; padding-inline: 6px; white-space: normal; line-height: 1.25; } }

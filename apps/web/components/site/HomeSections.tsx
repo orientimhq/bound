@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { SKILL_EXTENSION, SKILL_FOLDER, SKILL_VERSION } from '@/lib/server/skill';
+import { SKILL_EXTENSION } from '@/lib/server/skill';
 import { AgentTerminal, CapsuleFlow } from './Motion';
 
 const CAPSULE_STEPS = [
@@ -13,22 +13,25 @@ const AGENT_POINTS = [
   ['Recovers an interrupted order', 'After a restart it settles what was in flight before anything new, and never swaps an order twice.'],
 ];
 
-/** The three ways in, one line each; the developer page has each in full. */
+/**
+ * The three ways in, one line each; the developer page has each in full. No version in these lines:
+ * npx and npm take the current one, so the home page never names an old release.
+ */
 const GET_IT: { id: string; label: string; line: string; note: ReactNode; docs: string }[] = [
   {
-    id: 'mcp', label: 'MCP server', line: `npx -y @orientimhq/swap@${SKILL_VERSION} mcp`,
-    note: <>Or <a href={SKILL_EXTENSION}>one click in Claude Desktop</a></>,
-    docs: '/developers#mcp',
-  },
-  {
-    id: 'skill', label: 'Agent skill', line: 'cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skills/',
-    note: <>After <code>npm install @orientimhq/swap@{SKILL_VERSION}</code>, or <a href={SKILL_FOLDER}>on GitHub</a></>,
+    id: 'skill', label: 'Coding Agents (Skill)', line: 'cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skills/',
+    note: <>After <code>npm i @orientimhq/swap</code></>,
     docs: '/developers#skill',
   },
   {
-    id: 'cli', label: 'Command line', line: `npx -y @orientimhq/swap@${SKILL_VERSION} prepare < intent.json`,
-    note: <>Any language: JSON in, JSON out</>,
-    docs: '/developers#cli',
+    id: 'sdk', label: 'TypeScript / SDK', line: 'npm install @orientimhq/swap',
+    note: <>Python, Rust, any language: <a href="/developers#cli">JSON CLI</a></>,
+    docs: '/developers#skill',
+  },
+  {
+    id: 'mcp', label: 'Claude & Cursor (MCP)', line: 'npx -y @orientimhq/swap mcp',
+    note: <>Or <a href={SKILL_EXTENSION}>one click in Claude Desktop</a></>,
+    docs: '/developers#mcp',
   },
 ];
 
@@ -54,8 +57,8 @@ export function HomeSections() {
             <p className="eyebrow">Isolated swaps for AI agents and bots on Solana</p>
             <h1 className="hero-title">Your trade gets its own wallet. <span className="hero-title-dim">Your wallet never becomes the trade.</span></h1>
             <div className="cta-actions hero-actions">
-              <a className="button primary-link" href="/developers#mcp">Add to Claude Desktop</a>
-              <a className="button ghost-link" href="/developers#start">Quickstart</a>
+              <a className="button primary-link" href="/developers#access">Get Instant API Key</a>
+              <a className="button ghost-link" href="/developers">Explore Docs</a>
             </div>
           </div>
           <div className="hero-app">
