@@ -39,6 +39,15 @@ addresses are counted per /64. A key is revoked by its wallet: `ORIENTIM_API_REV
 `<wallet>` (all its keys) or `<wallet>@<unix seconds>` (its keys issued until then, so that the
 wallet's owner can sign again for a new one).
 
+The message a wallet signs for a key accepts the Terms of Use. With a private Vercel Blob store
+connected to the project (Storage → Create → Blob, access Private; Vercel sets
+`BLOB_READ_WRITE_TOKEN`), each one is kept as the record of that acceptance:
+`terms-acceptances/<day>/<wallet>-<time>-<random>.json`, holding the wallet, the message, its
+signature, the time, the Terms' date (`LEGAL.lastUpdated`) and the skill's version. When the record
+cannot be written, no key is issued (`503 unavailable`). Without the store keys are issued unrecorded,
+and production logs it once. Anyone can check a record with the wallet's public key; the Privacy
+Notice keeps them up to 5 years after the wallet's last key expires.
+
 ## Pausing, revoking and rotating
 
 The kill switch `ORIENTIM_DISABLED=1` (or `true`) refuses prepare, finalize's first send, and new API

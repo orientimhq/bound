@@ -4,13 +4,16 @@
  * signature, a changed or expired or revoked key, an empty wallet, and a key used for another wallet.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { generateKeyPairSigner, getBase58Decoder, signBytes } from '@solana/kit';
+import { generateKeyPairSigner, getBase58Decoder, getBase58Encoder, getPublicKeyFromAddress, signBytes, verifySignature } from '@solana/kit';
+import type { SignatureBytes } from '@solana/kit';
 import type { KeyPairSigner } from '@solana/kit';
 import { acceptChallenge, challengeMessage, isRevoked, issueKey, KEY_LIFETIME_S, newChallenge, openKey } from '../lib/server/agent/keys.ts';
 import { accessDeps, agentDeps, keySecrets } from '../lib/server/agent/config.ts';
 import { kidOf, newNonce, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
 import { keyChallenge, keyIssue, MIN_KEY_SKILL_VERSION } from '../lib/server/agent/access.ts';
 import type { AccessDeps } from '../lib/server/agent/access.ts';
+import type { Acceptance } from '../lib/server/agent/termsRecord.ts';
+import { LEGAL } from '../lib/legal.ts';
 import { agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { address } from '@solana/kit';
@@ -204,6 +207,40 @@ describe('the endpoints', () => {
     expect(fresh.status).toBe(200);
   });
 
+  it('keep the signed message as the record that the wallet accepted the Terms, and give no key without it', async () => {
+    const W = await generateKeyPairSigner();
+    const kept: Acceptance[] = [];
+    const recording = (lamports: bigint, record: AccessDeps['recordAcceptance']): AccessDeps => ({ ...deps(lamports), recordAcceptance: record });
+    const ask = async (d: AccessDeps, skill?: string) => {
+      const c = await newChallenge(secret(5), { domain: 'orientim.com', uri: 'u', wallet: W.address, now: NOW });
+      return keyIssue(new Request('https://orientim.com/api/v1/keys', {
+        method: 'POST', headers: { ...from(), ...(skill ? { 'x-orientim-skill': skill } : {}) }, body: JSON.stringify({ ...c, signature: await sign(W, c.message) }),
+      }), d);
+    };
+    const res = await ask(recording(20_000_000n, async a => { kept.push(a); }), '1.12.4');
+    expect(res.status).toBe(200);
+    const { expiresAt } = await res.json() as { expiresAt: string };
+    expect(kept).toHaveLength(1);
+    const [a] = kept;
+    expect(a).toMatchObject({ wallet: W.address, terms: 'https://orientim.com/terms', termsUpdated: LEGAL.lastUpdated, keyExpiresAt: expiresAt, skill: '1.12.4' });
+    expect(a.acceptedAt).toBe(new Date(NOW * 1000).toISOString());
+    expect(a.message).toContain('accept the Terms of Use at https://orientim.com/terms');
+    // The record proves itself: the wallet's own signature of the message kept.
+    const ok = await verifySignature(await getPublicKeyFromAddress(W.address), getBase58Encoder().encode(a.signature) as SignatureBytes, new TextEncoder().encode(a.message));
+    expect(ok).toBe(true);
+    // Nothing about the person beyond it: no IP address, no balance.
+    expect(Object.keys(a).sort()).toEqual(['acceptedAt', 'keyExpiresAt', 'message', 'signature', 'skill', 'terms', 'termsUpdated', 'wallet']);
+    // Refused before a key: nothing is recorded.
+    expect((await ask(recording(0n, async x => { kept.push(x); }))).status).toBe(403);
+    expect(kept).toHaveLength(1);
+    // The record could not be kept: no key.
+    const failed = await ask(recording(20_000_000n, async () => { throw new Error('store down'); }));
+    expect(failed.status).toBe(503);
+    const body = await failed.json() as { key?: string; error: { code: string } };
+    expect(body.key).toBeUndefined();
+    expect(body.error.code).toBe('unavailable');
+  });
+
   it('refuse a challenge for something that is not a wallet', async () => {
     const res = await keyChallenge(new Request('https://orientim.com/api/v1/keys/challenge?wallet=nope', { headers: from() }), deps(0n));
     expect(res.status).toBe(400);
@@ -340,6 +377,19 @@ describe('self-serve keys: the site, revocation and secrets', () => {
       expect(deps?.origin).toBe('https://orientim.com');
       process.env.ORIENTIM_PUBLIC_ORIGIN = 'http://orientim.com';
       expect(accessDeps()).toBeNull();
+    });
+
+    it('acceptances of the Terms are recorded once a Blob store is connected', () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      Object.assign(process.env, {
+        ORIENTIM_API_SECRET: good, ORIENTIM_KEY_SECRET: Buffer.alloc(32, 8).toString('base64'),
+        ORIENTIM_PUBLIC_ORIGIN: 'https://orientim.com', RPC_URL: 'http://127.0.0.1:1',
+      });
+      delete process.env.BLOB_READ_WRITE_TOKEN;
+      expect(accessDeps()?.recordAcceptance).toBeNull();
+      process.env.BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_test_token';
+      expect(typeof accessDeps()?.recordAcceptance).toBe('function');
     });
 
     it('in production, keys stay off without ORIENTIM_PUBLIC_ORIGIN, and the API without a treasury or a fee', () => {

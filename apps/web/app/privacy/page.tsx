@@ -25,12 +25,17 @@ const PROCESSING: [string, string, string][] = [
     'Running, securing and troubleshooting the service, and counting errors and delays.',
     'Our legitimate interest in security',
   ],
-  ['For an API key: the message your wallet signed, and its SOL balance', 'To check that you control the wallet and that it meets the minimum balance. Neither is kept.', 'Providing the service you request'],
+  ['For an API key: your wallet\'s SOL balance', 'To check that the wallet meets the minimum balance. It is not kept.', 'Providing the service you request'],
+  [
+    'For an API key: the message your wallet signed, which accepts the Terms of Use, and its signature, your wallet address, the time, and the version of the skill that asked',
+    'To check that you control the wallet, and to keep a record that you accepted the Terms, which we can show if a dispute arises.',
+    'Our legitimate interest in establishing and defending legal claims',
+  ],
   ['What you write to us', 'To answer you.', 'Our legitimate interest, or providing the service'],
 ];
 
 const RECIPIENTS: [string, string, string][] = [
-  ['Vercel Inc.', 'Hosting; keeps the request logs', 'United States'],
+  ['Vercel Inc.', 'Hosting; keeps the request logs and, in private storage, the record that you accepted the Terms', 'United States'],
   ['Helius', 'Solana RPC provider: chain reads, simulations and your signed transaction, which include your wallet address', 'United States'],
   ['Alchemy', 'Backup Solana RPC provider, asked only when Helius does not answer: the same data', 'United States'],
   ['Jupiter', 'Building the route, or pricing the swap when your agent brings its own routes: the tokens, the amount and, for a route, your receiving token account', 'Outside the EU'],
@@ -66,8 +71,8 @@ export default async function Page() {
         </div>
         <p>
           We do not collect your name, email address (unless you write to us), identity documents, private keys or seed phrase. We keep
-          no database of your swaps and no list of the API keys we issue: a key itself carries its wallet address and expiry,
-          sealed so that only Orientim can verify it. The log lines above are the only record of a swap request, and they are
+          no database of your swaps. For an API key we keep only the record that its wallet accepted the Terms (above): the key
+          itself carries its wallet address and expiry, sealed so that only Orientim can verify it, and is never stored. The log lines above are the only record of a swap request, and they are
           deleted after the retention period below. They never contain your private key or your API key. We do not sell your data, use it for advertising, or profile you.
           When Orientim refuses a swap, for example an unsafe token, that is a technical rule about the transaction, not a decision
           about you.
@@ -111,6 +116,7 @@ export default async function Page() {
         <ul>
           <li>Rate-limit counts: in memory, and at our hosting provider&apos;s firewall, for at most an hour.</li>
           <li>Request logs and swap log lines at our hosting provider: up to {legal('logRetentionDays')} days, then deleted.</li>
+          <li>The record that you accepted the Terms: while your API keys are valid, and up to 5 years after the last one expires, the time within which a claim about the Terms can be brought.</li>
           <li>What you write to us: as long as needed to answer you, and up to 12 months after.</li>
         </ul>
       </section>

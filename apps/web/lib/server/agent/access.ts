@@ -4,11 +4,14 @@ import { readBodyLimited } from '../body';
 import { clientKey, rateLimited, secondsUntilReset } from '../rateLimit';
 import { SKILL_VERSION } from '../skillSums';
 import { olderThan } from './api';
+import { LEGAL } from '../../legal';
 import { acceptChallenge, issueKey, newChallenge } from './keys';
+import type { RecordAcceptance } from './termsRecord';
 
 /**
  * Self-serve API access (AGENT-API.md, "API access"): a wallet signs a challenge and gets a key bound
- * to it, with no form, no email and no database.
+ * to it, with no form and no email. The signed message accepts the Terms of Use; with a store set,
+ * it is kept as the record of that acceptance (termsRecord.ts), and no key is given without it.
  *
  *   GET  /api/v1/keys/challenge?wallet=<address>   the message to sign
  *   POST /api/v1/keys                               { message, challenge, signature } → { key }
@@ -35,6 +38,11 @@ export type AccessDeps = {
   maxKeysPerHour?: number;
   /** ORIENTIM_MIN_SKILL_VERSION, when set: a key is not issued to a skill prepare would not serve. */
   minSkillVersion?: string | null;
+  /**
+   * Keeps the signed message as the record that the wallet accepted the Terms (a private Blob store,
+   * BLOB_READ_WRITE_TOKEN). When it fails, no key is given. Unset, keys are given unrecorded.
+   */
+  recordAcceptance?: RecordAcceptance | null;
   now?: () => number;
 };
 
@@ -136,6 +144,19 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
   if (rateLimited(all, deps.maxKeysPerHour ?? DEFAULT_KEYS_PER_HOUR, 3_600_000)) {
     return fail(429, 'rate-limited', 'Orientim is issuing too many keys right now. Wait Retry-After seconds and try again.', { 'retry-after': String(secondsUntilReset(all)) });
   }
-  const issued = await issueKey(deps.keySecrets[0], accepted.wallet, seconds(deps));
+  const now = seconds(deps);
+  const issued = await issueKey(deps.keySecrets[0], accepted.wallet, now);
+  if (deps.recordAcceptance) {
+    try {
+      await deps.recordAcceptance({
+        wallet: accepted.wallet, terms: 'https://orientim.com/terms', termsUpdated: LEGAL.lastUpdated,
+        message: body.message as string, signature: body.signature as string,
+        acceptedAt: new Date(now * 1000).toISOString(), keyExpiresAt: issued.expiresAt,
+        skill: req.headers.get('x-orientim-skill')?.slice(0, 40) || null,
+      });
+    } catch {
+      return fail(503, 'unavailable', "Your acceptance of the Terms couldn't be recorded, so no key was issued. Try again in a moment.", { 'retry-after': '5' });
+    }
+  }
   return json(200, { key: issued.key, wallet: accepted.wallet, expiresAt: issued.expiresAt });
 }

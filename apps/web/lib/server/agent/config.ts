@@ -8,6 +8,7 @@ import { serverConfig } from '../config';
 import { treasurySetting } from '../../settings';
 import { DEFAULT_KEYS_PER_HOUR, type AccessDeps } from './access';
 import type { AgentDeps } from './api';
+import { blobRecorder } from './termsRecord';
 
 /**
  * The agent API is off unless the deployment sets both of these (tools/agent-key.ts makes them).
@@ -224,7 +225,14 @@ export function accessDeps(): AccessDeps | null {
   }
   const perHour = process.env.ORIENTIM_KEY_MAX_PER_HOUR?.trim() ?? '';
   const maxKeysPerHour = /^\d{1,6}$/.test(perHour) && Number(perHour) > 0 ? Number(perHour) : DEFAULT_KEYS_PER_HOUR;
-  return { rpc: deps.rpc, keySecrets: secrets, minLamports, origin, disabled: deps.disabled, maxKeysPerHour, minSkillVersion: deps.minSkillVersion ?? null };
+  const blobToken = process.env.BLOB_READ_WRITE_TOKEN?.trim();
+  if (!blobToken && process.env.VERCEL_ENV === 'production') {
+    sayOnce('BLOB_READ_WRITE_TOKEN is not set: keys are issued, but the Terms they accept are not recorded. Connect a private Blob store.', 'warn');
+  }
+  return {
+    rpc: deps.rpc, keySecrets: secrets, minLamports, origin, disabled: deps.disabled, maxKeysPerHour, minSkillVersion: deps.minSkillVersion ?? null,
+    recordAcceptance: blobToken ? blobRecorder(blobToken) : null,
+  };
 }
 
 export const notEnabled = () =>
