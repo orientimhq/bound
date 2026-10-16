@@ -4,7 +4,8 @@ import { Redis } from '@upstash/redis';
  * State every instance of the deployment sees at once: Redis (Upstash, over REST), when the
  * deployment has one. Serverless instances share no memory, so whatever must hold across them (one
  * message per one-time key, one swap in flight per output account, the rate limits, the RPC's
- * health) is kept here. Without Redis, `memoryShared` keeps the same state per instance, as before.
+ * health) is kept here. Without Redis, `memoryShared` keeps the same state per instance, as before;
+ * in production finalize then signs nothing (sharedRequired).
  *
  * Every key starts with `orientim:` and expires on its own; nothing about a request's body is kept.
  */
@@ -163,12 +164,21 @@ export function redisFromEnv(): Shared | null {
   const identity = `${url}|${token}`;
   if (fromEnv?.for !== identity) {
     fromEnv = { for: identity, shared: url && token ? redisShared(url, token) : null };
-    if (!fromEnv.shared && process.env.VERCEL_ENV === 'production') {
-      console.warn('No Redis (UPSTASH_REDIS_REST_URL / KV_REST_API_URL): one message per one-time key, one swap in flight per output account, the rate limits and the RPC failover hold per instance only.');
+    if (!fromEnv.shared && sharedRequired()) {
+      console.error('No Redis (UPSTASH_REDIS_REST_URL / KV_REST_API_URL): finalize refuses every swap, since one message per one-time key and one swap in flight per output account would hold per instance only. Connect Upstash Redis, or set ORIENTIM_TEST_MODE=1 if that is meant.');
+    } else if (!fromEnv.shared && process.env.VERCEL_ENV === 'production') {
+      console.warn('No Redis (UPSTASH_REDIS_REST_URL / KV_REST_API_URL), in test mode: one message per one-time key, one swap in flight per output account, the rate limits and the RPC failover hold per instance only.');
     }
   }
   return fromEnv.shared;
 }
+
+/**
+ * Must finalize have Redis to sign? In production, yes: serverless instances share no memory, so
+ * without it two instances could each sign a swap into one output account, or another message with
+ * one E. Unless ORIENTIM_TEST_MODE=1, as for a production without a fee.
+ */
+export const sharedRequired = () => process.env.VERCEL_ENV === 'production' && process.env.ORIENTIM_TEST_MODE !== '1';
 
 /** Redis when the deployment has it, else this instance's memory. */
 export function sharedState(): Shared {

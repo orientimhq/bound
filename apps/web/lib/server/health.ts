@@ -1,5 +1,6 @@
 import { serverConfig } from './config';
 import { agentEndpoints } from './agent/config';
+import { redisFromEnv, sharedRequired } from './shared';
 
 export type Check = { ok: boolean; ms: number };
 export type Health = {
@@ -22,6 +23,12 @@ export type Health = {
    * A pause by the kill switch is `paused` above, not this.
    */
   agentApi: 'on' | 'off';
+  /**
+   * Where one message per one-time key, one swap in flight per output account and the rate limits
+   * are kept: `redis`, for every instance, or `memory`, this instance's. `missing` is production
+   * without Redis (and without ORIENTIM_TEST_MODE=1): finalize refuses every swap, so it is down.
+   */
+  sharedState: 'redis' | 'memory' | 'missing';
 };
 
 /** A small swap Jupiter is asked to build: 0.01 SOL to USDC, for a public wallet. Nothing is signed. */
@@ -54,9 +61,9 @@ const rpcCheck = (url: string, fetchImpl: typeof fetch) =>
 
 /**
  * Whether a swap could go through right now: the RPC answers, Jupiter answers with Orientim's key,
- * the agent API is on, its own RPC answers and Jupiter builds a swap with its own key. For an
- * uptime monitor (every few minutes); it names no URL and no key. Swaps paused by the kill switch
- * are reported, not counted as down.
+ * the agent API is on, its own RPC answers, Jupiter builds a swap with its own key, and production
+ * has the Redis finalize needs. For an uptime monitor (every few minutes); it names no URL and no
+ * key. Swaps paused by the kill switch are reported, not counted as down.
  */
 export async function checkHealth(fetchImpl: typeof fetch = (...a) => fetch(...a)): Promise<Health> {
   const { rpcUrl, rpcFallbackUrl, jupiterApiKey, disabled } = serverConfig();
@@ -75,7 +82,9 @@ export async function checkHealth(fetchImpl: typeof fetch = (...a) => fetch(...a
   const rpcUp = rpc.ok || rpcFallback?.ok === true;
   const agents = await agentsCheck(fetchImpl, rpcUrl, rpc);
   const agentsUp = !!agents && (agents.rpc.ok || rpcFallback?.ok === true) && agents.build.ok;
-  return { ok: rpcUp && jupiter.ok && agentsUp, paused: disabled, rpc, rpcFallback, jupiter, agents, agentApi: agents ? 'on' : 'off' };
+  const sharedState = redisFromEnv() ? 'redis' : sharedRequired() ? 'missing' : 'memory';
+  const ok = rpcUp && jupiter.ok && agentsUp && sharedState !== 'missing';
+  return { ok, paused: disabled, rpc, rpcFallback, jupiter, agents, agentApi: agents ? 'on' : 'off', sharedState };
 }
 
 /** The agent API's own RPC and a swap built with its own Jupiter key; null while the API is off. */

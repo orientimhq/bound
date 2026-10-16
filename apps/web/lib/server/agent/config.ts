@@ -2,7 +2,7 @@ import { address } from '@solana/kit';
 import { createJupiterClient, heliusPriorityFee, MIN_FEE } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
 import { createServerRpc } from '../rpcFailover';
-import { redisFromEnv, sharedState } from '../shared';
+import { redisFromEnv, sharedRequired, sharedState } from '../shared';
 import { withSharedReads } from '../sharedReads';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { serverConfig } from '../config';
@@ -182,6 +182,8 @@ export function agentDeps(): AgentDeps | null {
     // The smallest swap, about $1, so that no swap costs more to build than it brings.
     minFee: MIN_FEE,
     shared: sharedState(),
+    // In production finalize signs only with Redis (shared.ts): without it, it refuses.
+    sharedRequired: sharedRequired(),
   };
 }
 
