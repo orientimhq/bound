@@ -27,7 +27,8 @@ const limiterOf = (key: string) => {
 
 /**
  * Room for one more window in a full limiter: the windows that have ended, else the oldest. A limiter
- * gives all its windows one length, so those that ended are the first in its order. The oldest
+ * gives all its windows one length, so those that ended are the first in its order (one cut short to
+ * Redis's window, in `limit`, may wait for the sweep). The oldest
  * client's count starts again, which a flood in its own limiter can do; a single window shared by
  * every newcomer (what this replaced) let one flood lock out everyone, across limiters, for the
  * longest window any of them had.
@@ -73,8 +74,10 @@ export function rateLimited(key: string, limit: number, windowMs = 60_000): bool
 /**
  * Is `key` over `limit` requests in its window of `windowMs`? The whole seconds a Retry-After should
  * say when it is, else null. Counted in Redis when the deployment has it: every instance then counts
- * the same window. This instance's own count comes first: it is never more than the shared one, so a
- * client already over the limit here is refused without asking Redis. When Redis does not answer,
+ * the same window. This instance's own count comes first, so that a client already over the limit
+ * here is refused without asking Redis. That holds because it is never more than the shared one: each
+ * request it counts, Redis counts too, and its window is ended when Redis's ends, never later (the
+ * shared window may have begun on another instance, before this one's). When Redis does not answer,
  * the instance's count alone decides, as it did before Redis.
  */
 export async function limit(key: string, limit: number, windowMs = 60_000, shared: Shared | null = redisFromEnv()): Promise<number | null> {
@@ -82,6 +85,8 @@ export async function limit(key: string, limit: number, windowMs = 60_000, share
   if (here || !shared) return here ? secondsUntilReset(key) : null;
   try {
     const { count, ms } = await shared.count(`orientim:rl:${key}`, windowMs);
+    const w = limiters.get(limiterOf(key))?.get(key);
+    if (w) w.resetAt = Math.min(w.resetAt, Date.now() + ms);
     return count > limit ? Math.max(1, Math.ceil(ms / 1000)) : null;
   } catch {
     return null;

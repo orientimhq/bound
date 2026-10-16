@@ -64,6 +64,27 @@ describe('the client key comes only from the header the ingress overwrites', () 
     expect(asked).toBe(3);
   });
 
+  it("a window this instance began after Redis's ends with Redis's: no refusal once the shared count starts again", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const t0 = Date.now() + 20 * 60_000;
+      vi.setSystemTime(t0);
+      const shared = memoryShared(50_000, () => Date.now());
+      const k = `agent:/api/v1/finalize:${uniqueIp()}`;
+      // Another instance began the shared window, and counted two.
+      for (let i = 0; i < 2; i++) await shared.count(`orientim:rl:${k}`, 60_000);
+      vi.setSystemTime(t0 + 50_000);
+      expect(await limit(k, 3, 60_000, shared)).toBeNull();
+      expect(await limit(k, 3, 60_000, shared)).toBe(10);
+      expect(await limit(k, 3, 60_000, shared)).toBeGreaterThan(0);
+      // The shared window has ended: so has this instance's, though it began 50 s later.
+      vi.setSystemTime(t0 + 61_000);
+      expect(await limit(k, 3, 60_000, shared)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('says how long until a window ends, for Retry-After', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     try {
@@ -104,6 +125,38 @@ describe('the client key comes only from the header the ingress overwrites', () 
       expect(rateLimited(late, 1, 3_600_000)).toBe(false);
       expect(rateLimited(late, 1, 3_600_000)).toBe(true);
       expect(rateLimited(`flood:later:${uniqueIp()}`, 1, 3_600_000)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a flood of addresses asking for keys cannot push out the count of keys issued to everyone", async () => {
+    const { keyIssue } = await import('../lib/server/agent/access.ts');
+    const { newChallenge } = await import('../lib/server/agent/keys.ts');
+    const { generateKeyPairSigner, getBase58Decoder, signBytes } = await import('@solana/kit');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // Ahead of every window the other tests opened.
+      vi.setSystemTime(Date.now() + 30 * 86_400_000);
+      const now = Math.floor(Date.now() / 1000);
+      const key = new Uint8Array(32).fill(5);
+      const deps = {
+        rpc: { getBalance: () => ({ send: async () => ({ value: 20_000_000n }) }) } as never,
+        keySecrets: [key], minLamports: 10_000_000n, maxKeysPerHour: 1, now: () => Date.now(),
+      };
+      const issue = async () => {
+        const W = await generateKeyPairSigner();
+        const c = await newChallenge(key, { domain: 'orientim.com', uri: 'u', wallet: W.address, now });
+        const signature = getBase58Decoder().decode(await signBytes(W.keyPair.privateKey, new TextEncoder().encode(c.message)));
+        return keyIssue(new Request('https://orientim.com/api/v1/keys', {
+          method: 'POST', headers: { 'x-vercel-forwarded-for': uniqueIp() }, body: JSON.stringify({ ...c, signature }),
+        }), deps);
+      };
+      expect((await issue()).status).toBe(200);
+      expect((await issue()).status).toBe(429);
+      // Key requests from 60,000 addresses fill the per-address limiter.
+      for (let i = 0; i < 60_000; i++) rateLimited(`keys-issue:2001:db8:${i.toString(16)}::/64`, 10, 3_600_000);
+      expect((await issue()).status).toBe(429);
     } finally {
       vi.useRealTimers();
     }

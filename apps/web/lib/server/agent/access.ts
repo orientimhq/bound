@@ -31,9 +31,9 @@ export type AccessDeps = {
   /** ORIENTIM_DISABLED: while protected swaps are paused, no key is issued either. */
   disabled?: boolean;
   /**
-   * How many keys this instance issues in an hour, to every address together
-   * (ORIENTIM_KEY_MAX_PER_HOUR, default 300): the per-address limit alone does not stop addresses
-   * rented by the thousand. One wallet gets at most WALLET_KEYS_PER_DAY a day.
+   * How many keys are issued in an hour, to every address together (ORIENTIM_KEY_MAX_PER_HOUR,
+   * default 300), by every instance with Redis, else by each: the per-address limit alone does not
+   * stop addresses rented by the thousand. One wallet gets at most WALLET_KEYS_PER_DAY a day.
    */
   maxKeysPerHour?: number;
   /** ORIENTIM_MIN_SKILL_VERSION, when set: a key is not issued to a skill prepare would not serve. */
@@ -143,7 +143,9 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
   if (waitPerWallet !== null) {
     return fail(429, 'rate-limited', 'Too many keys issued to this wallet today. Use the key you have, or wait Retry-After seconds.', { 'retry-after': String(waitPerWallet) });
   }
-  const all = 'keys-issue:all';
+  // A limiter of its own (no colon: rateLimit.ts, limiterOf), so that a flood of addresses in
+  // `keys-issue` cannot push it out of this instance's memory and start it again.
+  const all = 'keys-all';
   const waitAll = await limit(all, deps.maxKeysPerHour ?? DEFAULT_KEYS_PER_HOUR, 3_600_000);
   if (waitAll !== null) {
     return fail(429, 'rate-limited', 'Orientim is issuing too many keys right now. Wait Retry-After seconds and try again.', { 'retry-after': String(waitAll) });
