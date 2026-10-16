@@ -41,6 +41,12 @@ export type Ticket = {
    * Every unit it grew by is one the swap may deliver less, so it stays that small. Absent: none.
    */
   dust?: string;
+  /**
+   * The slot the swap was built and verified on (with `wOut`), no older than the read of `b0`:
+   * finalize reads the account no older, so a node behind cannot answer with the balance from
+   * before. Absent in tickets sealed before it, which finalize reads as it did then.
+   */
+  slot?: string;
 };
 
 const enc = new TextEncoder();
@@ -213,6 +219,7 @@ export async function openTicket(secrets: readonly Uint8Array[], token: string):
     if ((t.wOut === undefined) !== (t.b0 === undefined)) return null;
     if (t.wOut !== undefined && (typeof t.wOut !== 'string' || typeof t.b0 !== 'string' || !/^\d{1,20}$/.test(t.b0))) return null;
     if (t.dust !== undefined && (t.wOut === undefined || typeof t.dust !== 'string' || !/^\d{1,20}$/.test(t.dust))) return null;
+    if (t.slot !== undefined && (t.wOut === undefined || typeof t.slot !== 'string' || !/^\d{1,20}$/.test(t.slot))) return null;
     return { ticket: t, secret };
   }
   return null;

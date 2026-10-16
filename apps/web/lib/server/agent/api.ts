@@ -10,7 +10,7 @@ import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientimhq/swap/core';
 import type { AccountState, TxVersion } from '@orientimhq/swap/core';
 import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, parseProvidedRoutes, prepareProtectedSwap, providedRoutes, RoutesNeeded, RoutesUntrusted } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel, ReferencePrice, SolValue } from '@orientim/jupiter';
-import { BLOCKHASH_LIFE_BLOCKS, fetchAccounts, httpStatusOf, mintInfoOf, provesNeverLanded, readAccounts, sendOnce } from '@orientimhq/swap/solana';
+import { BLOCKHASH_LIFE_BLOCKS, httpStatusOf, mintInfoOf, provesNeverLanded, readAccounts, sendOnce } from '@orientimhq/swap/solana';
 import { hasPermanentDelegate } from '@orientimhq/swap/verifier';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { readBodyLimited } from '../body';
@@ -533,6 +533,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       v: 1, kid: await kidOf(secret), nonce, key, owner: owner as string, msg: messageSha256,
       lvbh: prepared.lifetime.lastValidBlockHeight.toString(),
       ...(wOut ? { wOut, b0: prepared.outputBalanceBefore.toString(), dust: (prepared.policy.minOut / DUST_DIVISOR).toString() } : {}),
+      ...(wOut && prepared.contextSlot > 0n ? { slot: prepared.contextSlot.toString() } : {}),
     });
     // Never a swap without the agent's own minimum: a first round can only ask for routes.
     if (minOut === undefined) return fail(400, 'bad-request', 'minOut is required to build the swap. Prepare again with it.');
@@ -767,7 +768,10 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
   // once; each is still judged in turn, the chain's record of this transaction first.
   // Each failure is met where its value is awaited, never as an unhandled rejection.
   const quiet = <T>(p: Promise<T>) => { p.catch(() => undefined); return p; };
-  const outputNow = ticket.wOut ? quiet(fetchAccounts(rpc, [ticket.wOut as Address]).then(a => tokenAmountOf(a.get(ticket.wOut!)?.data))) : null;
+  // No older than the slot the swap was built on, when the ticket says it: never the balance from before.
+  const outputNow = ticket.wOut
+    ? quiet(readAccounts(rpc, [ticket.wOut as Address], ticket.slot ? { minContextSlot: BigInt(ticket.slot) } : {}).then(r => tokenAmountOf(r.accounts.get(ticket.wOut!)?.data)))
+    : null;
   const blockHeight = quiet(rpc.getBlockHeight({ commitment: 'confirmed' }).send());
   let onChain: unknown;
   try {
