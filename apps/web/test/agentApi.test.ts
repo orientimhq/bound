@@ -599,6 +599,32 @@ describe('further safeguards on the API', () => {
     }
   });
 
+  it('finalize reads the output account no older than the slot prepare built on; a ticket from before the slot still opens', async () => {
+    const w = await world();
+    const p = (await (await agentPrepare(post('prepare', swapBody(w.W.address, { outputMint: BONK })), w.deps)).json()) as Prepared & { contextSlot: string };
+    const ticket = JSON.parse(Buffer.from(p.ticket.split('.')[0], 'base64url').toString('utf8'));
+    expect(ticket.slot).toBe(p.contextSlot);
+    const wOut = await ataOf(w.W.address, BONK);
+    const asked: unknown[] = [];
+    const rpc = w.deps.rpc as unknown as Record<string, (...a: never[]) => unknown>;
+    const read = rpc.getMultipleAccounts;
+    rpc.getMultipleAccounts = (...a: never[]) => {
+      if ((a[0] as unknown as string[]).includes(wOut)) asked.push((a[1] as { minContextSlot?: bigint }).minContextSlot);
+      return read(...a);
+    };
+    const signed = await signAsWallet(w.W, p.transaction);
+    expect((await finalize(w, p.ticket, signed)).status).toBe(200);
+    expect(asked).toEqual([BigInt(p.contextSlot)]);
+    // Sealed before tickets carried the slot: read as then, with no floor.
+    const w2 = await world();
+    const p2 = (await (await agentPrepare(post('prepare', swapBody(w2.W.address, { outputMint: BONK })), w2.deps)).json()) as Prepared;
+    const { slot: _s, ...before } = JSON.parse(Buffer.from(p2.ticket.split('.')[0], 'base64url').toString('utf8'));
+    const s2 = await signAsWallet(w2.W, p2.transaction);
+    // A slot that is not a number does not open.
+    expect((await finalize(w2, await sealTicket(secret(7), { ...before, slot: 'x' }), s2)).status).toBe(400);
+    expect((await finalize(w2, await sealTicket(secret(7), before), s2)).status).toBe(200);
+  });
+
   it('a swap into a token whose balance moved since prepare is not signed', async () => {
     const w = await world();
     const res = await agentPrepare(post('prepare', swapBody(w.W.address, { outputMint: BONK })), w.deps);
