@@ -1,7 +1,7 @@
 import { address, isAddress } from '@solana/kit';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { readBodyLimited } from '../body';
-import { clientKey, limit } from '../rateLimit';
+import { clientKey, limit, limitReached } from '../rateLimit';
 import { SKILL_VERSION } from '../skill';
 import { olderThan } from './api';
 import { LEGAL } from '../../legal';
@@ -137,16 +137,21 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
     const sol = (Number(deps.minLamports) / 1e9).toLocaleString('en-US', { maximumFractionDigits: 9 });
     return fail(403, 'wallet-empty', `A key is issued to a wallet holding at least ${sol} SOL. Fund the wallet, then ask again.`);
   }
-  // Counted only for funded wallets that signed, so nobody spends another wallet's or everyone's issuance.
+  // Counted only for funded wallets that signed, so nobody spends another wallet's or everyone's
+  // issuance; and only once the key is issued and its acceptance recorded, so that a record that
+  // fails spends nothing either. Checked here, counted below: requests that arrive together can each
+  // pass before any of them is counted, a burst of funded wallets that each signed, all counted after
+  // it; never a way past the limit once they are.
   const perWallet = `keys-wallet:${accepted.wallet}`;
-  const waitPerWallet = await limit(perWallet, WALLET_KEYS_PER_DAY, 86_400_000);
+  const waitPerWallet = await limitReached(perWallet, WALLET_KEYS_PER_DAY, 86_400_000);
   if (waitPerWallet !== null) {
     return fail(429, 'rate-limited', 'Too many keys issued to this wallet today. Use the key you have, or wait Retry-After seconds.', { 'retry-after': String(waitPerWallet) });
   }
   // A limiter of its own (no colon: rateLimit.ts, limiterOf), so that a flood of addresses in
   // `keys-issue` cannot push it out of this instance's memory and start it again.
   const all = 'keys-all';
-  const waitAll = await limit(all, deps.maxKeysPerHour ?? DEFAULT_KEYS_PER_HOUR, 3_600_000);
+  const maxAll = deps.maxKeysPerHour ?? DEFAULT_KEYS_PER_HOUR;
+  const waitAll = await limitReached(all, maxAll, 3_600_000);
   if (waitAll !== null) {
     return fail(429, 'rate-limited', 'Orientim is issuing too many keys right now. Wait Retry-After seconds and try again.', { 'retry-after': String(waitAll) });
   }
@@ -164,5 +169,7 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
       return fail(503, 'unavailable', "Your acceptance of the Terms couldn't be recorded, so no key was issued. Try again in a moment.", { 'retry-after': '5' });
     }
   }
+  // Issued and recorded: now it counts.
+  await Promise.all([limit(perWallet, WALLET_KEYS_PER_DAY, 86_400_000), limit(all, maxAll, 3_600_000)]);
   return json(200, { key: issued.key, wallet: accepted.wallet, expiresAt: issued.expiresAt });
 }

@@ -93,6 +93,25 @@ export async function limit(key: string, limit: number, windowMs = 60_000, share
   }
 }
 
+/**
+ * `limit` without counting this request, for one that counts only once it succeeded (`limit` then):
+ * the seconds a Retry-After should say when `key` already had `max` requests in its window, else
+ * null. Read here, then in Redis; when Redis does not answer, the instance's count alone decides.
+ */
+export async function limitReached(key: string, max: number, windowMs = 60_000, shared: Shared | null = redisFromEnv()): Promise<number | null> {
+  const w = limiters.get(limiterOf(key))?.get(key);
+  let reached = !!w && w.resetAt > Date.now() && w.count >= max;
+  if (!reached && shared) {
+    try {
+      reached = Number(await shared.get(`orientim:rl:${key}`) ?? 0) >= max;
+    } catch {
+      // As in `limit`.
+    }
+  }
+  // Counted once over the limit, which spends nothing: the window's end is the Retry-After.
+  return reached ? limit(key, max, windowMs, shared) : null;
+}
+
 /** Whole seconds until `key`'s window ends: what a Retry-After should say once it is limited. */
 export function secondsUntilReset(key: string): number {
   const w = limiters.get(limiterOf(key))?.get(key);

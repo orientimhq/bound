@@ -162,6 +162,31 @@ describe('the endpoints', () => {
     }
   });
 
+  it("a record of the Terms that fails spends none of the wallet's keys, nor the hourly cap", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // Ahead of every window the other tests opened.
+      vi.setSystemTime(Date.now() + 6 * 86_400_000);
+      const W = await generateKeyPairSigner();
+      let failing = true;
+      const d: AccessDeps = { ...deps(20_000_000n), maxKeysPerHour: 5, recordAcceptance: async () => { if (failing) throw new Error('blob down'); } };
+      const issue = async () => {
+        const c = await newChallenge(secret(5), { domain: 'orientim.com', uri: 'u', wallet: W.address, now: NOW });
+        return keyIssue(new Request('https://orientim.com/api/v1/keys', {
+          method: 'POST', headers: from(), body: JSON.stringify({ ...c, signature: await sign(W, c.message) }),
+        }), d);
+      };
+      for (let i = 0; i < 5; i++) expect((await issue()).status).toBe(503);
+      failing = false;
+      for (let i = 0; i < 5; i++) expect((await issue()).status).toBe(200);
+      const sixth = await issue();
+      expect(sixth.status).toBe(429);
+      expect(Number(sixth.headers.get('retry-after'))).toBeGreaterThan(80_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('issue nothing while protected swaps are paused', async () => {
     const W = await generateKeyPairSigner();
     const paused = { ...deps(20_000_000n), disabled: true };
