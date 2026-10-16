@@ -640,10 +640,24 @@ const SIGNED_BY_E_MS = 10 * 60_000;
 /** This instance's memory, for deployments (and tests) without shared state. */
 const localShared = memoryShared();
 
-/** May E (of `nonce`) sign `msg`? Yes for its first message and that one again; it is noted, in one step. */
-async function oneMessagePerE(shared: Shared, nonce: string, msg: string): Promise<boolean> {
-  const had = await shared.claim(`orientim:e:${nonce}`, msg, SIGNED_BY_E_MS);
-  return had === null || had === msg;
+const eKey = (nonce: string) => `orientim:e:${nonce}`;
+
+/**
+ * May E (of `nonce`) sign `msg`? `first` when this request noted it, in one step; `again` for the
+ * message E already has; null for another. A request that signs it again marks the note first
+ * (AGAIN), as with the output hold: the request that noted it then never gives it back, since the
+ * bytes may be out through this one. Unmarked, it is given back whenever E's signature never left.
+ */
+async function oneMessagePerE(shared: Shared, nonce: string, msg: string): Promise<'first' | 'again' | null> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const had = await shared.claim(eKey(nonce), msg, SIGNED_BY_E_MS);
+    if (had === null) return 'first';
+    if (had === `${msg}${AGAIN}`) return 'again';
+    if (had !== msg) return null;
+    if (await shared.replace(eKey(nonce), msg, `${msg}${AGAIN}`, SIGNED_BY_E_MS)) return 'again';
+    // Given back between the two steps: look again.
+  }
+  throw new Error('The one-time key\'s note kept changing.');
 }
 
 /**
@@ -763,13 +777,16 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     return refuse(503, 'unavailable', 'Orientim could not read from the network whether this transaction was already sent, so this request sent nothing. Try finalize again in a few seconds.', {}, { 'retry-after': '5' });
   }
 
-  // The output account this request holds, once it does: given back whenever nothing went out.
+  // The output account this request holds, and E's message it noted first, once it does: both given
+  // back whenever E's signature never left this request (`out` stays false).
   let holding: { shared: Shared; account: string; mine: string } | null = null;
+  let noted: { shared: Shared; key: string; msg: string } | null = null;
+  let out = false;
   const release = async () => {
-    if (!holding) return;
-    const { shared, account, mine } = holding;
-    holding = null;
-    await shared.drop(account, mine).catch(() => undefined);
+    const [hold, note] = [holding, noted];
+    holding = noted = null;
+    if (hold) await hold.shared.drop(hold.account, hold.mine).catch(() => undefined);
+    if (note) await note.shared.drop(note.key, note.msg).catch(() => undefined);
   };
   try {
     const E = await ephemeralFor(secret, ticket.nonce);
@@ -808,13 +825,14 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     }
     const stateDown = () => refuse(503, 'unavailable', 'Orientim could not reach the state its instances share, so this request signed and sent nothing. Try finalize again in a few seconds.', {}, { 'retry-after': '5' });
     // Checked and noted in one step, for every instance at once: two finalizes cannot both pass.
-    let firstForE: boolean;
+    let forE: 'first' | 'again' | null;
     try {
-      firstForE = await oneMessagePerE(shared, ticket.nonce, ticket.msg);
+      forE = await oneMessagePerE(shared, ticket.nonce, ticket.msg);
     } catch {
       return stateDown();
     }
-    if (!firstForE) {
+    if (forE === 'first') noted = { shared, key: eKey(ticket.nonce), msg: ticket.msg };
+    if (forE === null) {
       return refuse(409, 'session-used', 'Orientim already signed another transaction with this one-time key (an earlier round of the same session), and signs one per key. Prepare again without the session; this request signed and sent nothing.');
     }
     // The output account, held for this transaction until it can no longer land (outputKey).
@@ -874,19 +892,21 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     const signed = await countersign(false);
     // Signed, not sent: the agent sends these bytes itself.
     if (!sendIt) {
+      out = true;
       return json(200, { signature, status: 'signed', signedTransaction: getBase64EncodedWireTransaction(signed), lastValidBlockHeight: ticket.lvbh });
     }
     // Too late to send and still answer in time: nothing goes out. Once it starts, a send the deadline
     // cuts short is answered `unknown` (sendOnce), with the bytes to confirm on the agent's own RPC.
     if (deadline.signal.aborted) {
-      await release();
       return refuse(503, 'unavailable', "Orientim's Solana RPC was too slow to finish this finalize, so this request sent nothing. Try finalize again in a few seconds.", {}, { 'retry-after': '5' });
     }
+    // From here the bytes may be out, until the network says it refused them.
+    out = true;
     const sent = await sendOnce(rpc, signed);
-    // Refused by the network: it cannot land, and the account is free for the next swap. Not when
-    // this repeats a finalize that may have sent the same bytes: they may still land.
+    // Refused by the network: it cannot land, and the account and E are free for the next swap. Not
+    // when this repeats a finalize that may have sent the same bytes: they may still land.
     if (sent.status === 'rejected' && repeat) sent.status = 'unknown';
-    if (sent.status === 'rejected') await release();
+    out = sent.status !== 'rejected';
     return json(200, {
       signature: sent.signature,
       status: sent.status,
@@ -900,7 +920,6 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     });
   } catch (e) {
     // Every path here ends before a send: say what this request did, and name the transaction.
-    await release();
     if (e instanceof OrientimError && e.code === 'expired') {
       return refuse(410, 'expired', 'The transaction reached the end of its lifetime before Orientim signed it now.');
     }
@@ -918,6 +937,8 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     console.error(loggableError(e));
     return refuse(500, 'internal', 'Something went wrong, and this request sent nothing.');
   } finally {
+    // Before the answer leaves: a refusal, or a send the network refused, holds nothing.
+    if (!out) await release();
     deadline.done();
   }
 }
