@@ -1441,15 +1441,16 @@ describe('state the instances share (Redis)', () => {
     const [p1, p2] = [await prepared(w), await prepared(w)];
     const s1 = await signAsWallet(w.W, p1.transaction);
     const base = memoryShared();
-    let repeated: Promise<Response> | null = null;
+    let repeated: Promise<string> | null = null;
     // The repeat runs on another instance while the first is refused by the network, just before
     // the first gives the account back.
     const shared: Shared = {
       ...base, kind: 'redis',
       claim: base.claim, replace: base.replace, get: base.get, set: base.set, count: base.count,
       drop: async (key, was) => {
-        repeated ??= agentFinalize(post('finalize', { ticket: p1.ticket, signedTransaction: s1, send: false }), { ...w.deps, shared });
-        expect((await (await repeated).json()).status).toBe('signed');
+        repeated ??= agentFinalize(post('finalize', { ticket: p1.ticket, signedTransaction: s1, send: false }), { ...w.deps, shared })
+          .then(async r => (await r.json()).status);
+        expect(await repeated).toBe('signed');
         return base.drop(key, was);
       },
     };
@@ -1474,6 +1475,82 @@ describe('state the instances share (Redis)', () => {
     // answered still holds every block it could have landed in: it never will.
     const rpc = { ...w.deps.rpc, getEpochInfo: () => ({ send: async () => ({ blockHeight: 1001n, absoluteSlot: 300_000_000n }) }) } as unknown as AgentDeps['rpc'];
     expect((await agentFinalize(post('finalize', { ticket: p2.ticket, signedTransaction: s2 }), { ...deps, rpc })).status).toBe(200);
+  });
+
+  /** One round-1 session, then a built ticket per `terms`: other messages, all signed by one E. */
+  async function sessionBuilt(w: Awaited<ReturnType<typeof world>>, termsList: Record<string, unknown>[]) {
+    const { minOut: _m, ...noMin } = swapBody(w.W.address);
+    const first = (await (await agentPrepare(post('prepare', { ...noMin, ownRoutes: true }), w.deps)).json() as Asked).error;
+    const agentMarket = fakeJupiter();
+    const routes = await Promise.all(first.requests.map(async r => ({ params: r, response: await agentMarket.build(paramsOf(r)) })));
+    const built: Prepared[] = [];
+    for (const terms of termsList) {
+      let res!: Response;
+      for (let round = 0; round < 6; round++) {
+        res = await agentPrepare(post('prepare', { ...noMin, ownRoutes: true, session: first.session, routes, ...terms }), w.deps);
+        if (res.status !== 409) break;
+        for (const r of (await res.json() as Asked).error.requests) routes.push({ params: r, response: await agentMarket.build(paramsOf(r)) });
+      }
+      built.push(await res.json() as Prepared);
+    }
+    expect(new Set(built.map(b => b.temporaryAuthority)).size).toBe(1);
+    expect(new Set(built.map(b => b.messageSha256)).size).toBe(built.length);
+    return built;
+  }
+  const terms = [{ minOut: '1' }, { minOut: '3', slippageBps: 100 }];
+
+  it("a swap the network refused leaves E free for another round's message", async () => {
+    const w = await world({ sendError: preflight() });
+    const built = await sessionBuilt(w, terms);
+    expect((await (await finalize(w, built[0].ticket, await signAsWallet(w.W, built[0].transaction))).json()).status).toBe('rejected');
+    expect((await (await finalize(w, built[1].ticket, await signAsWallet(w.W, built[1].transaction))).json()).status).toBe('rejected');
+  });
+
+  it("a finalize refused before E signed (output in flight) leaves E free for another round's message", async () => {
+    const w = await world();
+    const p0 = await prepared(w);
+    const s0 = await signAsWallet(w.W, p0.transaction);
+    expect((await finalize(w, p0.ticket, s0)).status).toBe(200);
+    const built = await sessionBuilt(w, terms);
+    expect((await (await finalize(w, built[0].ticket, await signAsWallet(w.W, built[0].transaction))).json()).error.code).toBe('output-in-flight');
+    w.statuses.set(signatureOf(s0), { confirmationStatus: 'confirmed', err: null });
+    expect((await (await finalize(w, built[1].ticket, await signAsWallet(w.W, built[1].transaction))).json()).status).toBe('sent');
+    expect(w.sent).toHaveLength(2);
+  });
+
+  it("E's message stays noted once its bytes may be out: a send that may have gone, or bytes handed back", async () => {
+    for (const how of ['unknown', 'signed'] as const) {
+      const w = await world(how === 'unknown' ? { sendError: new Error('socket hang up') } : {});
+      const built = await sessionBuilt(w, terms);
+      const first = await (await agentFinalize(post('finalize', { ticket: built[0].ticket, signedTransaction: await signAsWallet(w.W, built[0].transaction), send: how !== 'signed' }), w.deps)).json();
+      expect(first.status).toBe(how);
+      expect(first.signedTransaction).toBeTypeOf('string');
+      expect((await (await finalize(w, built[1].ticket, await signAsWallet(w.W, built[1].transaction))).json()).error.code).toBe('session-used');
+    }
+  });
+
+  it("a finalize that gives E's message back cannot once a repeat of it has signed", async () => {
+    const w = await world({ sendError: preflight() });
+    const built = await sessionBuilt(w, terms);
+    const s0 = await signAsWallet(w.W, built[0].transaction);
+    const base = memoryShared();
+    let repeated: Promise<string> | null = null;
+    // A repeat on another instance signs and hands back the bytes while the first is refused, just
+    // before the first gives back what it holds.
+    const shared: Shared = {
+      ...base, kind: 'redis',
+      drop: async (key, was) => {
+        repeated ??= agentFinalize(post('finalize', { ticket: built[0].ticket, signedTransaction: s0, send: false }), { ...w.deps, shared })
+          .then(async r => (await r.json()).status);
+        expect(await repeated).toBe('signed');
+        return base.drop(key, was);
+      },
+    };
+    const deps = { ...w.deps, shared };
+    expect((await (await agentFinalize(post('finalize', { ticket: built[0].ticket, signedTransaction: s0 }), deps)).json()).status).toBe('rejected');
+    expect(repeated).not.toBeNull();
+    const r = await agentFinalize(post('finalize', { ticket: built[1].ticket, signedTransaction: await signAsWallet(w.W, built[1].transaction) }), deps);
+    expect((await r.json()).error.code).toBe('session-used');
   });
 
   it('a made-up wallet signature holds nothing', async () => {
