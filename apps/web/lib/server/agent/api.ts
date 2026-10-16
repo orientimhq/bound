@@ -81,6 +81,11 @@ export type AgentDeps = {
    * instance only, and the rate limit is the instance's own.
    */
   shared?: Shared;
+  /**
+   * Finalize signs only with `shared` in Redis (shared.ts, sharedRequired): set in production, where
+   * instances share no memory. Prepare signs nothing, and runs either way.
+   */
+  sharedRequired?: boolean;
 };
 
 /** Is `version` (major.minor.patch) older than `minimum`? A version that is not one is not judged. */
@@ -784,6 +789,11 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
       return json(200, { signature, status: 'sent', signedTransaction: getBase64EncodedWireTransaction(signed), lastValidBlockHeight: ticket.lvbh });
     }
     if (deps.disabled) return refuse(503, 'paused', 'Protected swaps are paused. This request signed and sent nothing.');
+    const shared = deps.shared ?? localShared;
+    // Held per instance, one message per E and one swap per output account would not hold: nothing is signed.
+    if (deps.sharedRequired && shared.kind !== 'redis') {
+      return refuse(503, 'unavailable', 'This deployment has no state its instances share (Redis is not configured), so Orientim signs no swap here and this request signed and sent nothing. The operator has to connect it; retrying will not help until then.');
+    }
     // The minimum-output check is the output account's balance at prepare plus the minimum. If the
     // balance moved since (another swap into this token, a transfer), the check could count those
     // tokens: sign nothing. Run one swap per output token until it is confirmed.
@@ -796,7 +806,6 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
         });
       }
     }
-    const shared = deps.shared ?? localShared;
     const stateDown = () => refuse(503, 'unavailable', 'Orientim could not reach the state its instances share, so this request signed and sent nothing. Try finalize again in a few seconds.', {}, { 'retry-after': '5' });
     // Checked and noted in one step, for every instance at once: two finalizes cannot both pass.
     let firstForE: boolean;

@@ -457,6 +457,25 @@ describe('finalize', () => {
     expect((await res.json()).error.code).toBe('paused');
     expect(w.sent).toHaveLength(0);
   });
+
+  it('where shared state is required (production) and there is no Redis, prepare runs and finalize signs nothing', async () => {
+    const w = await world();
+    const required = { ...w, deps: { ...w.deps, sharedRequired: true, shared: memoryShared() } };
+    const p = await prepared(required);
+    const signed = await signAsWallet(w.W, p.transaction);
+    const res = await finalize(required, p.ticket, signed);
+    expect(res.status).toBe(503);
+    const { error } = await res.json();
+    expect(error.code).toBe('unavailable');
+    expect(error.message).toContain('Redis is not configured');
+    expect(error.message).toContain('signed and sent nothing');
+    expect(error.signedTransaction).toBeUndefined();
+    expect(w.sent).toHaveLength(0);
+    // With Redis (a store every instance sees), the same ticket is signed and sent.
+    const redis = { ...memoryShared(), kind: 'redis' } as Shared;
+    expect((await finalize({ ...w, deps: { ...required.deps, shared: redis } }, p.ticket, signed)).status).toBe(200);
+    expect(w.sent).toHaveLength(1);
+  });
 });
 
 describe('a finalize repeated after its answer was lost', () => {
@@ -659,6 +678,27 @@ describe('API keys from the environment', () => {
     } finally {
       delete process.env.ORIENTIM_API_SECRET;
       delete process.env.ORIENTIM_API_KEYS;
+    }
+  });
+
+  it('in production, finalize requires Redis unless ORIENTIM_TEST_MODE=1; elsewhere it does not', async () => {
+    const { agentDeps } = await import('../lib/server/agent/config.ts');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    Object.assign(process.env, {
+      ORIENTIM_API_SECRET: Buffer.alloc(32, 1).toString('base64'), ORIENTIM_API_KEYS: `a:${sha('key-one')}`,
+      VERCEL_ENV: 'production', NEXT_PUBLIC_ORIENTIM_TREASURY: TREASURY,
+    });
+    try {
+      expect(agentDeps()).toMatchObject({ sharedRequired: true, shared: { kind: 'memory' } });
+      process.env.ORIENTIM_TEST_MODE = '1';
+      expect(agentDeps()?.sharedRequired).toBe(false);
+      delete process.env.ORIENTIM_TEST_MODE;
+      delete process.env.VERCEL_ENV;
+      expect(agentDeps()?.sharedRequired).toBe(false);
+    } finally {
+      for (const k of ['ORIENTIM_API_SECRET', 'ORIENTIM_API_KEYS', 'VERCEL_ENV', 'NEXT_PUBLIC_ORIENTIM_TREASURY', 'ORIENTIM_TEST_MODE']) delete process.env[k];
+      vi.restoreAllMocks();
     }
   });
 

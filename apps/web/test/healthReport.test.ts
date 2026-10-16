@@ -69,6 +69,22 @@ describe('health', () => {
     expect((await recentHealth(t + 16_000, hosts(down, down, tokens))).ok).toBe(false);
   });
 
+  it('production without Redis is down and says why: finalize would refuse every swap; ORIENTIM_TEST_MODE=1 runs on memory', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await checkHealth(hosts(height, height, tokens))).toMatchObject({ ok: true, sharedState: 'memory' });
+    process.env.VERCEL_ENV = 'production';
+    try {
+      expect(await checkHealth(hosts(height, height, tokens))).toMatchObject({ ok: false, sharedState: 'missing', rpc: { ok: true }, jupiter: { ok: true } });
+      process.env.ORIENTIM_TEST_MODE = '1';
+      expect(await checkHealth(hosts(height, height, tokens))).toMatchObject({ ok: true, sharedState: 'memory' });
+    } finally {
+      delete process.env.VERCEL_ENV;
+      delete process.env.ORIENTIM_TEST_MODE;
+      vi.restoreAllMocks();
+    }
+  });
+
   it('paused by the kill switch is said, not counted as down; no URL or key in the answer', async () => {
     process.env.ORIENTIM_DISABLED = '1';
     const h = await checkHealth(hosts(height, height, tokens));
