@@ -962,7 +962,8 @@ export async function prepareProtectedSwap(deps: {
         }
         if (e.status < 500) return null;
       } else {
-        console.error('Jupiter could not be reached:', e);
+        // The message only: the error's cause can carry the request, headers and all.
+        console.error('Jupiter could not be reached:', e instanceof Error ? `${e.name}: ${e.message}` : String(e));
       }
       throw new OrientimError('unavailable', UNAVAILABLE_MESSAGE);
     } finally {

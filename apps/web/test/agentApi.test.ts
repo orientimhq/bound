@@ -1384,6 +1384,70 @@ describe('state the instances share (Redis)', () => {
     expect((await (await finalize(w, p2.ticket, await signAsWallet(w.W, p2.transaction))).json()).status).toBe('rejected');
   });
 
+  it('a repeated finalize refused by the network keeps the account held and hands back the bytes', async () => {
+    const w = await world({ sendError: preflight() });
+    const [p1, p2] = [await prepared(w), await prepared(w)];
+    const s1 = await signAsWallet(w.W, p1.transaction);
+    // The first hands the bytes to the agent, which sends them itself.
+    expect((await (await agentFinalize(post('finalize', { ticket: p1.ticket, signedTransaction: s1, send: false }), w.deps)).json()).status).toBe('signed');
+    const again = await (await finalize(w, p1.ticket, s1)).json();
+    expect(again.status).toBe('unknown');
+    expect(again.signedTransaction).toBeTypeOf('string');
+    expect((await (await finalize(w, p2.ticket, await signAsWallet(w.W, p2.transaction))).json()).error.code).toBe('output-in-flight');
+  });
+
+  it('a finalize that gives its hold back cannot drop it once a repeat of it has signed', async () => {
+    const w = await world({ sendError: preflight() });
+    const [p1, p2] = [await prepared(w), await prepared(w)];
+    const s1 = await signAsWallet(w.W, p1.transaction);
+    const base = memoryShared();
+    let repeated: Promise<Response> | null = null;
+    // The repeat runs on another instance while the first is refused by the network, just before
+    // the first gives the account back.
+    const shared: Shared = {
+      ...base, kind: 'redis',
+      claim: base.claim, replace: base.replace, get: base.get, set: base.set, count: base.count,
+      drop: async (key, was) => {
+        repeated ??= agentFinalize(post('finalize', { ticket: p1.ticket, signedTransaction: s1, send: false }), { ...w.deps, shared });
+        expect((await (await repeated).json()).status).toBe('signed');
+        return base.drop(key, was);
+      },
+    };
+    const deps = { ...w.deps, shared };
+    expect((await (await agentFinalize(post('finalize', { ticket: p1.ticket, signedTransaction: s1 }), deps)).json()).status).toBe('rejected');
+    expect(repeated).not.toBeNull();
+    const r = await agentFinalize(post('finalize', { ticket: p2.ticket, signedTransaction: await signAsWallet(w.W, p2.transaction) }), deps);
+    expect((await r.json()).error.code).toBe('output-in-flight');
+  });
+
+  it('the account is held by the chain, not the clock: past every timer, until the transaction can no longer land', async () => {
+    const w = await world();
+    let now = Date.now();
+    const shared = memoryShared(50_000, () => now);
+    const [p1, p2] = [await prepared(w), await prepared(w)];
+    const deps = { ...w.deps, shared };
+    expect((await agentFinalize(post('finalize', { ticket: p1.ticket, signedTransaction: await signAsWallet(w.W, p1.transaction) }), deps)).status).toBe(200);
+    const s2 = await signAsWallet(w.W, p2.transaction);
+    now += 200_000;
+    expect((await (await agentFinalize(post('finalize', { ticket: p2.ticket, signedTransaction: s2 }), deps)).json()).error.code).toBe('output-in-flight');
+    // The finalized chain is past the first's last valid block height (1000), and the node that
+    // answered still holds every block it could have landed in: it never will.
+    const rpc = { ...w.deps.rpc, getEpochInfo: () => ({ send: async () => ({ blockHeight: 1001n, absoluteSlot: 300_000_000n }) }) } as unknown as AgentDeps['rpc'];
+    expect((await agentFinalize(post('finalize', { ticket: p2.ticket, signedTransaction: s2 }), { ...deps, rpc })).status).toBe(200);
+  });
+
+  it('a made-up wallet signature holds nothing', async () => {
+    const w = await world();
+    const [p1, p2] = [await prepared(w), await prepared(w)];
+    const forged = Buffer.from(await signAsWallet(w.W, p1.transaction), 'base64');
+    forged[1] ^= 1;
+    const r = await finalize(w, p1.ticket, forged.toString('base64'));
+    expect(r.status).toBe(400);
+    expect((await r.json()).error.code).toBe('wallet-changed-transaction');
+    expect((await finalize(w, p2.ticket, await signAsWallet(w.W, p2.transaction))).status).toBe(200);
+    expect(w.sent).toHaveLength(1);
+  });
+
   it('when the shared state does not answer, finalize signs and sends nothing, and says to try again', async () => {
     const w = await world();
     const down = async () => { throw new Error('redis down'); };

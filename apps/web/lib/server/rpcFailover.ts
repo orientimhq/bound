@@ -139,7 +139,12 @@ export function createServerRpc(primary: string, fallback: string | null, times:
     const first = (config as { payload?: { params?: unknown[] } }).payload?.params?.[0];
     return typeof first === 'string' ? first : null;
   };
-  const mainMayHaveSent = (wire: string | null) => {
+  /**
+   * Noted before the main RPC is given the transaction, and awaited: another instance asked to send
+   * it again must find the note. Redis failing is not waited out; a repeated finalize never takes a
+   * refusal as proof on its own (agentFinalize).
+   */
+  const mainMayHaveSent = async (wire: string | null) => {
     if (wire === null) return;
     const now = Date.now();
     if (mainMayHave.size >= MAIN_MAY_HAVE_MAX) {
@@ -148,7 +153,7 @@ export function createServerRpc(primary: string, fallback: string | null, times:
       if (mainMayHave.size >= MAIN_MAY_HAVE_MAX) mainMayHave.delete(mainMayHave.keys().next().value!);
     }
     mainMayHave.set(wire, now + MAIN_MAY_HAVE_MS);
-    if (shared) quietly(shared.set(sentKey(wire), '1', MAIN_MAY_HAVE_MS));
+    if (shared) await shared.set(sentKey(wire), '1', MAIN_MAY_HAVE_MS).catch(() => undefined);
   };
   const sentKey = (wire: string) => `orientim:rpc:main-may-have:${createHash('sha256').update(wire).digest('hex')}`;
   /** Here, or on another instance. Redis not answering counts as "it may": that is the cautious answer. */
@@ -199,9 +204,9 @@ export function createServerRpc(primary: string, fallback: string | null, times:
         backupFailed(at);
         const left = deadline - Date.now();
         if (left <= 0 || (send && left < times.minSendMs)) throw e;
+        if (send) await mainMayHaveSent(wire);
         const started = Date.now();
         const pinsNow = pins;
-        if (send) mainMayHaveSent(wire);
         let fromMain: unknown;
         try {
           fromMain = await main({ ...config, signal: until(own, left) } as Config);
@@ -226,8 +231,8 @@ export function createServerRpc(primary: string, fallback: string | null, times:
     }
 
     const at = pins;
+    if (send) await mainMayHaveSent(wire);
     const started = Date.now();
-    if (send) mainMayHaveSent(wire);
     let e: unknown;
     try {
       const answer = await main({ ...config, signal: until(own, times.totalMs) } as Config);

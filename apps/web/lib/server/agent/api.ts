@@ -1,7 +1,7 @@
 import {
-  getBase64EncodedWireTransaction, getSignatureFromTransaction, getTransactionDecoder, isAddress, isSolanaError,
+  getBase64EncodedWireTransaction, getPublicKeyFromAddress, getSignatureFromTransaction, getTransactionDecoder, isAddress, isSolanaError,
   SOLANA_ERROR__JSON_RPC__INTERNAL_ERROR, SOLANA_ERROR__JSON_RPC__METHOD_NOT_FOUND, SOLANA_ERROR__JSON_RPC__SERVER_ERROR_NODE_UNHEALTHY,
-  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED,
+  SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, verifySignature,
 } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
 import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientimhq/swap/core';
@@ -10,7 +10,7 @@ import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientimhq/swap/core';
 import type { AccountState, TxVersion } from '@orientimhq/swap/core';
 import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, parseProvidedRoutes, prepareProtectedSwap, providedRoutes, RoutesNeeded, RoutesUntrusted } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel, ReferencePrice, SolValue } from '@orientim/jupiter';
-import { fetchAccounts, httpStatusOf, mintInfoOf, sendOnce } from '@orientimhq/swap/solana';
+import { BLOCKHASH_LIFE_BLOCKS, fetchAccounts, httpStatusOf, mintInfoOf, provesNeverLanded, readAccounts, sendOnce } from '@orientimhq/swap/solana';
 import { hasPermanentDelegate } from '@orientimhq/swap/verifier';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { readBodyLimited } from '../body';
@@ -651,14 +651,39 @@ async function oneMessagePerE(shared: Shared, nonce: string, msg: string): Promi
  */
 const outputKey = (ticket: { wOut?: string; owner: string }) => `orientim:out:${ticket.wOut ?? `${ticket.owner}:sol`}`;
 /**
- * Slots are about 400 ms, but the block height grows only on slots a leader fills: with a third of
- * them skipped, as under heavy load, a block takes about 600 ms. Held at least this long, and at most the longest.
+ * Held for as long as any transaction lives and then some: the hold ends by the chain, not the
+ * clock. Another swap takes the account over once the holder landed, or once the finalized chain
+ * proves it never will (holdOver); the time is only a backstop.
  */
-const BLOCK_MS = 650;
-const HOLD_MIN_MS = 5_000;
-const HOLD_MAX_MS = 150_000;
-const holdMs = (lvbh: bigint, height: bigint | null) =>
-  height === null ? HOLD_MAX_MS : Math.min(HOLD_MAX_MS, Math.max(HOLD_MIN_MS, Number(lvbh - height + 10n) * BLOCK_MS));
+const HOLD_MS = 10 * 60_000;
+/**
+ * What a hold says: the message, the signature, the last block height it can land at, and, once a
+ * repeated finalize of the same transaction has signed it too, `:again`. A hold so marked is never
+ * given back by the finalize that took it: the bytes may be out through the other request.
+ */
+const holdOf = (msg: string, signature: string, lvbh: string) => `${msg}:${signature}:${lvbh}`;
+const AGAIN = ':again';
+
+/**
+ * May a swap take over the account `holder` holds? Yes once the holder's transaction landed (or
+ * failed) on chain at confirmed, or provably never landed and never will. The slot to read the
+ * account's balance at, no older than the answer that said so.
+ */
+async function holdOver(rpc: SolanaRpc, holder: string): Promise<{ over: boolean; slot?: bigint }> {
+  const [, signature, lvbh] = holder.split(':');
+  // As statusesCovering reads it, keeping the slot the statuses were answered at.
+  const finalized = await rpc.getEpochInfo({ commitment: 'finalized' }).send();
+  const { context, value } = await rpc.getSignatureStatuses([signature as never], { searchTransactionHistory: true }).send();
+  const at = context?.slot !== undefined ? BigInt(context.slot) : undefined;
+  const status = value[0] as { confirmationStatus?: string } | null;
+  if (status) return { over: status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized', slot: at };
+  if (!lvbh || !/^\d+$/.test(lvbh) || at === undefined || finalized.blockHeight === undefined) return { over: false };
+  const ahead = at - BigInt(finalized.absoluteSlot);
+  if (ahead < 0n) return { over: false };
+  const height = BigInt(finalized.blockHeight);
+  const last = BigInt(lvbh);
+  return { over: provesNeverLanded({ coveredHeight: height, reachHeight: height + ahead }, last, last - BLOCKHASH_LIFE_BLOCKS + 1n), slot: at };
+}
 
 export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Response> {
   const auth = await authenticate(req, deps);
@@ -697,6 +722,18 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     signature = getSignatureFromTransaction(returned);
   } catch {
     return fail(400, 'wallet-changed-transaction', 'The transaction carries no signature from your wallet. Sign exactly what prepare returned; nothing was signed or sent.');
+  }
+  // The wallet's signature is checked before anything is noted in the shared state: a request with
+  // a made-up one must not hold the output account, or be taken for the transaction it names.
+  const walletSignature = returned.signatures[ticket.owner as Address];
+  let walletSigned = false;
+  try {
+    walletSigned = !!walletSignature && await verifySignature(await getPublicKeyFromAddress(ticket.owner as Address), walletSignature, returned.messageBytes);
+  } catch {
+    walletSigned = false;
+  }
+  if (!walletSigned) {
+    return fail(400, 'wallet-changed-transaction', "Your wallet's signature does not match the transaction Orientim built; this request signed and sent nothing.");
   }
   const known = { signature, lastValidBlockHeight: ticket.lvbh };
   const refuse = (status: number, code: string, message: string, extra: Record<string, unknown> = {}, headers: Record<string, string> = {}) =>
@@ -773,46 +810,58 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     }
     // The output account, held for this transaction until it can no longer land (outputKey).
     const account = outputKey(ticket);
-    const mine = `${ticket.msg}:${signature}`;
-    let height: bigint | null;
-    try {
-      height = BigInt(await blockHeight);
-    } catch {
-      height = null;
-    }
-    const ttl = holdMs(BigInt(ticket.lvbh), height);
-    let holder: string | null;
-    try {
-      holder = await shared.claim(account, mine, ttl);
-    } catch {
-      return stateDown();
-    }
-    // The same message again (a repeated finalize) holds what it held.
-    if (holder !== null && !holder.startsWith(`${ticket.msg}:`)) {
-      const theirs = holder.slice(holder.indexOf(':') + 1);
-      const inFlight = () => refuse(409, 'output-in-flight', "Another swap into this output account is signed and has not landed or expired yet: its tokens would count towards this swap's minimum, so this request signed and sent nothing. Finalize again once it confirms or expires.", { inFlight: theirs }, { 'retry-after': '5' });
-      const status = (await rpc.getSignatureStatuses([theirs as never]).send()).value[0];
-      if (!status || (status.confirmationStatus !== 'confirmed' && status.confirmationStatus !== 'finalized')) return inFlight();
-      // It landed (or failed) on chain: read the balance again, after it. A swap prepared before it
-      // landed was built on a balance without its tokens, and is refused as any moved balance is.
-      if (ticket.wOut) {
-        const now = tokenAmountOf((await fetchAccounts(rpc, [ticket.wOut as Address])).get(ticket.wOut)?.data);
-        const grew = now - BigInt(ticket.b0!);
-        if (grew < 0n || grew > BigInt(ticket.dust ?? '0')) {
-          return refuse(409, 'output-balance-changed', 'The balance of your output account changed since prepare (a transfer in or out, another swap, or the account was closed), so this request signed and sent nothing.', {
-            balanceAtPrepare: ticket.b0, balanceNow: now,
-          });
-        }
-      }
-      let took: boolean;
+    const mine = holdOf(ticket.msg, signature, ticket.lvbh);
+    const inFlight = (theirs: string) => refuse(409, 'output-in-flight', "Another swap into this output account is signed and has not landed or expired yet: its tokens would count towards this swap's minimum, so this request signed and sent nothing. Finalize again once it confirms or expires.", { inFlight: theirs }, { 'retry-after': '5' });
+    // A repeated finalize of the transaction the account is held for signs the same bytes again,
+    // and marks the hold first: the request that took it then never gives it back.
+    let repeat = false;
+    for (let attempt = 0; ; attempt++) {
+      let holder: string | null;
       try {
-        took = await shared.replace(account, holder, mine, ttl);
+        holder = await shared.claim(account, mine, HOLD_MS);
       } catch {
         return stateDown();
       }
-      if (!took) return inFlight();
+      if (holder === null) break;
+      const theirs = holder.split(':')[1] ?? '';
+      if (holder.startsWith(`${ticket.msg}:`)) {
+        let marked: boolean;
+        try {
+          marked = holder.endsWith(AGAIN) || await shared.replace(account, holder, `${mine}${AGAIN}`, HOLD_MS);
+        } catch {
+          return stateDown();
+        }
+        if (marked) {
+          repeat = true;
+          break;
+        }
+      } else {
+        const { over, slot } = await holdOver(rpc, holder);
+        if (!over) return inFlight(theirs);
+        // It landed (or failed) on chain, or never will: read the balance again, no older than the
+        // answer that said so. A swap prepared before it landed was built on a balance without its
+        // tokens, and is refused as any moved balance is.
+        if (ticket.wOut) {
+          const now = tokenAmountOf((await readAccounts(rpc, [ticket.wOut as Address], slot !== undefined ? { minContextSlot: slot } : {})).accounts.get(ticket.wOut)?.data);
+          const grew = now - BigInt(ticket.b0!);
+          if (grew < 0n || grew > BigInt(ticket.dust ?? '0')) {
+            return refuse(409, 'output-balance-changed', 'The balance of your output account changed since prepare (a transfer in or out, another swap, or the account was closed), so this request signed and sent nothing.', {
+              balanceAtPrepare: ticket.b0, balanceNow: now,
+            });
+          }
+        }
+        let took: boolean;
+        try {
+          took = await shared.replace(account, holder, mine, HOLD_MS);
+        } catch {
+          return stateDown();
+        }
+        if (took) break;
+      }
+      // The hold changed under this request (given back, taken over, marked): look again, a few times.
+      if (attempt >= 2) return inFlight(theirs);
     }
-    holding = { shared, account, mine };
+    if (!repeat) holding = { shared, account, mine };
     const signed = await countersign(false);
     // Signed, not sent: the agent sends these bytes itself.
     if (!sendIt) {
@@ -825,7 +874,9 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
       return refuse(503, 'unavailable', "Orientim's Solana RPC was too slow to finish this finalize, so this request sent nothing. Try finalize again in a few seconds.", {}, { 'retry-after': '5' });
     }
     const sent = await sendOnce(rpc, signed);
-    // Refused by the network: it cannot land, and the account is free for the next swap.
+    // Refused by the network: it cannot land, and the account is free for the next swap. Not when
+    // this repeats a finalize that may have sent the same bytes: they may still land.
+    if (sent.status === 'rejected' && repeat) sent.status = 'unknown';
     if (sent.status === 'rejected') await release();
     return json(200, {
       signature: sent.signature,

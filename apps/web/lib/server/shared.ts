@@ -85,7 +85,12 @@ export function redisShared(url: string, token: string): Shared {
   };
 }
 
-/** The same state in this instance's memory, at most `max` keys (the soonest to expire go first). */
+const KEPT_UNTIL_EXPIRY = ['orientim:out:', 'orientim:e:'];
+
+/**
+ * The same state in this instance's memory, at most `max` keys: the soonest to expire go first,
+ * except the holds (KEPT_UNTIL_EXPIRY), and a store full of those fails as Redis down does.
+ */
 export function memoryShared(max = 50_000, now: () => number = Date.now): Shared {
   const kept = new Map<string, { value: string; until: number }>();
   const live = (key: string) => {
@@ -100,10 +105,13 @@ export function memoryShared(max = 50_000, now: () => number = Date.now): Shared
       const t = now();
       for (const [k, v] of kept) if (v.until <= t) kept.delete(k);
       if (kept.size >= max) {
+        // A held output account or a one-time key's message is never pushed out to make room: losing
+        // one would let a second swap be signed. A rate-limit window or a cached answer can go.
         let first: string | null = null;
         let soonest = Infinity;
-        for (const [k, v] of kept) if (v.until < soonest) [first, soonest] = [k, v.until];
-        if (first !== null) kept.delete(first);
+        for (const [k, v] of kept) if (!KEPT_UNTIL_EXPIRY.some(p => k.startsWith(p)) && v.until < soonest) [first, soonest] = [k, v.until];
+        if (first === null) throw new Error('The shared state is full.');
+        kept.delete(first);
       }
     }
     kept.set(key, { value, until: now() + Math.max(1, ms) });

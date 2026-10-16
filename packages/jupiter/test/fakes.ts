@@ -223,7 +223,7 @@ export function fakeRpc(
     }),
     getSignatureStatuses: call((signatures: string[]) => {
       if (opts.statusFails) throw new Error('RPC unavailable');
-      return { value: signatures.map(s => opts.statuses?.get(s) ?? null) };
+      return { context: { slot: 300_000_000n }, value: signatures.map(s => opts.statuses?.get(s) ?? null) };
     }),
     // A route that opens an account in the taker's name fails, as PumpSwap does, until the taker
     // holds its rent; with it, the taker ends holding whatever it was sent beyond the rent.
@@ -331,7 +331,7 @@ export function fakeRpc(
     }),
     getEpochInfo: call(() => {
       if (opts.epochFails) throw new Error('RPC unavailable');
-      return { epoch: 900n };
+      return { epoch: 900n, blockHeight: opts.height ?? 1n, absoluteSlot: 300_000_000n };
     }),
   } as unknown as SolanaRpc;
 }
