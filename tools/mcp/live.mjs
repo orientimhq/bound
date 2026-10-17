@@ -17,7 +17,7 @@
 // proven for load (a 429, a busy RPC): incomplete is not a pass.
 import { spawn } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { appendFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';

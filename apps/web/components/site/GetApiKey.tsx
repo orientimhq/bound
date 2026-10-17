@@ -77,7 +77,7 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
         <p><strong>Your API key.</strong> It is shown once.</p>
         <div className="codebox">
           <pre tabIndex={0}><code>{issued.key}</code></pre>
-          <button className="copy-btn" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
+          <button type="button" className="copy-btn" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
         </div>
         <p className="hint">
           It works for {issued.wallet.slice(0, 4)}…{issued.wallet.slice(-4)} only, until {new Date(issued.expiresAt).toLocaleDateString()}.
@@ -106,22 +106,22 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
         wallets.length ? (
           <div className="key-wallets">
             {wallets.map(w => (
-              <button key={w.name} className="wallet-option" onClick={() => get(w)}>
+              <button type="button" key={w.name} className="wallet-option" onClick={() => get(w)}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={w.icon} alt="" width={24} height={24} />
                 {w.name}
               </button>
             ))}
-            <button className="ghost key-cancel" onClick={() => setChoosing(false)}>Cancel</button>
+            <button type="button" className="ghost key-cancel" onClick={() => setChoosing(false)}>Cancel</button>
           </div>
         ) : (
           <>
             <p className="hint">No wallet in this browser can sign a message. Use the Agent or bot wallet tab instead.</p>
-            <button className="ghost key-cancel" onClick={() => setChoosing(false)}>Cancel</button>
+            <button type="button" className="ghost key-cancel" onClick={() => setChoosing(false)}>Cancel</button>
           </>
         )
       ) : (
-        <button className="button primary-link key-button" onClick={() => setChoosing(true)} disabled={busy !== null}>
+        <button type="button" className="button primary-link key-button" onClick={() => setChoosing(true)} disabled={busy !== null}>
           {busy ?? 'Get an API key'}
         </button>
       )}

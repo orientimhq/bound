@@ -26,6 +26,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
+      # Ultracite's rules as a check only: it reads the code and rewrites nothing (biome.jsonc).
+      - run: npm run lint
       - run: npm test
       - run: npm run build
 

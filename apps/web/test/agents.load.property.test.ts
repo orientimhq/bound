@@ -29,7 +29,7 @@ import { BONK, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccou
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import { agentFinalize, agentPrepare } from '../lib/server/agent/api.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
-import { acquireLock, createFileStore, LockBusyError, OrientimOrderError, PendingSwapError, PolicyError, protectedSwap } from '@orientimhq/swap';
+import { acquireLock, createFileStore, OrientimOrderError, PendingSwapError, PolicyError, protectedSwap } from '@orientimhq/swap';
 import type { OwnerPolicy } from '@orientimhq/swap';
 import { runCli } from '@orientimhq/swap';
 

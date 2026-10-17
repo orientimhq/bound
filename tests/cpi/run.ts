@@ -178,7 +178,7 @@ const CASES: Case[] = [
     name: 'destroys the temporary input account after emptying it',
     variant: 'C', expect: 'reverts',
     proves: 'a route cannot complete around a temporary account it destroyed: cleanup fails and everything is undone',
-    inners: w => [
+    inners: () => [
       takeFrom(SWAP_AMOUNT),
       {
         program: IX.token,

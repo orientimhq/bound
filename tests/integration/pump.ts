@@ -153,7 +153,6 @@ for (const t of candidates) {
   check(t.symbol, "buy: the rent sent to the temporary key is the market's, under the ceiling",
     rent > 0n && rent <= MAX_TAKER_RENT_LAMPORTS && prepared.oneTimeCosts.routeRent === rent && prepared.certificate.routeRentLamports === rent,
     `${rent} lamports`);
-  const E = prepared.policy.ephemeral;
   const wOut = prepared.policy.accounts.wOut!;
   const before = tokenAmountOf((await fetchAccounts(rpc, [wOut])).get(wOut)?.data);
   // E, E_in, W_out, and the account the market opens for E when Orientim closes it.

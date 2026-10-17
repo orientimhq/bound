@@ -1,0 +1,88 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  // Ultracite's rules, as a check only: the formatter and the assists are off, so nothing here
+  // rewrites a file. Every rule below is on except the ones listed under "off", which the code
+  // breaks today (the count is how many places). Turn them back on one at a time, each in its
+  // own change.
+  "extends": ["ultracite/biome/core","ultracite/biome/react","ultracite/biome/next","ultracite/biome/vitest"],
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+  "json": { "formatter": { "enabled": false } },
+  "css": { "formatter": { "enabled": false } },
+  "html": { "formatter": { "enabled": false } },
+  "overrides": [{ "includes": ["**/package.json", ".github/**/*.json"], "assist": { "enabled": false } }],
+  "linter": {
+    "rules": {
+      "nursery": {
+        "noFloatingPromises": "error",
+        "noMisusedPromises": "off", // 1
+        "useSortedClasses": "off" // 8
+      },
+      "a11y": {
+        "noNoninteractiveTabindex": "off", // 27
+        "noSvgWithoutTitle": "off", // 1
+        "useAriaPropsSupportedByRole": "off", // 1
+        "useSemanticElements": "off" // 1
+      },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": "off", // 34
+        "noForEach": "off", // 2
+        "noUselessUndefined": "off", // 3
+        "noVoid": "off", // 3
+        "useOptionalChain": "off", // 3
+        "useSimplifiedLogicExpression": "off" // 40
+      },
+      "correctness": {
+        "noUndeclaredDependencies": "off", // 128
+        "useExhaustiveDependencies": "off" // 1
+      },
+      "performance": {
+        "noAccumulatingSpread": "off", // 1
+        "noAwaitInLoops": "off", // 137
+        "noBarrelFile": "off", // 3
+        "noImgElement": "off", // 1
+        "noJsxPropsBind": "off", // 13
+        "useTopLevelRegex": "off" // 163
+      },
+      "style": {
+        "noDescendingSpecificity": "off", // 16
+        "noIncrementDecrement": "off", // 137
+        "noNegationElse": "off", // 54
+        "noNestedTernary": "off", // 71
+        "noNonNullAssertion": "off", // 266
+        "noUnusedTemplateLiteral": "off", // 37
+        "useAtIndex": "off", // 12
+        "useBlockStatements": "off", // 898
+        "useConsistentBuiltinInstantiation": "off", // 1
+        "useConsistentMethodSignatures": "off", // 22
+        "useConsistentTypeDefinitions": "off", // 107
+        "useDefaultSwitchClause": "off", // 1
+        "useDestructuring": "off", // 27
+        "useErrorCause": "off", // 8
+        "useFilenamingConvention": "off", // 31
+        "useForOf": "off", // 1
+        "useImportType": "off", // 1
+        "useNumberNamespace": "off", // 17
+        "useNumericSeparators": "off", // 230
+        "useTemplate": "off" // 4
+      },
+      "suspicious": {
+        "noArrayIndexKey": "off", // 1
+        "noAssignInExpressions": "off", // 2
+        "noBitwiseOperators": "off", // 34
+        "noEmptyBlockStatements": "off", // 10
+        "noEvolvingTypes": "off", // 4
+        "noImplicitAnyLet": "off", // 2
+        "noLeakedRender": "off", // 7
+        "noMisplacedAssertion": "off", // 15
+        "noNestedPromises": "off", // 2
+        "noReturnAssign": "off", // 2
+        "noShadow": "off", // 37
+        "noUnnecessaryConditions": "off", // 36
+        "useAwait": "off", // 117
+        "useIterableCallbackReturn": "off", // 2
+        "useStaticResponseMethods": "off" // 3
+      }
+    }
+  }
+}
