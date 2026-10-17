@@ -57,6 +57,10 @@ on:
         description: 'Least time between two Jupiter requests, in ms (1100 suits a free key)'
         required: false
         default: '1100'
+      pump_tokens:
+        description: 'Pump.fun tokens of each market (curve, PumpSwap) the pump group tries'
+        required: false
+        default: '3'
       phases:
         description: 'capacity: the phases, comma-separated (1 baseline, 2 load, 3 soak, 4 failures, 5 abuse, 6 kill switch)'
         required: false
@@ -98,6 +102,7 @@ jobs:
           SIM_JUPITER_INTERVAL_MS: ${{ inputs.jupiter_interval_ms }}
           SIM_VERSION: ${{ inputs.version }}
           SIM_OWN_ROUTES: ${{ inputs.own_routes }}
+          SIM_PUMP_TOKENS: ${{ inputs.pump_tokens }}
           SIM_OUT: ${{ runner.temp }}/sim
         run: node node_modules/vitest/vitest.mjs run --config tools/sim/vitest.config.ts tools/sim/matrix
 

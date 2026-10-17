@@ -64,6 +64,7 @@ const JUPITER_API_KEY = process.env.JUPITER_API_KEY || undefined;
 /** Routes fetched by the agent with its own key (the default with a key); SIM_OWN_ROUTES=0: Orientim's key builds them. */
 const OWN_ROUTES = process.env.SIM_OWN_ROUTES !== '0';
 const JUPITER_INTERVAL_MS = Number(process.env.SIM_JUPITER_INTERVAL_MS ?? (JUPITER_API_KEY ? 1_100 : 2_200));
+const PUMP_TOKENS = Math.max(1, Number(process.env.SIM_PUMP_TOKENS ?? 3) || 3);
 const GROUPS = (process.env.SIM_GROUPS ?? '').split(',').map(s => s.trim()).filter(Boolean);
 const LIMIT = Number(process.env.SIM_LIMIT ?? 0) || Infinity;
 const OUT = process.env.SIM_OUT ?? join(tmpdir(), 'orientim-sim');
@@ -208,13 +209,17 @@ function buildCases(pump: { curve: string[]; amm: string[] }): Case[] {
     }
   }
   // Pump.fun: tokens still on the bonding curve, and graduated ones trading on PumpSwap.
+  // Buys small to large, sells of a holder's share, and a meme trader's auto tolerance at the largest buy.
   for (const mint of pump.curve) {
-    cases.push({ group: 'pump', input: 'SOL', output: mint, usd: 5 }, { group: 'pump', input: 'SOL', output: mint, usd: 50 });
-    cases.push({ group: 'pump', input: mint, output: 'SOL', usd: 0, share: 0.01 });
+    for (const usd of [5, 50, 200]) cases.push({ group: 'pump', input: 'SOL', output: mint, usd });
+    cases.push({ group: 'pump', input: 'SOL', output: mint, usd: 200, slippage: 'auto' });
+    for (const share of [0.01, 0.25]) cases.push({ group: 'pump', input: mint, output: 'SOL', usd: 0, share });
   }
   for (const mint of pump.amm) {
-    cases.push({ group: 'pump', input: 'SOL', output: mint, usd: 20 }, { group: 'pump', input: 'SOL', output: mint, usd: 500 });
-    cases.push({ group: 'pump', input: mint, output: 'USDC', usd: 0, share: 0.01 });
+    for (const usd of [20, 500, 2_000]) cases.push({ group: 'pump', input: 'SOL', output: mint, usd });
+    cases.push({ group: 'pump', input: 'SOL', output: mint, usd: 2_000, slippage: 'auto' });
+    cases.push({ group: 'pump', input: 'USDC', output: mint, usd: 100 });
+    cases.push({ group: 'pump', input: mint, output: 'USDC', usd: 0, share: 0.01 }, { group: 'pump', input: mint, output: 'SOL', usd: 0, share: 0.1 });
   }
   // The tolerance an agent chooses: none (Orientim's default), "auto" (Jupiter's estimate), or a number.
   const toleranceOn: [Sym, Sym, number][] = [['SOL', 'USDC', 500], ['USDC', 'BONK', 500], ['WIF', 'JUP', 500], ['POPCAT', 'SOL', 300]];
@@ -546,17 +551,17 @@ async function mainnet(): Promise<World> {
       // Nothing listed routing there, the first three are kept as before.
       const taker = (await holdersOf(WSOL_MINT))[0]?.owner;
       const routedThrough = async (mints: string[], label: string) => {
-        if (!taker) return mints.slice(0, 3);
+        if (!taker) return mints.slice(0, PUMP_TOKENS);
         const kept: string[] = [];
-        for (const mint of mints.slice(0, 12)) {
-          if (kept.length === 3) break;
+        for (const mint of mints.slice(0, PUMP_TOKENS * 4)) {
+          if (kept.length === PUMP_TOKENS) break;
           const built = await jupiter.build({
             inputMint: address(WSOL_MINT), outputMint: address(mint), amount: 20_000_000n, taker: address(taker), slippageBps: 300, maxAccounts: 64,
           }).catch(() => null);
           if (built?.routePlan.some(p => p.swapInfo.label === label)) kept.push(mint);
         }
         console.log(`    ${label}: ${kept.length} of the listed tokens routed through it`);
-        return kept.length ? kept : mints.slice(0, 3);
+        return kept.length ? kept : mints.slice(0, PUMP_TOKENS);
       };
       return {
         curve: await routedThrough(await list('https://api.jup.ag/tokens/v2/recent'), 'Pump.fun'),
