@@ -15,7 +15,7 @@ import { hasPermanentDelegate } from '@orientimhq/swap/verifier';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { readBodyLimited } from '../body';
 import { loggableError, logEvent, maskedReason } from './events';
-import { limit } from '../rateLimit';
+import { clientKey, limit } from '../rateLimit';
 import { memoryShared, type Shared } from '../shared';
 import { openKey } from './keys';
 import { ephemeralFor, kidOf, newNonce, openSession, openTicket, REFERENCE_FRESH_MS, sealSession, sealTicket, SESSION_TTL_SECONDS } from './ticket';
@@ -56,6 +56,12 @@ export type AgentDeps = {
   fastRouting?: boolean;
   /** Requests per minute per API key, for each endpoint. */
   perMinute: number;
+  /** Finalize requests per minute per API key; `perMinute` when unset. */
+  finalizePerMinute?: number;
+  /** Prepare requests per minute from one client address, over all its keys; none when unset. */
+  ipPerMinute?: number;
+  /** Prepare requests per minute over all keys and addresses, the share of Jupiter's and the RPC's quota the plan allows; none when unset. */
+  totalPerMinute?: number;
   /** The smallest fee a swap may carry (about $1 of swap); none when unset. */
   minFee?: { lamports: bigint; stableUnits: bigint } | null;
   /**
@@ -124,7 +130,7 @@ const sha256Hex = async (bytes: ArrayLike<number>) =>
  * The key's id, and the wallet it is bound to (a self-serve key) or none (a key issued by hand), or
  * the response that refuses the request.
  */
-async function authenticate(req: Request, deps: AgentDeps): Promise<{ id: string; wallet: string | null } | Response> {
+async function authenticate(req: Request, deps: AgentDeps, endpoint: 'prepare' | 'finalize'): Promise<{ id: string; wallet: string | null } | Response> {
   const header = req.headers.get('authorization') ?? '';
   const key = /^Bearer\s+(\S{16,400})$/i.exec(header)?.[1];
   const manual = key ? deps.keys.get(await sha256Hex(new TextEncoder().encode(key))) : undefined;
@@ -134,9 +140,25 @@ async function authenticate(req: Request, deps: AgentDeps): Promise<{ id: string
   const auth = manual ? { id: manual, wallet: null } : own;
   if (!auth) return fail(401, 'unauthorized', 'A valid API key is required: Authorization: Bearer <key>. This one is missing, unknown, expired or revoked; a wallet gets a new key by signing a new key challenge.');
   const bucket = `agent:${new URL(req.url).pathname}:${auth.id}`;
-  const wait = await limit(bucket, deps.perMinute, 60_000, deps.shared?.kind === 'redis' ? deps.shared : null);
+  const shared = deps.shared?.kind === 'redis' ? deps.shared : null;
+  const perKey = endpoint === 'finalize' ? (deps.finalizePerMinute ?? deps.perMinute) : deps.perMinute;
+  const wait = await limit(bucket, perKey, 60_000, shared);
   if (wait !== null) {
     return fail(429, 'rate-limited', 'Too many requests for this API key. Wait Retry-After seconds and try again.', {}, { 'retry-after': String(wait) });
+  }
+  // Only prepare spends Jupiter's and the RPC's quota before a swap is signed; a swap already signed
+  // is always finalized. A request this key's own limit refused counts in neither.
+  if (endpoint === 'prepare' && deps.ipPerMinute) {
+    const waitIp = await limit(`agent-ip:${clientKey(req)}`, deps.ipPerMinute, 60_000, shared);
+    if (waitIp !== null) {
+      return fail(429, 'rate-limited', 'Too many requests from this address over all its keys. Wait Retry-After seconds and try again.', {}, { 'retry-after': String(waitIp) });
+    }
+  }
+  if (endpoint === 'prepare' && deps.totalPerMinute) {
+    const waitAll = await limit('agent-all:prepare', deps.totalPerMinute, 60_000, shared);
+    if (waitAll !== null) {
+      return fail(503, 'busy', 'Orientim is at its capacity for new swaps right now. Nothing was built or signed. Wait Retry-After seconds and try again.', {}, { 'retry-after': String(waitAll) });
+    }
   }
   return auth;
 }
@@ -317,7 +339,7 @@ const issuerPowers = (s: AccountState) => {
 
 export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Response> {
   if (deps.disabled) return fail(503, 'paused', 'Protected swaps are paused. Nothing was built.');
-  const auth = await authenticate(req, deps);
+  const auth = await authenticate(req, deps, 'prepare');
   if (auth instanceof Response) return auth;
   const key = auth.id;
   // A copy of the skill older than this deployment serves: say so, rather than fail some other way.
@@ -706,7 +728,7 @@ async function holdOver(rpc: SolanaRpc, holder: string): Promise<{ over: boolean
 }
 
 export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Response> {
-  const auth = await authenticate(req, deps);
+  const auth = await authenticate(req, deps, 'finalize');
   if (auth instanceof Response) return auth;
   const key = auth.id;
   const body = await readJson(req);

@@ -138,7 +138,7 @@ On Vercel, add rate-limit rules per client IP, for example:
 
 | Path | Limit | Why |
 | --- | --- | --- |
-| `/api/v1/*` | 120 per minute | The agent API; each key has its own limit too (`ORIENTIM_API_PER_MINUTE`) |
+| `/api/v1/*` | 120 per minute | The agent API; each key, each address and the total have their own limits too (`ORIENTIM_API_PER_MINUTE` and the three beside it) |
 
 The agent API uses `RPC_URL` and `JUPITER_API_KEY`. Set usage alerts at the RPC provider (Helius:
 credit usage) and on the hosting bill, so abnormal consumption is seen the day it starts.
