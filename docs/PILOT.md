@@ -22,9 +22,10 @@ and exits 1 on any failure. It only reads: it never signs or sends.
   $50 each), and an owner's policy (`ORIENTIM_POLICY`): `maxAmountIn` per input mint (say $10 a
   swap) and `maxAmountInPerDay` (say $50), with `stateDir` set to an absolute path on a disk that
   survives restarts.
-- **The ways in**: at least one agent with the skill (`protectedSwap`), one bot through
-  `orientim-verify` (in Python, say), and, if anyone will integrate the API directly, one such client
-  holding to `AGENT-API.md`, "Direct API integration contract".
+- **The ways in**: at least one agent with the skill (`protectedSwap`), one bot through the
+  `orientim` command (`orientim prepare`, `finalize` and `recover`, from Python, say), and, if anyone
+  will integrate the API directly, one such client holding to `AGENT-API.md`, "Direct API
+  integration contract".
 - **Both kinds of routes**: some bots with `JUPITER_API_KEY` (their own routes), some with
   `ORIENTIM_OWN_ROUTES=0`.
 - **Every side of the fee**:
@@ -34,15 +35,15 @@ and exits 1 on any failure. It only reads: it never signs or sends.
   - a Pump.fun curve buy and a PumpSwap buy, the markets Orientim names.
 - **The logs**: each bot appends one JSON line per swap, whatever its outcome.
   - With the skill: `{ id: intent.id, ...result }`, the object `protectedSwap` returns.
-  - With `orientim-verify`: prepare's `checked` and finalize's whole answer in one line,
-    `{ "checked": ..., ...finalizeOutput }`.
+  - With the `orientim` command: `orientim prepare`'s `checked` and `orientim finalize`'s whole
+    answer in one line, `{ "checked": ..., ...finalizeOutput }`.
 
 ## What to do on purpose
 
 | Exercise | How | Expected |
 | --- | --- | --- |
 | Restart during finalize | Kill the bot (`kill -9`) right after it signs, several times. | On restart `recover` settles the swap; the order is never carried out twice. |
-| The same order again | Run an order id that confirmed. | Refused (`orientim-verify` exit 5); nothing prepared. |
+| The same order again | Run an order id that confirmed. | Refused (`orientim prepare` exit 5); nothing prepared. |
 | Two workers, one wallet | Start two at once on one state directory. | One waits for the lock, or stands down; one swap at a time. |
 | A network that fails | Point a bot at an RPC that stops answering during finalize (a firewall rule, a dead proxy). | `unknown`, kept; settled by `recover` once the RPC answers. |
 | A limit reached | Ask for more than `maxAmountIn`, then swap until the day's limit. | Refused before anything is prepared (`amount-over-limit`, `daily-limit`). |
@@ -70,7 +71,7 @@ treasury reconciled. Keep the report, the logs and the dates with the release.
 ## First pilot (2026-09-29)
 
 A first, shorter run with real money, on skill 1.7.5 downloaded from orientim.com (its hashes
-matched), one wallet, an agent (`examples/swap.ts`) and a bot (`orientim-verify`), with the fee then
+matched), one wallet, an agent (`examples/swap.ts`) and a bot (`orientim-verify`, since 2.0.0 the `orientim` command), with the fee then
 at 0.30%.
 
 - 42 swaps confirmed over two rounds, 1 expired before it landed, at no cost. Each confirmed swap was

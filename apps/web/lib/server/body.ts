@@ -27,6 +27,3 @@ export async function readBodyLimited(req: Request, maxBytes: number): Promise<s
   }
   return new TextDecoder().decode(all);
 }
-
-/** Upstream calls (RPC, Jupiter) give up after this long instead of holding a function open. */
-export const UPSTREAM_TIMEOUT_MS = 15_000;

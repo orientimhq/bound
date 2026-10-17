@@ -58,7 +58,7 @@ shipped skill refuses a fee above 25 bps unless the owner's `maxFeeBps` allows u
 fee stays at 25. The
 network fee, market account rent and token transfer tax are separate costs stated in the
 prepare response. The core verifier enforces the same 30 bps ceiling (`MAX_FEE_BPS` in
-`packages/core/src/constants.ts`). The API fails closed if its fee configuration
+`packages/core/src/constants.ts` of the public repository, orientimhq/orientim-protected-swap). The API fails closed if its fee configuration
 exceeds 30 bps or the site's configured fee.
 
 Jupiter routes and Solana state can change. A safe refusal, an expired transaction or an
