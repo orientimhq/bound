@@ -541,9 +541,26 @@ async function mainnet(): Promise<World> {
         const body = r.ok ? await r.json() as unknown : [];
         return Array.isArray(body) ? body.map(x => (x as { id?: string }).id).filter((id): id is string => typeof id === 'string' && id.endsWith('pump')) : [];
       };
+      // A listed token is kept only when Jupiter routes 0.02 SOL into it through the market it stands
+      // for, as the canary does: a trending token often trades elsewhere, and PumpSwap went unproven.
+      // Nothing listed routing there, the first three are kept as before.
+      const taker = (await holdersOf(WSOL_MINT))[0]?.owner;
+      const routedThrough = async (mints: string[], label: string) => {
+        if (!taker) return mints.slice(0, 3);
+        const kept: string[] = [];
+        for (const mint of mints.slice(0, 12)) {
+          if (kept.length === 3) break;
+          const built = await jupiter.build({
+            inputMint: address(WSOL_MINT), outputMint: address(mint), amount: 20_000_000n, taker: address(taker), slippageBps: 300, maxAccounts: 64,
+          }).catch(() => null);
+          if (built?.routePlan.some(p => p.swapInfo.label === label)) kept.push(mint);
+        }
+        console.log(`    ${label}: ${kept.length} of the listed tokens routed through it`);
+        return kept.length ? kept : mints.slice(0, 3);
+      };
       return {
-        curve: (await list('https://api.jup.ag/tokens/v2/recent')).slice(0, 3),
-        amm: (await list('https://api.jup.ag/tokens/v2/toptrending/1h?limit=100')).slice(0, 3),
+        curve: await routedThrough(await list('https://api.jup.ag/tokens/v2/recent'), 'Pump.fun'),
+        amm: await routedThrough(await list('https://api.jup.ag/tokens/v2/toptrending/1h?limit=100'), 'Pump.fun Amm'),
       };
     },
   };
