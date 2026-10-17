@@ -18,7 +18,7 @@ import {
 } from '@orientimhq/swap/verifier';
 import { certify, MAX_ADDED_COMPUTE_UNITS, verifyWalletReturn } from '@orientim/certificate';
 import type { Certificate } from '@orientim/certificate';
-import type { SendResult, SendStatus, Simulation, SolanaRpc } from '@orientimhq/swap/solana';
+import type { Simulation, SolanaRpc } from '@orientimhq/swap/solana';
 import { JupiterError, toKitInstruction } from './client.ts';
 import { PROVIDED_ROUTE_TOLERANCE_BPS, ROUTE_LEVELS, RoutesNeeded, RoutesUntrusted } from './provided.ts';
 import type { ApiInstruction, BuildResponse, JupiterClient } from './client.ts';

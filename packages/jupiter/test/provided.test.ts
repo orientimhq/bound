@@ -11,7 +11,7 @@ import { DEFAULT_SETTINGS, OrientimError, prepareProtectedSwap } from '../src/sw
 import { MAX_PROVIDED_ROUTES, parseProvidedRoutes, providedRoutes, routeKey, RoutesNeeded, RoutesUntrusted } from '../src/provided.ts';
 import type { ProvidedRoute, RouteRequest } from '../src/provided.ts';
 import type { BuildParams, JupiterClient } from '../src/client.ts';
-import { BONK, DECIMALS, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, USDC } from './fakes.ts';
+import { BONK, DECIMALS, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, USDC } from './fakes.ts';
 import type { Account } from './fakes.ts';
 
 const TREASURY = address('9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM');

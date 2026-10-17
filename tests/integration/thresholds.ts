@@ -16,8 +16,7 @@ import { getTransactionSize } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import {
-  ataOf, buildPolicy, compileProtectedSwap, JUPITER_PROGRAM, LEGACY_SIZE_LIMIT, TOKEN_2022_PROGRAM, TOKEN_PROGRAM,
-  withMinOut, WSOL_MINT,
+  buildPolicy, compileProtectedSwap, JUPITER_PROGRAM, LEGACY_SIZE_LIMIT, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, withMinOut,
 } from '@orientimhq/swap/core';
 import type { IntermediateAta } from '@orientimhq/swap/core';
 import { createEphemeral, createRetryingRpc, fetchMints } from '@orientimhq/swap/solana';
@@ -51,7 +50,6 @@ const log = (...a: unknown[]) => console.log(...a);
 
 type Listed = { id: string; symbol: string; decimals: number; tokenProgram: string; usdPrice?: number };
 const listed = (await (await fetch('https://api.jup.ag/tokens/v2/toptraded/24h?limit=100')).json()) as Listed[];
-const usdc = listed.find(t => t.id === USDC) ?? { id: USDC, symbol: 'USDC', decimals: 6, tokenProgram: TOKEN_PROGRAM, usdPrice: 1 };
 // Liquid first, then down the volume list: the thin end is where the cost of protection shows up.
 const outputs = listed.filter(t => t.id !== USDC && t.usdPrice && t.usdPrice > 0).slice(0, TOKEN_COUNT);
 

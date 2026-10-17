@@ -22,7 +22,6 @@
         "noNoninteractiveTabindex": "off", // 27
         "noSvgWithoutTitle": "off", // 1
         "useAriaPropsSupportedByRole": "off", // 1
-        "useButtonType": "off", // 5
         "useSemanticElements": "off" // 1
       },
       "complexity": {
@@ -35,8 +34,6 @@
       },
       "correctness": {
         "noUndeclaredDependencies": "off", // 128
-        "noUnusedImports": "off", // 10
-        "noUnusedVariables": "off", // 3
         "useExhaustiveDependencies": "off" // 1
       },
       "performance": {
@@ -73,7 +70,6 @@
         "noArrayIndexKey": "off", // 1
         "noAssignInExpressions": "off", // 2
         "noBitwiseOperators": "off", // 34
-        "noDuplicateProperties": "off", // 1
         "noEmptyBlockStatements": "off", // 10
         "noEvolvingTypes": "off", // 4
         "noImplicitAnyLet": "off", // 2

@@ -4,23 +4,21 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  address, decompileTransactionMessage, generateKeyPairSigner, getAddressEncoder, getCompiledTransactionMessageDecoder,
-  getTransactionDecoder,
+  address, decompileTransactionMessage, generateKeyPairSigner, getCompiledTransactionMessageDecoder,
 } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
 import {
-  ataOf, ATA_PROGRAM, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
+  ataOf, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
 } from '@orientimhq/swap/core';
-import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { OrientimError, DEFAULT_SETTINGS, LEFT_UNDER_KEY_MESSAGE, MIN_FEE, prepareProtectedSwap, revertedOnPrice, withFloorAtLeast } from '../src/swap.ts';
 import type { SwapSettings } from '../src/swap.ts';
 import { jupiterFloor, jupiterRouteArgs } from '@orientimhq/swap/verifier';
 import type { JupiterRouteArgs } from '@orientimhq/swap/verifier';
 import { JupiterError } from '../src/client.ts';
-import type { BuildParams, BuildResponse, JupiterClient } from '../src/client.ts';
+import type { BuildParams, JupiterClient } from '../src/client.ts';
 
 import {
-  b64, BONK, clusterFeeOf, DECIMALS, DEX, fakeJupiter, fakeRpc, feeMint, fundedAccounts, hookMint, lamportsSentToTaker, mint, OUT, plain2022Mint, POOL, PUMP,
+  BONK, clusterFeeOf, DECIMALS, DEX, fakeJupiter, fakeRpc, feeMint, fundedAccounts, hookMint, mint, OUT, plain2022Mint, POOL, PUMP,
   tokenAccount, USDC,
 } from './fakes.ts';
 import type { Account } from './fakes.ts';
