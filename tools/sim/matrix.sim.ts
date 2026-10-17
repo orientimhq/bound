@@ -621,6 +621,8 @@ type Result = {
   route: string; impact: string; fee: string; floor: string; ms: number; bot?: string;
   /** Jupiter's answers that were not a success during this case. */
   jupiter?: string[];
+  /** The promised markets whose program the passed transaction names, its lookup tables included. */
+  programs?: string[];
   /** For the analysis: the amount in USD, the price impact and the floor in bps, a costlier route's gap. */
   usdValue?: number; impactBps?: number | null; floorBps?: number; gapBps?: number;
   /** Rules held on a pass, checked here apart from the skill (fee payer, signers, size, fee, impact, tolerance). */
@@ -995,6 +997,7 @@ async function runCase(w: World, c: Case, n: number): Promise<Result> {
       outcome.feeRaw = p.amounts.fee;
       outcome.impactBps = typeof p.amounts.priceImpactPct === 'number' ? Math.round(p.amounts.priceImpactPct * 10_000) : null;
       outcome.floorBps = floorBps;
+      outcome.programs = await promisedProgramsIn(p.transaction, w.rpc);
       if (approved) outcome.approved = approved;
       // Rules every pass must hold, checked here from the bytes apart from the skill's own check.
       const broken = invariantsBroken(p, owner, intent, policy);
@@ -1084,6 +1087,37 @@ function understating(fetchImpl: typeof fetch, owner: string, factor: bigint): t
 
 /** The markets Orientim promises by name (the canary's too), as Jupiter labels them in a route. */
 const PROMISED_MARKETS: [string, string][] = [['Pump.fun curve', 'Pump.fun'], ['PumpSwap', 'Pump.fun Amm']];
+/** The same markets by program address: a route's labels can be left out of the answer, its accounts cannot. */
+const PROMISED_PROGRAMS: Record<string, string> = {
+  '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P': 'Pump.fun curve', pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA: 'PumpSwap',
+};
+
+/**
+ * The promised markets a wire transaction names, in its own accounts or its lookup tables (read on
+ * the RPC: a table is 56 bytes of header, then its addresses). Empty when it cannot be read.
+ */
+async function promisedProgramsIn(wire: string, rpc: Rpc<SolanaRpcApi>): Promise<string[]> {
+  try {
+    const compiled = decodeMessage(getTransactionDecoder().decode(Buffer.from(wire, 'base64')).messageBytes as unknown as Uint8Array);
+    const named = new Set<string>(compiled.staticAccounts);
+    const lookups = (compiled.addressTableLookups ?? []) as { lookupTableAddress: string; writableIndexes: number[]; readonlyIndexes: number[] }[];
+    if (lookups.length) {
+      const tables = await rpc.getMultipleAccounts(lookups.map(l => address(l.lookupTableAddress)), { encoding: 'base64' }).send();
+      const decode = getAddressDecoder();
+      lookups.forEach((l, i) => {
+        const data = tables.value[i] ? Buffer.from(tables.value[i]!.data[0], 'base64') : null;
+        if (!data) return;
+        for (const k of [...l.writableIndexes, ...l.readonlyIndexes]) {
+          const at = 56 + k * 32;
+          if (at + 32 <= data.length) named.add(decode.decode(data.subarray(at, at + 32)));
+        }
+      });
+    }
+    return Object.entries(PROMISED_PROGRAMS).filter(([program]) => named.has(program)).map(([, name]) => name);
+  } catch {
+    return [];
+  }
+}
 
 /** Outcomes that depend on the market of the moment, not on the code that checks it. */
 // The output account's balance moved between the two checks (a borrowed holder's wallet is live):
@@ -1143,7 +1177,10 @@ function analysis(results: Result[]): string[] {
   // What the release promises, proven or not by this run: the markets named, the fee's three sides,
   // and whose routes built the swaps (the server's own events).
   const proven = (k: number) => (k ? `${k} passes` : '**NOT PROVEN this run**');
-  lines.push(`- **Markets Orientim promises**: ${PROMISED_MARKETS.map(([name, label]) => `${name} ${proven(dexes.get(label) ?? 0)}`).join('; ')}.`);
+  // Proven by the route's label, or by the market's program in the transaction itself when the
+  // answer left the labels out: whichever counts more passes.
+  const byProgram = (name: string) => passes.filter(r => r.programs?.includes(name)).length;
+  lines.push(`- **Markets Orientim promises**: ${PROMISED_MARKETS.map(([name, label]) => `${name} ${proven(Math.max(dexes.get(label) ?? 0, byProgram(name)))}`).join('; ')}.`);
   const side = (name: string) => passes.filter(r => r.feeSide === name).length;
   lines.push(`- **The fee's side in the passes**: on the input ${proven(side('input'))}; on the output ${proven(side('output'))}; in SOL from the wallet ${proven(side('sol'))}.`);
   const from = (name: string) => passes.filter(r => r.routesFrom === name).length;
