@@ -9,9 +9,9 @@ name: Canary
 # ORIENTIM_CANARY set to 0 turns the schedule off.
 on:
   schedule:
-    # Every six hours (free on a public repository). Run it by hand after anything changes under
+    # Every 12 hours, enough to see a change upstream. Run it by hand after anything changes under
     # Orientim (a Solana upgrade such as Alpenglow, a Jupiter or Pump.fun release).
-    - cron: '23 */6 * * *'
+    - cron: '23 */12 * * *'
   workflow_dispatch:
 
 permissions:

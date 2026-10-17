@@ -64,7 +64,7 @@ decided twice) or BUG. Only a BUG fails the run.
 | CI | The failing test's name says the promise broken | Run that file: `npx vitest run <file> -t "<name>"` |
 | A fuzz property | The counterexample and seed fast-check prints | Rerun with `ORIENTIM_FUZZ_SEED=<seed>`; the label in the assertion names every dimension of the case |
 | A matrix case | The summary at the end of the job's log ("To look at", "Why each case was not a pass") | A difference between agent and bot or a moved balance is run again before it counts |
-| Production | `monitor.yml` (every 2 h), `canary.yml` (every 6 h) | `docs/OPERATORS.md`, "Watching production" |
+| Production | `monitor.yml` (every 2 h), `canary.yml` (every 12 h) | `docs/OPERATORS.md`, "Watching production" |
 
 ## What changed in this pass (October 2026)
 
