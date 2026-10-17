@@ -12,8 +12,8 @@ export type Health = {
   rpcFallback: Check | null;
   jupiter: Check;
   /**
-   * The agent API as it runs: its own RPC (RPC_URL_AGENTS, or the site's) and a swap Jupiter builds
-   * with its own key (JUPITER_API_KEY_AGENTS, or the site's), not only an answer to a search. Null
+   * The agent API as it runs: its RPC and a swap Jupiter builds with its key, not only an answer to
+   * a search. Null
    * while the API is off.
    */
   agents: { rpc: Check; build: Check } | null;

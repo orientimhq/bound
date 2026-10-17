@@ -99,10 +99,9 @@ is compromised, the key can take the fees it holds and nothing else. Then:
 
 ## Cost and monitoring
 
-- Orientim's RPC and Jupiter quota are spent only through the agent API, and the app's rate limit is
-  per instance. What bounds the cost: a rate-limit rule per path in the hosting firewall, spend
-  alerts on the RPC account, and, if wanted, separate keys for the agent API (`RPC_URL_AGENTS`,
-  `JUPITER_API_KEY_AGENTS`). Jupiter counts its limits per organisation, not per key.
+- Orientim's RPC and Jupiter quota are spent only through the agent API, and the app's rate limits are
+  counted in Redis, across instances. What bounds the cost: a rate-limit rule per path in the hosting firewall, spend
+  alerts on the RPC account, and the Jupiter account's own limits.
 - Rate limits are keyed on the one header the ingress overwrites (`ORIENTIM_CLIENT_IP_HEADER`,
   default `x-vercel-forwarded-for`); no other header is read.
 - Upstream programs (Jupiter, Pump.fun, Token-2022) are upgraded while Orientim runs, and a Jupiter
@@ -110,11 +109,10 @@ is compromised, the key can take the fees it holds and nothing else. Then:
   builds and simulates swaps on mainnet state and fails on such a change or on a fee that is no
   longer taken where it should be, and exits 2 (incomplete, not a pass) when a market it promises,
   such as a Pump.fun curve or PumpSwap, could not be proven that run. `.github/workflows/canary.yml`
-  runs it every six hours with the secrets `CANARY_RPC_URL` and `CANARY_JUPITER_API_KEY` (the
+  runs it every 12 hours with the secrets `CANARY_RPC_URL` and `CANARY_JUPITER_API_KEY` (the
   repository variable `ORIENTIM_CANARY` set to `0` turns the schedule off).
 - `/api/status` shows the kill switch only; `/api/health` checks the RPC and Jupiter, that the
-  agent API is on (`agentApi`), the API's own RPC (`RPC_URL_AGENTS`, or the site's) and a small swap
-  Jupiter builds with the API's own key (`JUPITER_API_KEY_AGENTS`, or the site's). An agent API left
+  agent API is on (`agentApi`), and that Jupiter builds a small swap with `JUPITER_API_KEY`. An agent API left
   off by the settings (a missing secret or keys, a fee above 30 bps) is `agentApi: "off"` and 503;
   production without Redis is `sharedState: "missing"` and 503 (`redis` or `memory` otherwise); a
   pause by the kill switch is `paused: true` and stays 200. `/api/status` also names the commit the

@@ -104,11 +104,7 @@ export function agentDeps(): AgentDeps | null {
   if (!current || (keys.size === 0 && ownKeys.length === 0)) return null;
   const previous = secretOf(process.env.ORIENTIM_API_SECRET_PREVIOUS, 'ORIENTIM_API_SECRET_PREVIOUS');
   const server = serverConfig();
-  // The API may run on keys of its own, apart from the rest of the site's.
-  // Jupiter counts its limits per organisation, not per key: only a key from
-  // a separate Jupiter account gives the API a quota of its own.
-  const rpcUrl = process.env.RPC_URL_AGENTS || server.rpcUrl;
-  const jupiterApiKey = process.env.JUPITER_API_KEY_AGENTS || server.jupiterApiKey;
+  const { rpcUrl, jupiterApiKey } = server;
   const feeBps = BigInt(/^\d{1,3}$/.test(process.env.ORIENTIM_API_FEE_BPS ?? '') ? process.env.ORIENTIM_API_FEE_BPS!
     : /^\d{1,3}$/.test(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS ?? '') ? process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS! : '25');
   // The shipped skill and the public offer both cap Orientim's fee at 0.3%. A
@@ -192,13 +188,13 @@ export function agentDeps(): AgentDeps | null {
 }
 
 /**
- * Where the agent API reads the chain and asks Jupiter (RPC_URL_AGENTS, JUPITER_API_KEY_AGENTS, or
- * the site's own), or null while the API is off: what /api/health checks for it.
+ * Where the agent API reads the chain and asks Jupiter (RPC_URL, JUPITER_API_KEY), or null while
+ * the API is off: what /api/health checks for it.
  */
 export function agentEndpoints(): { rpcUrl: string; jupiterApiKey: string | null } | null {
   if (!agentDeps()) return null;
-  const server = serverConfig();
-  return { rpcUrl: process.env.RPC_URL_AGENTS || server.rpcUrl, jupiterApiKey: process.env.JUPITER_API_KEY_AGENTS || server.jupiterApiKey };
+  const { rpcUrl, jupiterApiKey } = serverConfig();
+  return { rpcUrl, jupiterApiKey };
 }
 
 /** The least ORIENTIM_KEY_MIN_LAMPORTS may ask: 0.001 SOL. */

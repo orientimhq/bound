@@ -6,7 +6,7 @@ afterEach(() => {
   delete process.env.RPC_URL;
   delete process.env.RPC_URL_FALLBACK;
   delete process.env.ORIENTIM_DISABLED;
-  for (const k of ['ORIENTIM_API_SECRET', 'ORIENTIM_API_KEYS', 'RPC_URL_AGENTS', 'JUPITER_API_KEY_AGENTS']) delete process.env[k];
+  for (const k of ['ORIENTIM_API_SECRET', 'ORIENTIM_API_KEYS', 'JUPITER_API_KEY']) delete process.env[k];
 });
 
 const height = () => Response.json({ jsonrpc: '2.0', id: 1, result: 312_000_000 });
@@ -97,23 +97,21 @@ describe('health', () => {
 describe('health of the agent API, as it runs', () => {
   const on = () => {
     apiOn();
-    process.env.RPC_URL_AGENTS = 'https://agents.rpc.test/';
-    process.env.JUPITER_API_KEY_AGENTS = 'agents-key';
+    process.env.JUPITER_API_KEY = 'site-key';
   };
-  /** fetch by host and path: the site's RPCs, the agent API's RPC, Jupiter's search and its build. */
-  function world(agentsRpc: () => Response, build: () => Response, seen: string[] = []) {
+  /** fetch by host and path: the site's RPC (the agent API's too), Jupiter's search and its build. */
+  function world(rpc: () => Response, build: () => Response, seen: string[] = []) {
     process.env.RPC_URL = 'https://main.rpc.test/';
     return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const u = String(url);
       seen.push(`${u.split('?')[0]} ${JSON.stringify((init?.headers ?? {}) as Record<string, string>)}`);
-      if (u.startsWith('https://main.')) return height();
-      if (u.startsWith('https://agents.')) return agentsRpc();
+      if (u.startsWith('https://main.')) return rpc();
       return u.includes('/swap/v2/build') ? build() : tokens();
     }) as unknown as typeof fetch;
   }
 
   it('with the API off, it is down and says so, while the site\'s services answer', async () => {
-    const h = await checkHealth(world(down, down));
+    const h = await checkHealth(world(height, down));
     expect(h).toMatchObject({ ok: false, agentApi: 'off', agents: null, rpc: { ok: true }, jupiter: { ok: true } });
   });
 
@@ -128,25 +126,32 @@ describe('health of the agent API, as it runs', () => {
     }
   });
 
-  it("checks the API's own RPC and a swap Jupiter builds with the API's own key", async () => {
+  it("checks a swap Jupiter builds with the site's key, on the site's RPC", async () => {
     on();
-    const seen: string[] = [];
-    const h = await checkHealth(world(height, built, seen));
-    expect(h).toMatchObject({ ok: true, agents: { rpc: { ok: true }, build: { ok: true } } });
-    expect(seen.some(s => s.startsWith('https://agents.rpc.test/'))).toBe(true);
-    expect(seen.find(s => s.startsWith('https://api.jup.ag/swap/v2/build'))).toContain('agents-key');
-    expect(JSON.stringify(h)).not.toMatch(/rpc\.test|agents-key|https?:/);
+    // Variables of an earlier, separate agent API key and RPC are not read.
+    process.env.RPC_URL_AGENTS = 'https://agents.rpc.test/';
+    process.env.JUPITER_API_KEY_AGENTS = 'agents-key';
+    try {
+      const seen: string[] = [];
+      const h = await checkHealth(world(height, built, seen));
+      expect(h).toMatchObject({ ok: true, agents: { rpc: { ok: true }, build: { ok: true } } });
+      expect(seen.some(s => s.startsWith('https://agents.'))).toBe(false);
+      const build = seen.find(s => s.startsWith('https://api.jup.ag/swap/v2/build'));
+      expect(build).toContain('site-key');
+      expect(build).not.toContain('agents-key');
+      expect(JSON.stringify(h)).not.toMatch(/rpc\.test|site-key|https?:/);
+    } finally {
+      delete process.env.RPC_URL_AGENTS;
+      delete process.env.JUPITER_API_KEY_AGENTS;
+    }
   });
 
-  it("is down when the site's services answer but the API's RPC does not, or Jupiter answers without a swap", async () => {
+  it('is down when Jupiter answers the search but builds no swap', async () => {
     on();
     const down503 = () => new Response('no', { status: 503 });
-    expect((await checkHealth(world(down, built))).ok).toBe(false);
     expect((await checkHealth(world(height, down503))).ok).toBe(false);
-    expect((await checkHealth(world(height, () => Response.json({ error: 'no route' })))).ok).toBe(false);
-    // The site's own checks still pass in each case: only the API's are down.
-    const h = await checkHealth(world(down, built));
-    expect(h).toMatchObject({ rpc: { ok: true }, jupiter: { ok: true }, agents: { rpc: { ok: false } } });
+    const h = await checkHealth(world(height, () => Response.json({ error: 'no route' })));
+    expect(h).toMatchObject({ ok: false, rpc: { ok: true }, jupiter: { ok: true }, agents: { build: { ok: false } } });
   });
 });
 
