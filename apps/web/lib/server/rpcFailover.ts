@@ -47,6 +47,15 @@ const MAIN_MAY_HAVE_MAX = 10_000;
 const SHARED_DOWN_EVERY_MS = 1_000;
 const DOWN_KEY = 'orientim:rpc:main-down-until';
 
+/** For each RPC made with a backup: is its main RPC passed over right now? */
+const passedOver = new WeakMap<object, () => boolean>();
+
+/**
+ * Is `rpc`'s main RPC passed over right now, judged down here or by another instance? Never for an RPC
+ * without a backup. For what asks the main RPC around the failover (heliusPriorityFee): not meanwhile.
+ */
+export const mainPassedOver = (rpc: SolanaRpc) => passedOver.get(rpc)?.() ?? false;
+
 /** The caller's own signal, if any, and the call's deadline: whichever ends first ends the request. */
 function until(own: AbortSignal | undefined, ms: number): AbortSignal {
   const limit = AbortSignal.timeout(Math.max(0, ms));
@@ -265,5 +274,7 @@ export function createServerRpc(primary: string, fallback: string | null, times:
     if (succeeded(answer)) return answer;
     throw e;
   }) as Transport;
-  return createSolanaRpcFromTransport(transport) as unknown as SolanaRpc;
+  const rpc = createSolanaRpcFromTransport(transport) as unknown as SolanaRpc;
+  passedOver.set(rpc, () => Date.now() < mainDownUntil);
+  return rpc;
 }

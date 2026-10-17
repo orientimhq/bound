@@ -1,7 +1,7 @@
 import { address } from '@solana/kit';
 import { createJupiterClient, heliusPriorityFee, MIN_FEE } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
-import { createServerRpc } from '../rpcFailover';
+import { createServerRpc, mainPassedOver } from '../rpcFailover';
 import { redisFromEnv, sharedRequired, sharedState } from '../shared';
 import { withSharedReads } from '../sharedReads';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
@@ -143,11 +143,15 @@ export function agentDeps(): AgentDeps | null {
   const redis = redisFromEnv();
   const identity = `${rpcUrl}|${server.rpcFallbackUrl ?? ''}|${jupiterApiKey ?? ''}|${redis ? 'redis' : ''}`;
   if (clients?.for !== identity) {
+    const rpc = createServerRpc(rpcUrl, server.rpcFallbackUrl, undefined, redis);
+    const helius = heliusPriorityFee(rpcUrl);
     clients = {
       for: identity,
       // The blockhash and the rent, read once for the swaps that ask at the same time (sharedReads.ts).
-      rpc: withSharedReads(createServerRpc(rpcUrl, server.rpcFallbackUrl, undefined, redis)),
-      priorityFee: heliusPriorityFee(rpcUrl),
+      rpc: withSharedReads(rpc),
+      // Asked of the main RPC itself, around the failover: not while it is passed over, when it would
+      // only add its timeout to every build. The recent fees on the accounts then come from the backup.
+      priorityFee: writable => (mainPassedOver(rpc) ? Promise.resolve(null) : helius(writable)),
       jupiter: createJupiterClient({
         buildUrl: 'https://api.jup.ag/swap/v2/build',
         tokensUrl: 'https://api.jup.ag/tokens/v2/search',

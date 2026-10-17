@@ -4,7 +4,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { refusedBeforeBroadcast } from '@orientimhq/swap/solana';
-import { createServerRpc } from '../lib/server/rpcFailover.ts';
+import { createServerRpc, mainPassedOver } from '../lib/server/rpcFailover.ts';
 import { memoryShared } from '../lib/server/shared.ts';
 
 const MAIN = 'https://main.rpc.test/';
@@ -64,6 +64,27 @@ describe('the agent API RPC with a backup', () => {
 
   const QUICK = { totalMs: 300, attemptMs: 200, minSendMs: 150, downMs: 30_000 };
   const balance = () => ok({ context: { slot: 1 }, value: 42 });
+
+  it("while the main RPC is passed over, Helius's estimate is not asked of it: the build takes the recent fees from the backup", async () => {
+    const { agentDeps } = await import('../lib/server/agent/config.ts');
+    Object.assign(process.env, {
+      ORIENTIM_API_SECRET: Buffer.alloc(32, 1).toString('base64'), ORIENTIM_API_KEYS: `a:${'0'.repeat(64)}`, RPC_URL: MAIN, RPC_URL_FALLBACK: BACKUP,
+    });
+    try {
+      const asked = network(() => ok({ priorityFeeEstimate: 1234.5 }), balance);
+      const deps = agentDeps()!;
+      expect(mainPassedOver(deps.rpc)).toBe(false);
+      expect(await deps.priorityFee!([])).toBe(1235n);
+      expect(asked).toEqual(['main']);
+      // Two quick failures judge the main RPC down.
+      const asked2 = network(down, balance);
+      for (let i = 0; i < 2; i++) await deps.rpc.getBalance('11111111111111111111111111111111' as never).send();
+      expect(await deps.priorityFee!([])).toBeNull();
+      expect(asked2).toEqual(['main', 'backup', 'main', 'backup']);
+    } finally {
+      for (const k of ['ORIENTIM_API_SECRET', 'ORIENTIM_API_KEYS', 'RPC_URL', 'RPC_URL_FALLBACK']) delete process.env[k];
+    }
+  });
 
   it('the main RPC and the backup share one deadline', async () => {
     // Long enough apart that a loaded machine cannot blur them: two deadlines in a row would take
