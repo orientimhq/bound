@@ -10,7 +10,7 @@ The API is off unless the deployment sets `ORIENTIM_API_SECRET` and `ORIENTIM_AP
 each key is stored). Keys issued by hand keep working beside self-serve keys.
 
 Optional: `ORIENTIM_API_SECRET_PREVIOUS` while rotating the secret, `ORIENTIM_API_FEE_BPS`,
-`ORIENTIM_API_PER_MINUTE` (60 by default). The kill switch `ORIENTIM_DISABLED=1` (or `true`) stops
+`ORIENTIM_API_PER_MINUTE` (prepare per key, 60), `ORIENTIM_API_FINALIZE_PER_MINUTE` (30), `ORIENTIM_API_IP_PER_MINUTE` (prepare per address, 120) and `ORIENTIM_API_TOTAL_PER_MINUTE` (prepare in all, 300; size it to the Jupiter and RPC plans, about 6 RPC calls a round). The kill switch `ORIENTIM_DISABLED=1` (or `true`) stops
 prepare, finalize and the key endpoints. A prepare with `version: 1` is served only where `NEXT_PUBLIC_ORIENTIM_ENABLE_V1=1`.
 `ORIENTIM_OWN_ROUTES=0` turns off routes an agent brings with its own Jupiter key: prepare then
 builds with Orientim's key and ignores `ownRoutes`, `routes` and `session`. With them on, Orientim's
@@ -151,7 +151,7 @@ What to watch: a share of `prepare` answering `busy` or `unavailable` above a fe
 or a provider), `internal` at all, `ms` far above its usual (Jupiter or the RPC slowing), and
 `routes_not_used` from one key again and again (an agent bringing routes it should not).
 
-**Limits across instances.** Every limit the app keeps (60 a minute per key and endpoint, and the key
+**Limits across instances.** Every limit the app keeps (60 prepare and 30 finalize a minute per key, 120 prepare per address, 300 prepare in all, and the key
 limits: 30 challenges and 10 keys an hour per IP, 5 keys a wallet a day, 300 keys an hour) is counted
 in Redis, in a fixed window that every instance shares; each instance also keeps its own count, which
 refuses a client already over the limit without asking Redis. While Redis does not answer, and on a

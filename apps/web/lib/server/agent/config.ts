@@ -20,7 +20,10 @@ import { blobRecorder } from './termsRecord';
  *   ORIENTIM_API_SECRET_PREVIOUS  optional, the one before it, while its tickets live (to their last valid block height)
  *   ORIENTIM_API_KEYS             id:sha256-of-key, comma-separated; only the hashes are stored
  *   ORIENTIM_API_FEE_BPS          optional, the fee for API swaps; NEXT_PUBLIC_ORIENTIM_FEE_BPS otherwise
- *   ORIENTIM_API_PER_MINUTE       optional, requests per minute per key and endpoint (60)
+ *   ORIENTIM_API_PER_MINUTE       optional, prepare requests per minute per key (60)
+ *   ORIENTIM_API_FINALIZE_PER_MINUTE  optional, finalize requests per minute per key (30)
+ *   ORIENTIM_API_IP_PER_MINUTE    optional, prepare requests per minute per client address, over all its keys (120)
+ *   ORIENTIM_API_TOTAL_PER_MINUTE optional, prepare requests per minute over all keys, sized to the Jupiter and RPC plans (300)
  *   ORIENTIM_MIN_SKILL_VERSION    optional, the oldest skill prepare serves; older copies are asked to update
  *   ORIENTIM_KEY_SECRET           optional, 32 random bytes, base64: turns on self-serve keys (agent/keys.ts)
  *   ORIENTIM_KEY_SECRET_PREVIOUS  optional, the one before it, whose keys still open while it rotates out
@@ -157,7 +160,10 @@ export function agentDeps(): AgentDeps | null {
       }),
     };
   }
-  const perMinute = Number(process.env.ORIENTIM_API_PER_MINUTE);
+  const count = (name: string, fallback: number) => {
+    const n = Number(process.env[name]);
+    return Number.isInteger(n) && n > 0 ? n : fallback;
+  };
   const minSkillVersion = process.env.ORIENTIM_MIN_SKILL_VERSION?.trim() ?? '';
   return {
     rpc: clients.rpc,
@@ -177,7 +183,10 @@ export function agentDeps(): AgentDeps | null {
     fastRouting: process.env.ORIENTIM_ENABLE_FAST_ROUTING === '1',
     // Routes an agent brings with its own Jupiter key; ORIENTIM_OWN_ROUTES=0 turns them off.
     ownRoutes: process.env.ORIENTIM_OWN_ROUTES !== '0',
-    perMinute: Number.isInteger(perMinute) && perMinute > 0 ? perMinute : 60,
+    perMinute: count('ORIENTIM_API_PER_MINUTE', 60),
+    finalizePerMinute: count('ORIENTIM_API_FINALIZE_PER_MINUTE', 30),
+    ipPerMinute: count('ORIENTIM_API_IP_PER_MINUTE', 120),
+    totalPerMinute: count('ORIENTIM_API_TOTAL_PER_MINUTE', 300),
     minSkillVersion: /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(minSkillVersion) ? minSkillVersion : null,
     // The smallest swap, about $1, so that no swap costs more to build than it brings.
     minFee: MIN_FEE,

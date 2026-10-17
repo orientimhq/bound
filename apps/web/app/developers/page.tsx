@@ -710,7 +710,7 @@ POST /api/v1/keys
               <h2>Rate limits</h2>
               <ul>
                 <li>
-                  60 requests a minute for each endpoint, counted per wallet for a self-serve key; each round of{' '}
+                  60 prepare and 30 finalize requests a minute, counted per wallet for a self-serve key, and 120 prepare a minute from one address; each round of{' '}
                   <a href="#own-routes">your own routes</a> is one prepare request. A <code>429</code> carries{' '}
                   <code>Retry-After</code>: the seconds until the count starts again.
                 </li>

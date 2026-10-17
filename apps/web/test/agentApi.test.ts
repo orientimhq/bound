@@ -169,6 +169,35 @@ describe('prepare', () => {
     expect(after).toBeLessThanOrEqual(60);
   });
 
+  it('finalize has its own count per key, and a request over the key limit does not use the total', async () => {
+    const w = await world();
+    const deps = { ...w.deps, perMinute: 1_000, finalizePerMinute: 1, totalPerMinute: 2 };
+    const first = await agentFinalize(post('finalize-own-limit', {}), deps);
+    expect(first.status).not.toBe(429);
+    const second = await agentFinalize(post('finalize-own-limit', {}), deps);
+    expect(second.status).toBe(429);
+  });
+
+  it('prepare answers 503 busy with Retry-After once the total for all keys is used, and builds nothing', async () => {
+    const w = await world();
+    const deps = { ...w.deps, totalPerMinute: 1 };
+    const first = await agentPrepare(post('prepare-total', swapBody(w.W.address)), deps);
+    expect(first.status).toBe(200);
+    const second = await agentPrepare(post('prepare-total', swapBody(w.W.address)), deps);
+    expect(second.status).toBe(503);
+    expect(((await second.json()) as { error: { code: string } }).error.code).toBe('busy');
+    expect(Number(second.headers.get('retry-after'))).toBeGreaterThan(0);
+  });
+
+  it('prepare counts the client address over all its keys', async () => {
+    const w = await world();
+    const deps = { ...w.deps, ipPerMinute: 1 };
+    const first = await agentPrepare(post('prepare-ip', swapBody(w.W.address)), deps);
+    expect(first.status).toBe(200);
+    const second = await agentPrepare(post('prepare-ip', swapBody(w.W.address)), deps);
+    expect(second.status).toBe(429);
+  });
+
   it('takes acceptCostBps as a number or as an integer string, and refuses anything else', async () => {
     const w = await world();
     for (const bad of [-1, 2.5, 100_000, '12.5', 'abc', true]) {
