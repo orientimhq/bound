@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:fuzz": "vitest run packages/jupiter/test/slippage.property.test.ts apps/web/test/agents.property.test.ts apps/web/test/pure.property.test.ts packages/jupiter/test/price.property.test.ts apps/web/test/agents.limits.property.test.ts packages/certificate/test/wallet.property.test.ts apps/web/test/agents.load.property.test.ts apps/web/test/agents.ceilings.property.test.ts apps/web/test/agents.routes.property.test.ts --mode fuzz",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit && tsc -p tools/sim/tsconfig.json --noEmit",
+    "lint": "ultracite check",
     "integration": "node tests/integration/mainnet.ts",
     "thresholds": "node tests/integration/thresholds.ts",
     "cpi": "cargo build-sbf --manifest-path tests/cpi/attacker/Cargo.toml && node tests/cpi/run.ts",
@@ -19,11 +20,13 @@
     "sim": "vitest run --config tools/sim/vitest.config.ts"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.15",
     "@types/node": "^26.6.1",
     "fast-check": "^4.10.1",
     "litesvm": "^1.4.1",
     "rolldown": "1.2.9",
     "typescript": "^7.0.2",
+    "ultracite": "8.0.1",
     "vitest": "^4.1.11"
   },
   "dependencies": {
