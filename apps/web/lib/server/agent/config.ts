@@ -17,7 +17,7 @@ import { blobRecorder } from './termsRecord';
  * revoking a key or pausing follows the runbook in docs/OPERATORS.md, not an edit in the dashboard.
  *
  *   ORIENTIM_API_SECRET           32 random bytes, base64: seals tickets and derives each E
- *   ORIENTIM_API_SECRET_PREVIOUS  optional, the one before it, while its tickets expire (a minute)
+ *   ORIENTIM_API_SECRET_PREVIOUS  optional, the one before it, while its tickets live (to their last valid block height)
  *   ORIENTIM_API_KEYS             id:sha256-of-key, comma-separated; only the hashes are stored
  *   ORIENTIM_API_FEE_BPS          optional, the fee for API swaps; NEXT_PUBLIC_ORIENTIM_FEE_BPS otherwise
  *   ORIENTIM_API_PER_MINUTE       optional, requests per minute per key and endpoint (60)

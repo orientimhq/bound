@@ -15,11 +15,11 @@ export const metadata = { title: 'Privacy Notice — Orientim', description: 'Wh
 const PROCESSING: [string, string, string][] = [
   [
     'Your public wallet address, and your account for the token you receive',
-    'To read the chain for you, and to build, check and send the swap you ask for; to issue an API key bound to your wallet.',
+    'To read the chain for you, and to build, check and send the swap you ask for; to sign one swap at a time into your receiving account; to issue an API key bound to your wallet, and limit how many a wallet gets.',
     'Providing the service you request',
   ],
   ['The swap: tokens, amounts, your minimum, and the transaction you signed', 'The same.', 'Providing the service you request'],
-  ['Your IP address', 'To limit how often requests can be made, by our servers in memory and by our hosting provider\'s firewall, and to protect the service from abuse.', 'Our legitimate interest in security'],
+  ['Your IP address', 'To limit how often requests can be made, counted by our servers (in Upstash Redis, which they share) and by our hosting provider\'s firewall, and to protect the service from abuse.', 'Our legitimate interest in security'],
   [
     'Logs kept by our hosting provider: for each request, its time, the address requested (which can name a wallet or a token account), IP address and browser type; for each swap request, a few lines that together name the wallet the API key belongs to, the outcome (its error code, why a check refused it, with every address removed), which routes built it, the side of the fee and how long it took; and, when our servers fail, the error',
     'Running, securing and troubleshooting the service, and counting errors and delays.',
@@ -38,6 +38,7 @@ const RECIPIENTS: [string, string, string][] = [
   ['Vercel Inc.', 'Hosting; keeps the request logs and, in private storage, the record that you accepted the Terms', 'United States'],
   ['Helius', 'Solana RPC provider: chain reads, simulations and your signed transaction, which include your wallet address', 'United States'],
   ['Alchemy', 'Backup Solana RPC provider, asked only when Helius does not answer: the same data', 'United States'],
+  ['Upstash (Redis)', 'State our servers share: rate-limit counts, keyed by your IP address or your wallet address, and short-lived swap records, keyed by your receiving account, with the transaction\'s signature', 'United States'],
   ['Jupiter', 'Building the route, or pricing the swap when your agent brings its own routes: the tokens, the amount and, for a route, your receiving token account', 'Outside the EU'],
   ['The Solana network', 'Executes your signed transaction, which becomes public', 'Global and public'],
 ];
@@ -114,7 +115,8 @@ export default async function Page() {
       <section id="retention">
         <h2>6. How long</h2>
         <ul>
-          <li>Rate-limit counts: in memory, and at our hosting provider&apos;s firewall, for at most an hour.</li>
+          <li>Rate-limit counts: at Upstash and in our servers&apos; memory, for the window they count, at most an hour, or 24 hours for the keys issued to a wallet; and at our hosting provider&apos;s firewall, for at most an hour.</li>
+          <li>Swap records at Upstash (which receiving account a swap in flight is signed into, and its signature): 10 minutes, past the time the transaction can still land.</li>
           <li>Request logs and swap log lines at our hosting provider: up to {legal('logRetentionDays')} days, then deleted.</li>
           <li>The record that you accepted the Terms: while your API keys are valid, and up to 5 years after the last one expires, the time within which a claim about the Terms can be brought.</li>
           <li>What you write to us: as long as needed to answer you, and up to 12 months after.</li>

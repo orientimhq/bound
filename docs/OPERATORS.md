@@ -24,6 +24,16 @@ server refuse a fee above 25 bps unless the owner's `maxFeeBps` allows up to 30,
 has no way to set it: a fee of 26 to 30 bps makes every default agent swap fail until a skill release
 raises its default.
 
+Production needs Redis that every instance shares: Upstash, over REST (`UPSTASH_REDIS_REST_URL` and
+`UPSTASH_REDIS_REST_TOKEN`, or the `KV_REST_API_URL` and `KV_REST_API_TOKEN` that Vercel's Upstash
+integration sets). It keeps one message per one-time key, one swap in flight per output account, the
+rate limits and the RPC failover's notes. Serverless instances share no memory, so without it two
+finalizes on two instances could each sign: in production (`VERCEL_ENV=production`) finalize then
+refuses every swap with 503 `unavailable`, signing nothing, and `/api/health` answers 503 with
+`sharedState: "missing"`; prepare still runs. `ORIENTIM_TEST_MODE=1` runs on each instance's memory
+instead. Keep the database's eviction off: an evicted hold or one-time-key record would let a second
+swap be signed.
+
 ## Self-serve keys
 
 `ORIENTIM_KEY_SECRET` turns them on. The key message always names `ORIENTIM_PUBLIC_ORIGIN`,
@@ -32,10 +42,10 @@ on a preview without it the message names the deployment's own `VERCEL_URL` (key
 address, not on a branch alias). In
 production the agent API also stays off without a treasury or with `ORIENTIM_API_FEE_BPS=0`, unless
 `ORIENTIM_TEST_MODE=1` says that is meant. A key lasts 90 days. From one IP address Orientim answers 30 key
-challenges and issues 10 keys an hour; one wallet gets 5 keys a day, and each instance issues at most
-300 an hour to everyone together (`ORIENTIM_KEY_MAX_PER_HOUR`). Each of these counts is per instance
-(below, "Limits across instances"). The wallet must hold 0.01 SOL (`ORIENTIM_KEY_MIN_LAMPORTS`). IPv6
-addresses are counted per /64. A key is revoked by its wallet: `ORIENTIM_API_REVOKED` lists
+challenges and issues 10 keys an hour; one wallet gets 5 keys a day (a window of 24 hours), and at
+most 300 are issued an hour to everyone together (`ORIENTIM_KEY_MAX_PER_HOUR`). These counts are kept
+in Redis, for every instance together (below, "Limits across instances"). The wallet must hold 0.01
+SOL (`ORIENTIM_KEY_MIN_LAMPORTS`). IPv6 addresses are counted per /64. A key is revoked by its wallet: `ORIENTIM_API_REVOKED` lists
 `<wallet>` (all its keys) or `<wallet>@<unix seconds>` (its keys issued until then, so that the
 wallet's owner can sign again for a new one).
 
@@ -105,7 +115,8 @@ is compromised, the key can take the fees it holds and nothing else. Then:
 - `/api/status` shows the kill switch only; `/api/health` checks the RPC and Jupiter, that the
   agent API is on (`agentApi`), the API's own RPC (`RPC_URL_AGENTS`, or the site's) and a small swap
   Jupiter builds with the API's own key (`JUPITER_API_KEY_AGENTS`, or the site's). An agent API left
-  off by the settings (a missing secret or keys, a fee above 30 bps) is `agentApi: "off"` and 503; a
+  off by the settings (a missing secret or keys, a fee above 30 bps) is `agentApi: "off"` and 503;
+  production without Redis is `sharedState: "missing"` and 503 (`redis` or `memory` otherwise); a
   pause by the kill switch is `paused: true` and stays 200. `/api/status` also names the commit the
   deployment was built from (`build`) and the skill it serves (`skillVersion`).
 
@@ -117,7 +128,7 @@ mail and in the notifications: make sure that account receives them.
 
 | Workflow | Every | Fails when | Off with the repository variable |
 | --- | --- | --- | --- |
-| `monitor.yml` (`tools/monitor.ts`) | 2 hours | `/api/health` is not ok three times 20 s apart; the agent API is off; production runs a commit not on `main`, or one whose CI failed; the version of `@orientimhq/swap` it names is not on npm with the release workflow's provenance. A pause and a deploy stuck behind `main` are said as warnings. | `ORIENTIM_MONITOR=0` |
+| `monitor.yml` (`tools/monitor.ts`) | 2 hours | `/api/health` is not ok three times 20 s apart; the agent API is off; production has no Redis; production runs a commit not on `main`, or one whose CI failed; the version of `@orientimhq/swap` it names is not on npm with the release workflow's provenance. A pause and a deploy stuck behind `main` are said as warnings. | `ORIENTIM_MONITOR=0` |
 | `canary.yml` (`tools/canary.ts`) | 12 hours | A swap no longer builds on mainnet state (Jupiter's format, a Pump.fun or token program changed), a fee is not taken where it should be, or a promised market could not be proven. | `ORIENTIM_CANARY=0` |
 | `live-check.yml` (`tools/check-live.ts`) | 6 hours | Production runs a tagged release and serves other bytes than its digest. Untagged commits are said and pass. | `ORIENTIM_LIVE_CHECK=0` |
 
@@ -143,12 +154,14 @@ or a provider), `internal` at all, `ms` far above its usual (Jupiter or the RPC 
 `routes_not_used` from one key again and again (an agent bringing routes it should not).
 
 **Limits across instances.** Every limit the app keeps (60 a minute per key and endpoint, and the key
-limits: 30 challenges and 10 keys an hour per IP, 5 keys a wallet a day, 300 keys an hour) is kept by
-each instance in memory, in a fixed window, and starts again on a cold start or a redeploy. It bounds
-one instance, not the deployment: with three instances a wallet can get 15 keys in a day, and at a
-window's edge one instance lets in nearly twice its limit. The Vercel Firewall rule is the real
-limit, so check that it is saved (Firewall tab) rather than assume it. A rate-limit rule in the
-hosting firewall bounds all of them: on Vercel, Firewall, a rule on the path prefix `/api/v1/` keyed on the
+limits: 30 challenges and 10 keys an hour per IP, 5 keys a wallet a day, 300 keys an hour) is counted
+in Redis, in a fixed window that every instance shares; each instance also keeps its own count, which
+refuses a client already over the limit without asking Redis. While Redis does not answer, and on a
+deployment without it, each instance's own count decides: it bounds one instance, not the deployment,
+and starts again on a cold start or a redeploy. At a window's edge a client can still get nearly
+twice its limit. Under a flood the hosting firewall is the real limit, so check that its rule is
+saved (Firewall tab) rather than assume it. A rate-limit rule in the hosting firewall bounds all of
+them: on Vercel, Firewall, a rule on the path prefix `/api/v1/` keyed on the
 client's IP (for example 120 requests a minute, answered 429), and one on `/api/health` (30 a
 minute). Spend alerts on the RPC and Jupiter accounts bound what an abuse can cost.
 
