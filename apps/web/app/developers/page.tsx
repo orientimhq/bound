@@ -60,9 +60,9 @@ const ERRORS: [string, string, string][] = [
   ['422', 'amount-too-small', 'The amount is below the smallest swap Orientim takes, about 0.004 SOL, or $1 of USDC or USDT (for a swap between two other tokens, its value in SOL). Selling the whole balance of a token (not SOL) is allowed at any size.'],
   ['422', 'unsupported-token, no-route, insufficient-sol, insufficient-balance, simulation-failed, …', 'This swap cannot be built safely right now; message says why.'],
   ['426', 'skill-outdated', 'This copy of the skill is older than Orientim serves. Download the current one; a swap already signed still finalizes.'],
-  ['429', 'rate-limited', 'Too many requests for this key (per wallet for a self-serve key). Wait Retry-After seconds.'],
+  ['429', 'rate-limited', 'Too many requests for this key (per wallet for a self-serve key), or from this address over all its keys. Wait Retry-After seconds.'],
   ['500', 'internal', 'Something unexpected failed; nothing was signed by Orientim or sent. Retry later.'],
-  ['503', 'busy, unavailable', 'The market data or the network is overloaded. Wait Retry-After seconds and retry.'],
+  ['503', 'busy, unavailable', 'Orientim is at its capacity for new swaps, or the market data or the network is overloaded. Wait Retry-After seconds and retry.'],
   ['503', 'fee-unavailable', 'This swap cannot be built right now; nothing was built. Wait and retry.'],
   ['503', 'paused', 'Orientim has paused protected swaps, and issues no API keys meanwhile. Your funds are not affected.'],
   ['503', 'route-format', 'Swaps are briefly unavailable. Wait at least Retry-After (300 seconds).'],
@@ -169,7 +169,7 @@ export default async function Page() {
               <h2>Quickstart</h2>
               <p>
                 <strong>Using Claude Desktop?</strong> Download <a href={SKILL_EXTENSION}>orientim.mcpb</a>, open it and
-                answer its questions: no API key and nothing else to install (<a href="#mcp">MCP server</a>). For a bot or a coding
+                answer its questions: no Orientim API key, and nothing else to install (<a href="#mcp">MCP server</a>). For a bot or a coding
                 agent, follow these steps.
               </p>
               <ol>
@@ -303,6 +303,7 @@ const tools = createVercelAITools(agent, agent.actions.filter(a => a.name === AC
                 <li>The model gives <code>amount</code> in whole tokens, as text (<code>&quot;0.5&quot;</code>); the answer gives <code>receivedAmount</code> the same way.</li>
                 <li>A <code>policy</code> is required, as in the policy file; a plugin without limits is refused when it is made.</li>
                 <li>Each call is an order with an <code>orderId</code>: asked again with the same one, it is never swapped twice.</li>
+                <li>The model may ask for at most 3% slippage, as through the MCP server; only the policy&apos;s <code>maxSlippageBps</code> raises it.</li>
                 <li>A kit made with <code>signOnly</code> is refused: a protected swap is sent within the call, after Orientim signs last.</li>
               </ul>
             </section>
