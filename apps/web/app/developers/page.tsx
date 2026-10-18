@@ -32,7 +32,7 @@ const NAV: DevNavGroup[] = [
   { title: 'Getting started', items: [['overview', 'Overview'], ['start', 'Quickstart'], ['access', 'API keys']] },
   {
     title: 'Guides',
-    items: [['skill', 'AI agents: the skill'], ['cli', 'Bots: the command line'], ['mcp', 'Assistants: the MCP server'], ['how', 'How a protected swap works'], ['verify', 'Verify before you sign'], ['own-routes', 'Your own Jupiter key'], ['recovery', 'Results and recovery']],
+    items: [['agent-kit', 'Solana Agent Kit'], ['skill', 'AI agents: the skill'], ['cli', 'Bots: the command line'], ['mcp', 'Assistants: the MCP server'], ['how', 'How a protected swap works'], ['verify', 'Verify before you sign'], ['own-routes', 'Your own Jupiter key'], ['recovery', 'Results and recovery']],
   },
   { title: 'API reference', items: [['api', 'Authentication'], ['prepare', 'Prepare'], ['finalize', 'Finalize'], ['keys', 'Key endpoints'], ['errors', 'Errors'], ['limits', 'Rate limits']] },
   { title: 'Reference', items: [['fees', 'Fees and limits'], ['supported', 'Tokens and wallets'], ['downloads', 'Downloads']] },
@@ -137,11 +137,12 @@ export default async function Page() {
                 Your agent or bot decides when and what to trade, with any strategy: DCA, stop-loss or your own. Each swap it
                 decides on goes through Orientim, and your wallet signs it.
               </p>
-              <p>The swap route only ever gets the amount you approve, under a one-time key, and if less than your minimum would arrive, the whole transaction reverts. Four ways in:</p>
+              <p>The swap route only ever gets the amount you approve, under a one-time key, and if less than your minimum would arrive, the whole transaction reverts. Five ways in:</p>
               <div className="table-wrap">
                 <table>
                   <thead><tr><th>Use</th><th>For</th></tr></thead>
                   <tbody>
+                    <tr><td><a href="#agent-kit">Solana Agent Kit</a></td><td>Agents built on Solana Agent Kit: one action, with the kit&apos;s own wallet and RPC.</td></tr>
                     <tr><td><a href="#skill">Agent skill</a></td><td>Coding agents: instructions, a working TypeScript example and the verifier.</td></tr>
                     <tr><td><a href="#cli">Command line</a></td><td>Bots in Python, Rust, Go or any language that can start a process.</td></tr>
                     <tr><td><a href="#mcp">MCP server</a></td><td>Claude Desktop, Cursor and other assistants that work through tools.</td></tr>
@@ -151,7 +152,7 @@ export default async function Page() {
               </div>
               <p>These are ways to connect, not different products:</p>
               <ul>
-                <li><strong>The skill, the command line or the MCP server</strong> bring the check before signing, the record of each order and the recovery after an interruption.</li>
+                <li><strong>The Agent Kit plugin, the skill, the command line or the MCP server</strong> bring the check before signing, the record of each order and the recovery after an interruption.</li>
                 <li><strong>The API directly</strong>: your client runs <a href="#verify">the check</a> before signing, keeps a record of each order, and confirms the result (<a href="#recovery">Results and recovery</a>).</li>
               </ul>
               <p>You need:</p>
@@ -264,6 +265,46 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | npx ori
                   },
                 ]}
               />
+            </section>
+
+            <section id="agent-kit">
+              <h2>Solana Agent Kit</h2>
+              <p>
+                <code>@orientimhq/solana-agent-kit</code> adds one action to{' '}
+                <a href="https://github.com/sendaifun/solana-agent-kit">Solana Agent Kit</a>,{' '}
+                <code>ORIENTIM_PROTECTED_SWAP</code>, and leaves the rest of the kit as it is. It is the swap{' '}
+                <code>orientim swap</code> makes, with the kit&apos;s wallet and RPC: the check on that RPC before the wallet signs,
+                the owner&apos;s limits and the record of each order.
+              </p>
+              <h3>1. Install it</h3>
+              <pre tabIndex={0}><code>{`npm install --save-exact @orientimhq/solana-agent-kit @orientimhq/swap@${SKILL_VERSION}`}</code></pre>
+              <p>
+                Until the plugin is on npm, build it from <a href={`${SKILL_SOURCE}/tree/main/integrations/solana-agent-kit`}>its
+                source</a>, as its README says.
+              </p>
+              <h3>2. Add it to the kit</h3>
+              <pre tabIndex={0}><code>{`import { SolanaAgentKit, KeypairWallet, createVercelAITools } from 'solana-agent-kit';
+import { ACTION_NAME, orientimPlugin } from '@orientimhq/solana-agent-kit';
+
+const agent = new SolanaAgentKit(new KeypairWallet(keypair, RPC_URL), RPC_URL, {}).use(
+  orientimPlugin({
+    apiKey: process.env.ORIENTIM_API_KEY!,       // this wallet's key (API keys, above)
+    jupiterApiKey: process.env.JUPITER_API_KEY,  // your own: the routes are fetched with it
+    policy: {
+      maxAmountIn: { EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: '25000000' },  // at most 25 USDC a swap
+      allowedOutputMints: ['So11111111111111111111111111111111111111112'],       // and only into SOL
+    },
+  }),
+);
+
+// Give the model the tools you choose, not every action the kit has.
+const tools = createVercelAITools(agent, agent.actions.filter(a => a.name === ACTION_NAME));`}</code></pre>
+              <ul>
+                <li>The model gives <code>amount</code> in whole tokens, as text (<code>&quot;0.5&quot;</code>); the answer gives <code>receivedAmount</code> the same way.</li>
+                <li>A <code>policy</code> is required, as in the policy file; a plugin without limits is refused when it is made.</li>
+                <li>Each call is an order with an <code>orderId</code>: asked again with the same one, it is never swapped twice.</li>
+                <li>A kit made with <code>signOnly</code> is refused: a protected swap is sent within the call, after Orientim signs last.</li>
+              </ul>
             </section>
 
             <section id="skill">
