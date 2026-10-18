@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
-import { withSharedReads } from '../lib/server/sharedReads.ts';
+import { SHARED_READS_MS, withSharedFee, withSharedReads } from '../lib/server/sharedReads.ts';
 
 /** An RPC whose answers the test releases by hand; counts the calls that reach it. */
 function fakeRpc() {
@@ -100,4 +100,51 @@ describe('shared reads', () => {
     waiting.forEach(w => w.resolve(null));
     await Promise.all([a, b]);
   });
+});
+
+describe('shared priority fee', () => {
+  const counted = (answers: Array<bigint | null | Error>) => {
+    const asked: string[][] = [];
+    const level = async (writable: readonly string[]) => {
+      asked.push([...writable]);
+      const a = answers.shift();
+      if (a instanceof Error) throw a;
+      return a ?? null;
+    };
+    return { asked, level };
+  };
+
+  it('asks once for the swaps that write the same accounts, in any order, within its time', async () => {
+    const { asked, level } = counted([7n, 9n]);
+    let t = 0;
+    const fee = withSharedFee(level, 2_000, () => t);
+    expect(await fee(['A', 'B'])).toBe(7n);
+    t = 1_999;
+    expect(await fee(['B', 'A'])).toBe(7n);
+    expect(asked).toHaveLength(1);
+    t = 2_000;
+    expect(await fee(['A', 'B'])).toBe(9n);
+    expect(asked).toHaveLength(2);
+  });
+
+  it('keeps each set of accounts apart', async () => {
+    const { asked, level } = counted([1n, 2n]);
+    const fee = withSharedFee(level, 2_000, () => 0);
+    expect(await fee(['A'])).toBe(1n);
+    expect(await fee(['C'])).toBe(2n);
+    expect(asked).toEqual([['A'], ['C']]);
+  });
+
+  it('never keeps no estimate or a failure', async () => {
+    const { asked, level } = counted([null, new Error('down'), 5n]);
+    const fee = withSharedFee(level, 2_000, () => 0);
+    expect(await fee(['A'])).toBeNull();
+    await expect(fee(['A'])).rejects.toThrow('down');
+    expect(await fee(['A'])).toBe(5n);
+    expect(asked).toHaveLength(3);
+  });
+});
+
+it('shares the blockhash for two seconds, about five blocks of its ~150', () => {
+  expect(SHARED_READS_MS.getLatestBlockhash).toBe(2_000);
 });

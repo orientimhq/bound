@@ -3,7 +3,7 @@ import { createJupiterClient, heliusPriorityFee, MIN_FEE } from '@orientim/jupit
 import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
 import { createServerRpc, mainPassedOver } from '../rpcFailover';
 import { redisFromEnv, sharedRequired, sharedState } from '../shared';
-import { withSharedReads } from '../sharedReads';
+import { withSharedFee, withSharedReads } from '../sharedReads';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { serverConfig } from '../config';
 import { treasurySetting } from '../../settings';
@@ -23,7 +23,7 @@ import { blobRecorder } from './termsRecord';
  *   ORIENTIM_API_PER_MINUTE       optional, prepare requests per minute per key (60)
  *   ORIENTIM_API_FINALIZE_PER_MINUTE  optional, finalize requests per minute per key (30)
  *   ORIENTIM_API_IP_PER_MINUTE    optional, prepare requests per minute per client address, over all its keys (120)
- *   ORIENTIM_API_TOTAL_PER_MINUTE optional, prepare requests per minute over all keys, sized to the Jupiter and RPC plans (300)
+ *   ORIENTIM_API_TOTAL_PER_MINUTE optional, prepare requests per minute over all keys, sized to the Jupiter and RPC plans (180: what Helius Developer's 50 requests a second carry)
  *   ORIENTIM_MIN_SKILL_VERSION    optional, the oldest skill prepare serves; older copies are asked to update
  *   ORIENTIM_KEY_SECRET           optional, 32 random bytes, base64: turns on self-serve keys (agent/keys.ts)
  *   ORIENTIM_KEY_SECRET_PREVIOUS  optional, the one before it, whose keys still open while it rotates out
@@ -143,7 +143,8 @@ export function agentDeps(): AgentDeps | null {
   const identity = `${rpcUrl}|${server.rpcFallbackUrl ?? ''}|${jupiterApiKey ?? ''}|${redis ? 'redis' : ''}`;
   if (clients?.for !== identity) {
     const rpc = createServerRpc(rpcUrl, server.rpcFallbackUrl, undefined, redis);
-    const helius = heliusPriorityFee(rpcUrl);
+    // One estimate for the swaps that write the same accounts within two seconds (sharedReads.ts).
+    const helius = withSharedFee(heliusPriorityFee(rpcUrl));
     clients = {
       for: identity,
       // The blockhash and the rent, read once for the swaps that ask at the same time (sharedReads.ts).
@@ -186,7 +187,7 @@ export function agentDeps(): AgentDeps | null {
     perMinute: count('ORIENTIM_API_PER_MINUTE', 60),
     finalizePerMinute: count('ORIENTIM_API_FINALIZE_PER_MINUTE', 30),
     ipPerMinute: count('ORIENTIM_API_IP_PER_MINUTE', 120),
-    totalPerMinute: count('ORIENTIM_API_TOTAL_PER_MINUTE', 300),
+    totalPerMinute: count('ORIENTIM_API_TOTAL_PER_MINUTE', 180),
     minSkillVersion: /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(minSkillVersion) ? minSkillVersion : null,
     // The smallest swap, about $1, so that no swap costs more to build than it brings.
     minFee: MIN_FEE,

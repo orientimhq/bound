@@ -5,15 +5,15 @@ import type { SolanaRpc } from '@orientimhq/swap/solana';
  * answers all those that ask within its time, and a call still running is joined rather than repeated.
  * Nothing here depends on a wallet, a token or a route, so no swap can see another's state.
  *
- * - getLatestBlockhash, for half a second: a blockhash that old leaves a transaction about one block
- *   of its ~150 less to live. What a swap is checked against (its snapshot, its simulations) is read
- *   on its own, as before.
+ * - getLatestBlockhash, for two seconds: a blockhash that old leaves a transaction about five blocks
+ *   of its ~150 less to live, and its slot is only ever a lower bound (minContextSlot) for later
+ *   reads. What a swap is checked against (its snapshot, its simulations) is read on its own, as before.
  * - getMinimumBalanceForRentExemption, for ten minutes: the cluster's rent, per account size.
  *
  * A failed call is never kept: the next request asks again.
  */
 export const SHARED_READS_MS: Readonly<Record<string, number>> = {
-  getLatestBlockhash: 500,
+  getLatestBlockhash: 2_000,
   getMinimumBalanceForRentExemption: 600_000,
 };
 
@@ -62,4 +62,31 @@ export function withSharedReads(rpc: SolanaRpc, ttl: Readonly<Record<string, num
       };
     },
   }) as SolanaRpc;
+}
+
+/** How long one priority fee estimate answers the swaps that write the same accounts. */
+export const SHARED_FEE_MS = 2_000;
+
+/**
+ * A priority fee estimate shared, for `ttl`, by the swaps that write the same accounts (in any order):
+ * many agents trading one pool at once ask the RPC once. A null (no estimate) or a failure is never
+ * kept, so the next swap asks again; nothing here depends on a wallet's own state.
+ */
+export function withSharedFee<A extends string>(
+  level: (writable: readonly A[]) => Promise<bigint | null>, ttl = SHARED_FEE_MS, now = () => Date.now(),
+): (writable: readonly A[]) => Promise<bigint | null> {
+  const kept = new Map<string, { answer: Promise<bigint | null>; until: number }>();
+  return writable => {
+    const key = [...writable].sort().join(',');
+    const at = now();
+    for (const [k, p] of kept) if (p.until <= at) kept.delete(k);
+    const held = kept.get(key);
+    if (held) return held.answer;
+    const answer = level(writable);
+    const mine = { answer, until: at + ttl };
+    kept.set(key, mine);
+    const forget = () => { if (kept.get(key) === mine) kept.delete(key); };
+    answer.then(v => { if (v === null) forget(); }, forget);
+    return answer;
+  };
 }
