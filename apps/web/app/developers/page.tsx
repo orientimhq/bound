@@ -100,6 +100,101 @@ const EXIT_CODES: [string, string][] = [
   ['5', 'This order id already swapped, or its transaction may still land (prepare, or a finalize of a second transaction for it). It is never swapped twice.'],
 ];
 
+/** The Agent Kit plugin, made with the owner's limits. */
+const KIT_SETUP = <pre tabIndex={0}><code>{`import { SolanaAgentKit, KeypairWallet } from 'solana-agent-kit';
+import { orientimPlugin } from '@orientimhq/solana-agent-kit';
+
+const agent = new SolanaAgentKit(new KeypairWallet(keypair, RPC_URL), RPC_URL, {}).use(
+  orientimPlugin({
+    apiKey: process.env.ORIENTIM_API_KEY!,       // this wallet's key (API keys, above)
+    jupiterApiKey: process.env.JUPITER_API_KEY,  // your own: the routes are fetched with it
+    policy: {
+      maxAmountIn: { EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: '25000000' },  // at most 25 USDC a swap
+      allowedOutputMints: ['So11111111111111111111111111111111111111112'],       // and only into SOL
+    },
+  }),
+);`}</code></pre>;
+
+/** Only this action for the model, never every action the kit has. */
+const KIT_TOOLS = <pre tabIndex={0}><code>{`import { createVercelAITools } from 'solana-agent-kit';   // or createLangchainTools, createOpenAITools
+import { ACTION_NAME } from '@orientimhq/solana-agent-kit';
+
+const tools = createVercelAITools(agent, agent.actions.filter(a => a.name === ACTION_NAME));`}</code></pre>;
+
+/** The skill in your own code: the owner's limits, one swap per wallet, and recovery first. */
+const OWN_CODE = <pre tabIndex={0}><code>{`import { createKeyPairSignerFromBytes, createSolanaRpc } from '@solana/kit';
+import { readFileSync } from 'node:fs';
+import { acquireLock, createFileStore, loadPolicy, protectedSwap, recoverPending, stateDirFor } from '@orientimhq/swap';
+
+const rpc = createSolanaRpc(process.env.SOLANA_RPC_URL!);
+const wallet = await createKeyPairSignerFromBytes(
+  new Uint8Array(JSON.parse(readFileSync(process.env.ORIENTIM_WALLET_KEYPAIR!, 'utf8'))));
+const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+const SOL = 'So11111111111111111111111111111111111111112';
+
+// The owner's limits, if set: they hold only when passed to protectedSwap below.
+const policy = process.env.ORIENTIM_POLICY ? loadPolicy(process.env.ORIENTIM_POLICY) : undefined;
+// One state directory for every run of this wallet (the policy's own stateDir with a daily limit).
+const { dir } = stateDirFor(policy, process.env.ORIENTIM_STATE_DIR);
+const store = createFileStore(dir);
+
+// One swap at a time per wallet: a second run waits, and retries with the same order id.
+const release = acquireLock(dir, wallet.address);
+try {
+  // Settle what a stopped run left before anything new.
+  const { unknown, bookkeepingErrors } = await recoverPending(store, rpc, { orders: store, spends: store });
+  if (unknown.length || bookkeepingErrors.length) throw new Error('An earlier swap may still land');
+
+  const result = await protectedSwap({
+    apiUrl: process.env.ORIENTIM_API_URL!,
+    apiKey: process.env.ORIENTIM_API_KEY!,
+    jupiterApiKey: process.env.JUPITER_API_KEY,
+    rpc, wallet, pending: store, orders: store,
+    policy, spends: store,
+    intent: { id: 'order-42', inputMint: USDC, outputMint: SOL, amountIn: '5000000' },
+  });
+  // result.outcome: 'confirmed' | 'failed' | 'expired' | 'unknown' | 'rejected'
+} finally {
+  release();
+}`}</code></pre>;
+
+/** A bot in Python, through the command line. */
+const PYTHON = <pre tabIndex={0}><code>{`import base64, json, subprocess
+
+ORIENTIM = "node_modules/@orientimhq/swap/dist/bin/orientim.mjs"
+
+def orientim(command, payload=None):
+    # No short timeout: finalize waits for the chain. If it is stopped anyway, run recover first.
+    run = subprocess.run(["node", ORIENTIM, command],
+                         input=json.dumps(payload or {}), capture_output=True, text=True)
+    return run.returncode, json.loads(run.stdout)
+
+code, _ = orientim("recover")          # 3: an earlier swap may still land; stop
+if code == 0:
+    code, ready = orientim("prepare", {"intent": {
+        "id": "order-42", "owner": str(keypair.pubkey()),
+        "inputMint": USDC, "outputMint": SOL, "amountIn": "5000000"}})
+if code == 0:
+    # keypair: the wallet's solders Keypair, loaded from its file
+    signature = keypair.sign_message(base64.b64decode(ready["message"]))
+    code, result = orientim("finalize", {
+        "checked": ready["checked"], "signature": str(signature)})`}</code></pre>;
+
+/** The MCP server in a client's configuration. */
+const MCP_JSON = <pre tabIndex={0}><code>{`{
+  "mcpServers": {
+    "orientim": {
+      "command": "npx",
+      "args": ["-y", "@orientimhq/swap@${SKILL_VERSION}", "mcp"],
+      "env": {
+        "SOLANA_RPC_URL": "https://your-own-rpc.example/...",
+        "ORIENTIM_WALLET_KEYPAIR": "/path/to/agent-wallet.json",
+        "JUPITER_API_KEY": "..."
+      }
+    }
+  }
+}`}</code></pre>;
+
 /** For developers: everything an agent or a bot needs, one section per entry of the sidebar. */
 export default async function Page() {
   signPageChunks('developers/page');
@@ -267,257 +362,197 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | npx ori
               />
             </section>
 
-            <section id="agent-kit">
+            <section id="agent-kit" className="way">
               <h2>Solana Agent Kit</h2>
-              <p>
-                <code>@orientimhq/solana-agent-kit</code> adds one action to{' '}
-                <a href="https://github.com/sendaifun/solana-agent-kit">Solana Agent Kit</a>,{' '}
-                <code>ORIENTIM_PROTECTED_SWAP</code>, and leaves the rest of the kit as it is. It is the swap{' '}
-                <code>orientim swap</code> makes, with the kit&apos;s wallet and RPC: the check on that RPC before the wallet signs,
-                the owner&apos;s limits and the record of each order.
+              <p className="way-lead">
+                One action, <code>ORIENTIM_PROTECTED_SWAP</code>, with the kit&apos;s own wallet and RPC. The rest of{' '}
+                <a href="https://github.com/sendaifun/solana-agent-kit">the kit</a> stays as it is.
               </p>
-              <h3>1. Install it</h3>
-              <pre tabIndex={0}><code>{`npm install --save-exact @orientimhq/solana-agent-kit @orientimhq/swap@${SKILL_VERSION}`}</code></pre>
-              <p>
-                Until the plugin is on npm, build it from <a href={`${SKILL_SOURCE}/tree/main/integrations/solana-agent-kit`}>its
-                source</a>, as its README says.
-              </p>
-              <h3>2. Add it to the kit</h3>
-              <pre tabIndex={0}><code>{`import { SolanaAgentKit, KeypairWallet, createVercelAITools } from 'solana-agent-kit';
-import { ACTION_NAME, orientimPlugin } from '@orientimhq/solana-agent-kit';
-
-const agent = new SolanaAgentKit(new KeypairWallet(keypair, RPC_URL), RPC_URL, {}).use(
-  orientimPlugin({
-    apiKey: process.env.ORIENTIM_API_KEY!,       // this wallet's key (API keys, above)
-    jupiterApiKey: process.env.JUPITER_API_KEY,  // your own: the routes are fetched with it
-    policy: {
-      maxAmountIn: { EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: '25000000' },  // at most 25 USDC a swap
-      allowedOutputMints: ['So11111111111111111111111111111111111111112'],       // and only into SOL
-    },
-  }),
-);
-
-// Give the model the tools you choose, not every action the kit has.
-const tools = createVercelAITools(agent, agent.actions.filter(a => a.name === ACTION_NAME));`}</code></pre>
-              <ul>
-                <li>The model gives <code>amount</code> in whole tokens, as text (<code>&quot;0.5&quot;</code>); the answer gives <code>receivedAmount</code> the same way.</li>
-                <li>A <code>policy</code> is required, as in the policy file; a plugin without limits is refused when it is made.</li>
-                <li>Each call is an order with an <code>orderId</code>: asked again with the same one, it is never swapped twice.</li>
-                <li>The model may ask for at most 3% slippage, as through the MCP server; only the policy&apos;s <code>maxSlippageBps</code> raises it.</li>
-                <li>A kit made with <code>signOnly</code> is refused: a protected swap is sent within the call, after Orientim signs last.</li>
+              <KeyAccess
+                label="Set up Solana Agent Kit"
+                ways={[
+                  {
+                    id: 'kit-install',
+                    label: 'Install',
+                    content: (
+                      <>
+                        <pre tabIndex={0}><code>{`npm install --save-exact @orientimhq/solana-agent-kit @orientimhq/swap@${SKILL_VERSION}`}</code></pre>
+                        <p className="hint">Not on npm yet: build it from <a href={`${SKILL_SOURCE}/tree/main/integrations/solana-agent-kit`}>its source</a>.</p>
+                      </>
+                    ),
+                  },
+                  { id: 'kit-add', label: 'Add to the kit', content: KIT_SETUP },
+                  { id: 'kit-use', label: 'Use', content: KIT_TOOLS },
+                ]}
+              />
+              <ul className="way-notes">
+                <li><code>amount</code> in whole tokens, as text (<code>&quot;0.5&quot;</code>); <code>receivedAmount</code> comes back the same way.</li>
+                <li>A <code>policy</code> is required. Asked again with the same <code>orderId</code>, an order never swaps twice.</li>
+                <li>At most 3% slippage, unless the policy&apos;s <code>maxSlippageBps</code> allows more. A kit set to <code>signOnly</code> is refused.</li>
               </ul>
             </section>
 
-            <section id="skill">
+            <section id="skill" className="way">
               <h2>AI agents: the skill</h2>
-              <p>
-                For coding agents: instructions for the agent (<code>SKILL.md</code>), the <code>orientim</code> command and the
-                library, both from <code>@orientimhq/swap</code>, and the check they run before every signature. The agent gets its settings from you, in its environment, never in chat.
+              <p className="way-lead">
+                For coding agents such as Claude Code: <code>SKILL.md</code>, the <code>orientim</code> command and the library, all in{' '}
+                <code>@orientimhq/swap</code>.
               </p>
-              <h3>1. Install it</h3>
-              <ul>
-                <li>Install and check <code>@orientimhq/swap</code> (see <a href="#start">Quickstart</a>). The skill is in it.</li>
-                <li>
-                  <strong>Claude Code</strong>: copy the skill into <code>.claude/skills/</code> in your project, or into{' '}
-                  <code>~/.claude/skills/</code> for every project. The agent picks it up when a task needs a swap.
-                  <pre tabIndex={0}><code>{`cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skills/`}</code></pre>
-                </li>
-                <li><strong>Any other agent</strong>: point it to that folder&apos;s <code>SKILL.md</code> (also <a href={SKILL_FOLDER}>on GitHub</a>).</li>
-              </ul>
-              <h3>2. Try it without signing</h3>
-              <pre tabIndex={0}><code>{`npx orientim swap --in <mint> --out <mint> --amount 5000000 \\
+              <KeyAccess
+                label="Set up the skill"
+                ways={[
+                  {
+                    id: 'skill-install',
+                    label: 'Install',
+                    content: (
+                      <>
+                        <pre tabIndex={0}><code>{`npm install --save-exact @orientimhq/swap@${SKILL_VERSION}
+cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skills/`}</code></pre>
+                        <p className="hint">Another agent: point it to that folder&apos;s <code>SKILL.md</code> (also <a href={SKILL_FOLDER}>on GitHub</a>). Settings: <a href="#start">Quickstart</a>.</p>
+                      </>
+                    ),
+                  },
+                  {
+                    id: 'skill-try',
+                    label: 'Try',
+                    content: (
+                      <>
+                        <pre tabIndex={0}><code>{`npx orientim swap --in <mint> --out <mint> --amount 5000000 \\
   --owner <wallet> --dry-run`}</code></pre>
-              <p>This prepares and verifies a swap on your RPC and prints what it would cost. Nothing is signed.</p>
-              <h3>3. Swap</h3>
-              <pre tabIndex={0}><code>{`npx orientim swap --in <mint> --out <mint> --amount 5000000 --id order-42`}</code></pre>
-              <p>
-                The same order id on every retry: the skill&apos;s order book stops an order that swapped or may still land from being swapped again. Or ask your agent,
-                in plain words: <em>&ldquo;swap 5 USDC to SOL with Orientim&rdquo;</em>.
-              </p>
-              <h3>4. In your own code</h3>
-              <pre tabIndex={0}><code>{`import { createKeyPairSignerFromBytes, createSolanaRpc } from '@solana/kit';
-import { readFileSync } from 'node:fs';
-import { acquireLock, createFileStore, loadPolicy, protectedSwap, recoverPending, stateDirFor } from '@orientimhq/swap';
-
-const rpc = createSolanaRpc(process.env.SOLANA_RPC_URL!);
-const wallet = await createKeyPairSignerFromBytes(
-  new Uint8Array(JSON.parse(readFileSync(process.env.ORIENTIM_WALLET_KEYPAIR!, 'utf8'))));
-const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-const SOL = 'So11111111111111111111111111111111111111112';
-
-// The owner's limits, if set: they hold only when passed to protectedSwap below.
-const policy = process.env.ORIENTIM_POLICY ? loadPolicy(process.env.ORIENTIM_POLICY) : undefined;
-// One state directory for every run of this wallet (the policy's own stateDir with a daily limit).
-const { dir } = stateDirFor(policy, process.env.ORIENTIM_STATE_DIR);
-const store = createFileStore(dir);
-
-// One swap at a time per wallet: a second run waits, and retries with the same order id.
-const release = acquireLock(dir, wallet.address);
-try {
-  // Settle what a stopped run left before anything new.
-  const { unknown, bookkeepingErrors } = await recoverPending(store, rpc, { orders: store, spends: store });
-  if (unknown.length || bookkeepingErrors.length) throw new Error('An earlier swap may still land');
-
-  const result = await protectedSwap({
-    apiUrl: process.env.ORIENTIM_API_URL!,
-    apiKey: process.env.ORIENTIM_API_KEY!,
-    jupiterApiKey: process.env.JUPITER_API_KEY,
-    rpc, wallet, pending: store, orders: store,
-    policy, spends: store,
-    intent: { id: 'order-42', inputMint: USDC, outputMint: SOL, amountIn: '5000000' },
-  });
-  // result.outcome: 'confirmed' | 'failed' | 'expired' | 'unknown' | 'rejected'
-} finally {
-  release();
-}`}</code></pre>
-              <p>
-                <code>protectedSwap</code> asks Jupiter for its own price on every swap and takes your minimum from it when{' '}
-                <code>minOut</code> is not set (a <code>minOut</code> more than 20% below that price is refused), verifies the
-                transaction on your RPC, signs as the wallet, keeps the swap before finalize and reads the outcome on chain. The
-                owner&apos;s limits hold only when <code>policy</code> and <code>spends</code> are passed, as above: setting{' '}
-                <code>ORIENTIM_POLICY</code> alone does nothing in your own code. The lock serializes the swaps of one wallet on one
-                machine; workers on several machines or containers need a shared store that reserves the day&apos;s budget
-                atomically, or a signing service that holds the limits itself.
-              </p>
-              <h3>A wallet in a signing service</h3>
-              <p>
-                Pass <code>signerFromSignBytes(address, sign)</code> (a KMS, an HSM, raw-message signing) or{' '}
-                <code>signerFromSignTransaction(address, sign)</code> (a service that signs and hands the transaction back) as{' '}
-                <code>wallet</code>. A service that can only sign and send cannot be used: Orientim signs last. With a service that
-                reads the transaction and applies its own policies (Turnkey or Privy, for example), prefer{' '}
-                <code>signerFromSignTransaction</code>.
-              </p>
+                        <p className="hint">Prepared and verified on your RPC, with what it would cost. Nothing is signed.</p>
+                      </>
+                    ),
+                  },
+                  {
+                    id: 'skill-swap',
+                    label: 'Swap',
+                    content: (
+                      <>
+                        <pre tabIndex={0}><code>{`npx orientim swap --in <mint> --out <mint> --amount 5000000 --id order-42`}</code></pre>
+                        <p className="hint">Or ask your agent: <em>&ldquo;swap 5 USDC to SOL with Orientim&rdquo;</em>.</p>
+                      </>
+                    ),
+                  },
+                  { id: 'skill-code', label: 'In your code', content: OWN_CODE },
+                ]}
+              />
+              <ul className="way-notes">
+                <li>The same order id on every retry: an order that swapped, or may still land, is never swapped again.</li>
+                <li>In your own code, the owner&apos;s limits hold only when <code>policy</code> and <code>spends</code> are passed, as in the example.</li>
+                <li>A signing service: pass <code>signerFromSignTransaction</code> (Turnkey, Privy) or <code>signerFromSignBytes</code> (a KMS, an HSM) as <code>wallet</code>. One that can only sign and send cannot be used.</li>
+              </ul>
               <h3>Safe setup against a misled agent</h3>
-              <p>
-                A prompt injection, a poisoned page or a token named to deceive can steer an agent. Set up this way, the most it can
-                do is swap within the owner&apos;s limits, and every swap delivers to the wallet itself: nothing leaves it for anyone
-                else.
-              </p>
-              <ul>
-                <li>The key out of the agent&apos;s reach: a signing service with its own policies, a KMS or an HSM, or a signer of your own.</li>
-                <li>
-                  The owner&apos;s policy at <code>/etc/orientim/policy.json</code> (<code>C:\ProgramData\Orientim\policy.json</code> on
-                  Windows), written by an administrator and read-only to the agent, so that unsetting <code>ORIENTIM_POLICY</code> does
-                  not turn it off, with <code>maxAmountIn</code>,{' '}
-                  <code>maxAmountInPerDay</code>, <code>allowedOutputMints</code> (the tokens it may buy) and <code>stateDir</code>.
-                </li>
-                <li>The skill as the agent&apos;s only way to move funds: no transfer tool, and no direct way to the signer.</li>
-                <li>A wallet of its own, holding only what the agent may swap.</li>
+              <ul className="way-notes">
+                <li>The key out of the agent&apos;s reach: a signing service, a KMS or an HSM.</li>
+                <li>The owner&apos;s policy at <code>/etc/orientim/policy.json</code> (<code>C:\ProgramData\Orientim\policy.json</code> on Windows), read-only to the agent.</li>
+                <li>The skill as the agent&apos;s only way to move funds, from a wallet holding only what it may swap.</li>
               </ul>
             </section>
 
-            <section id="cli">
+            <section id="cli" className="way">
               <h2>Bots: the command line</h2>
-              <p>
-                The <code>orientim</code> command of <code>@orientimhq/swap</code> runs the whole flow for a bot written in Python, Rust, Go or anything
-                that can start a process: JSON in on stdin, JSON out on stdout, and an exit code. It does everything the skill does:
-                your own floor, the check on your RPC, the record kept before finalize, and the outcome read on chain. The bot keeps
-                its key and signs one message itself. Install the package in the bot&apos;s folder first:{' '}
-                <code>npm install --save-exact @orientimhq/swap@{SKILL_VERSION}</code>.
+              <p className="way-lead">
+                For bots in Python, Rust, Go or any language: JSON in on stdin, JSON out on stdout, and an exit code. The bot keeps
+                its key and signs one message.
               </p>
-              <h3>The flow</h3>
-              <ol>
-                <li><strong>recover</strong>: settles what a stopped run left. Exit 3 means an earlier swap may still land: start nothing new.</li>
-                <li><strong>prepare</strong> <code>{'{"intent": {...}}'}</code>: answers <code>message</code> and <code>checked</code>, already verified on your RPC.</li>
-                <li><strong>Sign</strong> the bytes of <code>message</code> (base64) with the wallet&apos;s ed25519 key.</li>
-                <li>
-                  <strong>finalize</strong> <code>{'{"checked": ..., "signature": "<base58>"}'}</code>, with <code>checked</code> unchanged:
-                  answers the <code>outcome</code> and what was <code>received</code>.
-                </li>
-              </ol>
-              <h3>In Python</h3>
-              <pre tabIndex={0}><code>{`import base64, json, subprocess
+              <KeyAccess
+                label="Set up the command line"
+                ways={[
+                  {
+                    id: 'cli-install',
+                    label: 'Install',
+                    content: <pre tabIndex={0}><code>{`npm install --save-exact @orientimhq/swap@${SKILL_VERSION}`}</code></pre>,
+                  },
+                  {
+                    id: 'cli-flow',
+                    label: 'The flow',
+                    content: (
+                      <ol>
+                        <li><strong>recover</strong>: settles what a stopped run left. Exit 3: start nothing new.</li>
+                        <li><strong>prepare</strong> <code>{'{"intent": {...}}'}</code>: answers <code>message</code> and <code>checked</code>, verified on your RPC.</li>
+                        <li><strong>Sign</strong> the bytes of <code>message</code> (base64) with the wallet&apos;s ed25519 key.</li>
+                        <li><strong>finalize</strong> <code>{'{"checked": ..., "signature": "<base58>"}'}</code>: answers the <code>outcome</code> and <code>received</code>.</li>
+                      </ol>
+                    ),
+                  },
+                  { id: 'cli-python', label: 'Python', content: PYTHON },
+                  {
+                    id: 'cli-exit',
+                    label: 'Exit codes',
+                    content: (
+                      <div className="table-wrap">
+                        <table>
+                          <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
+                          <tbody>{EXIT_CODES.map(([code, text]) => <tr key={code}><td><code>{code}</code></td><td>{text}</td></tr>)}</tbody>
+                        </table>
+                      </div>
+                    ),
+                  },
+                ]}
+              />
+              <ul className="way-notes">
+                <li>Decide on an error&apos;s <code>code</code>. <code>untrustedServerMessage</code> is for your logs only.</li>
+                <li>In Rust, <code>keypair.sign_message(&amp;message).to_string()</code> gives the same base58 signature.</li>
+                <li><code>resolve</code> settles by hand a swap the chain can no longer prove; <code>key-challenge</code> and <code>key</code> get the <a href="#access">API key</a>.</li>
+              </ul>
+            </section>
 
-ORIENTIM = "node_modules/@orientimhq/swap/dist/bin/orientim.mjs"
-
-def orientim(command, payload=None):
-    # No short timeout: finalize waits for the chain. If it is stopped anyway, run recover first.
-    run = subprocess.run(["node", ORIENTIM, command],
-                         input=json.dumps(payload or {}), capture_output=True, text=True)
-    return run.returncode, json.loads(run.stdout)
-
-code, _ = orientim("recover")          # 3: an earlier swap may still land; stop
-if code == 0:
-    code, ready = orientim("prepare", {"intent": {
-        "id": "order-42", "owner": str(keypair.pubkey()),
-        "inputMint": USDC, "outputMint": SOL, "amountIn": "5000000"}})
-if code == 0:
-    # keypair: the wallet's solders Keypair, loaded from its file
-    signature = keypair.sign_message(base64.b64decode(ready["message"]))
-    code, result = orientim("finalize", {
-        "checked": ready["checked"], "signature": str(signature)})`}</code></pre>
-              <p>In Rust, <code>keypair.sign_message(&amp;message).to_string()</code> gives the same base58 signature.</p>
-              <h3>Exit codes</h3>
+            <section id="mcp" className="way">
+              <h2>Assistants: the MCP server</h2>
+              <p className="way-lead">
+                For Claude Desktop, Claude Code, Cursor and any client that starts a local MCP server. No API key of your own: the
+                server gets the wallet&apos;s key itself (the wallet needs 0.01 SOL).
+              </p>
+              <KeyAccess
+                label="Set up the MCP server"
+                ways={[
+                  {
+                    id: 'mcp-desktop',
+                    label: 'Desktop',
+                    content: (
+                      <>
+                        <pre tabIndex={0}><code>{`gh attestation verify orientim.mcpb -R orientimhq/orientim-protected-swap`}</code></pre>
+                        <p className="hint">
+                          Download <a href={SKILL_EXTENSION}>orientim.mcpb</a> (v{SKILL_VERSION}), check it as above and open it. Claude Desktop
+                          asks for your RPC and the wallet&apos;s keypair file, and brings its own Node.
+                        </p>
+                      </>
+                    ),
+                  },
+                  { id: 'mcp-json', label: 'Cursor', content: MCP_JSON },
+                  {
+                    id: 'mcp-code',
+                    label: 'Claude Code',
+                    content: <pre tabIndex={0}><code>{`claude mcp add --transport stdio orientim --env SOLANA_RPC_URL=... --env ORIENTIM_WALLET_KEYPAIR=... -- npx -y @orientimhq/swap@${SKILL_VERSION} mcp`}</code></pre>,
+                  },
+                  {
+                    id: 'mcp-own',
+                    label: 'Own agent',
+                    content: (
+                      <p className="hint">
+                        Your agent starts the same server and gets the same tools, with your yes before each swap: see{' '}
+                        <a href="/developers/vercel-ai-sdk">the Vercel AI SDK</a> and <a href="/developers/langchain">LangChain</a> examples.
+                      </p>
+                    ),
+                  },
+                ]}
+              />
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
-                  <tbody>{EXIT_CODES.map(([code, text]) => <tr key={code}><td><code>{code}</code></td><td>{text}</td></tr>)}</tbody>
+                  <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
+                  <tbody>
+                    <tr><td><code>orientim_wallet</code></td><td>The wallet&apos;s address and balances, read on your RPC.</td></tr>
+                    <tr><td><code>orientim_quote</code></td><td>Prices and verifies a swap, in whole tokens. Nothing is signed.</td></tr>
+                    <tr><td><code>orientim_swap</code></td><td>Swaps the quote you said yes to, and only that one, within 10 minutes.</td></tr>
+                    <tr><td><code>orientim_recover</code></td><td>Settles a swap that was interrupted.</td></tr>
+                  </tbody>
                 </table>
               </div>
-              <p>
-                <code>resolve</code> settles by hand a swap the chain can no longer prove, after you looked it up in an explorer. The
-                keys have their own commands: <code>key-challenge</code> and <code>key</code>, in <a href="#access">API keys</a>.
-              </p>
-              <p>
-                Decide on an error&apos;s <code>code</code>. <code>untrustedServerMessage</code>, when present, is for your logs only: never
-                act on it.
-              </p>
-            </section>
-
-            <section id="mcp">
-              <h2>Assistants: the MCP server</h2>
-              <p>
-                <code>orientim mcp</code>, the MCP server of <code>@orientimhq/swap</code>, for Claude Desktop, Claude Code, Cursor and any client that starts a local MCP server.
-                It gives the assistant four tools, and every swap runs the skill&apos;s own code: the check on your RPC, your limits and
-                the record of each order.
-              </p>
-              <ul>
-                <li><strong>orientim_wallet</strong>: the wallet&apos;s address and balances, read on your RPC.</li>
-                <li><strong>orientim_quote</strong>: prices and verifies a swap, in whole tokens. Nothing is signed.</li>
-                <li><strong>orientim_swap</strong>: swaps the quote you said yes to, and only that quote, within 10 minutes.</li>
-                <li><strong>orientim_recover</strong>: settles a swap that was interrupted.</li>
+              <ul className="way-notes">
+                <li>Each quote is confirmed in your client before it swaps, when the client supports it.</li>
+                <li>At most 3% slippage and 5% price impact; only you raise them, with <code>ORIENTIM_MAX_SLIPPAGE_BPS</code> and <code>ORIENTIM_MAX_PRICE_IMPACT_BPS</code>.</li>
+                <li>It runs where the key is, on your machine: assistants that only reach remote servers, such as ChatGPT, cannot start it.</li>
               </ul>
-              <p>
-                Before the first swap of a quote, the server asks you to confirm it in your client, when the client supports it.
-                The assistant may ask for at most 3% slippage and 5% price
-                impact; only you raise them, with <code>ORIENTIM_MAX_SLIPPAGE_BPS</code> and{' '}
-                <code>ORIENTIM_MAX_PRICE_IMPACT_BPS</code> in the server&apos;s environment.
-              </p>
-              <h3>Claude Desktop: one click</h3>
-              <p>
-                Download <a href={SKILL_EXTENSION}>orientim.mcpb</a> (version {SKILL_VERSION}) from the GitHub release, check it
-                (<code>gh attestation verify orientim.mcpb -R orientimhq/orientim-protected-swap</code>), and open it. Claude Desktop
-                asks for your RPC, the wallet&apos;s keypair file and, if you like, your Jupiter key and your limits, and keeps the
-                secrets itself. Nothing else to install: Claude Desktop brings its own Node.
-              </p>
-              <h3>Cursor, Claude Code and other clients: one line</h3>
-              <pre tabIndex={0}><code>{`{
-  "mcpServers": {
-    "orientim": {
-      "command": "npx",
-      "args": ["-y", "@orientimhq/swap@${SKILL_VERSION}", "mcp"],
-      "env": {
-        "SOLANA_RPC_URL": "https://your-own-rpc.example/...",
-        "ORIENTIM_WALLET_KEYPAIR": "/path/to/agent-wallet.json",
-        "JUPITER_API_KEY": "..."
-      }
-    }
-  }
-}`}</code></pre>
-              <p>
-                In Claude Code: <code>{`claude mcp add --transport stdio orientim --env SOLANA_RPC_URL=... --env ORIENTIM_WALLET_KEYPAIR=... -- npx -y @orientimhq/swap@${SKILL_VERSION} mcp`}</code>.
-              </p>
-              <h3>Agent frameworks</h3>
-              <p>
-                Your own agent starts the same server and gets the same four tools, with your yes before each swap: a working example
-                for <a href="/developers/vercel-ai-sdk">the Vercel AI SDK</a> and for <a href="/developers/langchain">LangChain</a>.
-              </p>
-              <p>
-                You need no <a href="#access">API key</a> of your own: the server gets the wallet&apos;s key once (the wallet needs
-                0.01 SOL) and keeps it on your machine. The assistant sees the wallet&apos;s address and what each swap did, never the
-                key. The server runs where the key is, on your machine: assistants that only reach remote servers, such as ChatGPT,
-                cannot start it.
-              </p>
             </section>
 
             <section id="how">

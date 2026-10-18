@@ -311,6 +311,10 @@ a.ghost { display: inline-flex; align-items: center; }
 .key-tab:hover { color: var(--text); }
 .key-tab[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); }
 .key-panel { padding-top: 4px; }
+.way .key-access { margin-top: 14px; }
+.way-lead { margin-top: 6px; color: var(--muted); }
+.way-notes { display: grid; gap: 6px; margin-top: 14px; color: var(--muted); font-size: 14px; }
+.way .hint { margin-top: 10px; color: var(--faint); font-size: 13px; }
 .key-box { margin-top: 16px; padding: 18px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; }
 .key-box .codebox pre { white-space: pre-wrap; word-break: break-all; }
 .key-button { border: none; cursor: pointer; }

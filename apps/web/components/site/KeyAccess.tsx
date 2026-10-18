@@ -5,11 +5,10 @@ import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'rea
 type Way = { id: string; label: string; content: ReactNode };
 
 /**
- * The two ways to get an API key, side by side: the wallet the agent or bot runs with (a key file or a
- * signing service, which no browser can connect), and a wallet in the browser. The first is open by
- * default. Both panels stay in the page, so a reader of the HTML sees each way.
+ * Panels side by side, one open at a time: the two ways to get an API key, or the steps of one way
+ * in. The first is open by default. Every panel stays in the page, so a reader of the HTML sees each.
  */
-export function KeyAccess({ ways }: { ways: Way[] }) {
+export function KeyAccess({ ways, label = 'How your wallet signs' }: { ways: Way[]; label?: string }) {
   const [open, setOpen] = useState(ways[0]?.id);
   const base = useId();
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -25,7 +24,7 @@ export function KeyAccess({ ways }: { ways: Way[] }) {
 
   return (
     <div className="key-access">
-      <div className="key-tabs" role="tablist" aria-label="How your wallet signs">
+      <div className="key-tabs" role="tablist" aria-label={label}>
         {ways.map((w, i) => (
           <button
             key={w.id}
