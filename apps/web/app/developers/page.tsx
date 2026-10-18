@@ -21,10 +21,10 @@ const feeText = TREASURY ? `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { 
 
 /** Why an agent needs this, before the docs: what a developer gets, in their words. */
 const PITCH: [string, string][] = [
-  ['Signs only what it asked for', 'An extra instruction, another token, a worse price: the agent sees it in the transaction and does not sign.'],
-  ['Your limits, not ours', 'An amount per swap, a daily budget and the tokens it may buy, in the owner’s policy, and a price floor per swap.'],
-  ['Safe after a crash', 'The skill records each order and settles it after a restart.'],
-  ['No sign-up', 'Your agent’s wallet signs a message and gets a key. Then ask it: “swap 5 USDC to SOL with Orientim”.'],
+  ['Signs only what it asked for', 'An extra instruction, another token or a worse price, and the agent does not sign.'],
+  ['Your limits', 'Per swap, per day and which tokens it may buy, set by the owner.'],
+  ['Safe after a crash', 'Each order is recorded and settled after a restart.'],
+  ['No sign-up', 'The wallet signs a message and gets a key.'],
 ];
 
 /** The sidebar's contents: every entry is a section of this page. */
@@ -40,64 +40,64 @@ const NAV: DevNavGroup[] = [
 
 /** Every error the API answers with, and what the caller does about it (AGENT-API.md, "Errors"). */
 const ERRORS: [string, string, string][] = [
-  ['400', 'bad-request', 'Fix the request; message says which field.'],
-  ['400', 'invalid-ticket', 'The ticket was not issued to this API key, or was altered.'],
-  ['400', 'transaction-changed', 'The message is not the one Orientim built. Sign the transaction exactly as returned.'],
-  ['400', 'bad-signature', 'Key endpoints: the signature does not match, or the challenge expired or was not Orientim’s. Ask for a new challenge.'],
-  ['400', 'wallet-changed-transaction', 'Your wallet’s signature is missing or does not match.'],
-  ['400', 'bad-session', 'With ownRoutes: the session expired (two minutes after its first round) or was opened for another swap or key. Prepare again without it.'],
-  ['401', 'unauthorized', 'Missing, unknown, expired or revoked API key. Get a new one with the wallet.'],
-  ['403', 'wrong-wallet', 'The key belongs to another wallet; a self-serve key prepares swaps for its own wallet only.'],
-  ['403', 'wallet-empty', 'Key endpoints: the wallet holds less than 0.01 SOL. Fund it, then ask again.'],
+  ['400', 'bad-request', 'Fix the field named in message.'],
+  ['400', 'invalid-ticket', 'The ticket is not this key’s, or was altered.'],
+  ['400', 'transaction-changed', 'Sign the transaction exactly as returned.'],
+  ['400', 'bad-signature', 'Keys: the signature or challenge is not valid. Ask for a new challenge.'],
+  ['400', 'wallet-changed-transaction', 'Your wallet’s signature is missing or wrong.'],
+  ['400', 'bad-session', 'ownRoutes: the session expired or is another swap’s. Prepare again without it.'],
+  ['401', 'unauthorized', 'The API key is missing, expired or revoked. Get a new one.'],
+  ['403', 'wrong-wallet', 'A key prepares swaps for its own wallet only.'],
+  ['403', 'wallet-empty', 'Keys: the wallet holds less than 0.01 SOL.'],
   ['404', 'not-enabled', 'The agent API is not available.'],
-  ['409', 'price-moved', 'The market cannot meet your minOut. newMinOut is what it supports now: prepare again with it only with the user’s approval.'],
-  ['409', 'costs-more', 'The protected route is gapBps below the open market. With the user’s approval, prepare again with acceptCostBps.'],
-  ['409', 'routes-needed', 'With ownRoutes: fetch requests from Jupiter with your own key and prepare again with session and every route you have (Your own Jupiter key). The skill does this itself.'],
-  ['409', 'session-used', 'With ownRoutes: Orientim already signed another transaction from this session (one per session). Check that one’s signature, then prepare again without the session.'],
-  ['409', 'output-balance-changed', 'Your balance of the output token moved since prepare. Check the signature, then prepare again.'],
-  ['409', 'output-in-flight', 'Another swap into the same output account (inFlight) is signed and has not landed or expired. Wait Retry-After seconds and finalize again.'],
-  ['410', 'expired', 'The transaction’s lifetime passed before finalize. Check the signature, then prepare again.'],
-  ['422', 'amount-too-small', 'The amount is below the smallest swap Orientim takes, about 0.004 SOL, or $1 of USDC or USDT (for a swap between two other tokens, its value in SOL). Selling the whole balance of a token (not SOL) is allowed at any size.'],
-  ['422', 'unsupported-token, no-route, insufficient-sol, insufficient-balance, simulation-failed, …', 'This swap cannot be built safely right now; message says why.'],
-  ['426', 'skill-outdated', 'This copy of the skill is older than Orientim serves. Download the current one; a swap already signed still finalizes.'],
-  ['429', 'rate-limited', 'Too many requests for this key (per wallet for a self-serve key), or from this address over all its keys. Wait Retry-After seconds.'],
-  ['500', 'internal', 'Something unexpected failed; nothing was signed by Orientim or sent. Retry later.'],
-  ['503', 'busy, unavailable', 'Orientim is at its capacity for new swaps, or the market data or the network is overloaded. Wait Retry-After seconds and retry.'],
-  ['503', 'fee-unavailable', 'This swap cannot be built right now; nothing was built. Wait and retry.'],
-  ['503', 'paused', 'Orientim has paused protected swaps, and issues no API keys meanwhile. Your funds are not affected.'],
-  ['503', 'route-format', 'Swaps are briefly unavailable. Wait at least Retry-After (300 seconds).'],
+  ['409', 'price-moved', 'The market cannot meet minOut. Retry with newMinOut only if the user approves.'],
+  ['409', 'costs-more', 'The protected route is gapBps below the market. Retry with acceptCostBps only if the user approves.'],
+  ['409', 'routes-needed', 'ownRoutes: fetch the routes with your Jupiter key and prepare again. The skill does this.'],
+  ['409', 'session-used', 'ownRoutes: this session already signed a transaction. Check its signature first.'],
+  ['409', 'output-balance-changed', 'Your output balance moved since prepare. Check the signature, then prepare again.'],
+  ['409', 'output-in-flight', 'Another swap into the same account has not landed yet. Finalize again after Retry-After.'],
+  ['410', 'expired', 'The transaction expired. Check the signature, then prepare again.'],
+  ['422', 'amount-too-small', 'Below about 0.004 SOL or $1. Selling a token’s whole balance is allowed at any size.'],
+  ['422', 'unsupported-token, no-route, insufficient-sol, insufficient-balance, simulation-failed, …', 'This swap cannot be built safely now; message says why.'],
+  ['426', 'skill-outdated', 'Update the skill. A swap already signed still finalizes.'],
+  ['429', 'rate-limited', 'Too many requests. Wait Retry-After seconds.'],
+  ['500', 'internal', 'Nothing was signed or sent. Retry later.'],
+  ['503', 'busy, unavailable', 'At capacity, or a provider is slow. Retry after Retry-After.'],
+  ['503', 'fee-unavailable', 'Nothing was built. Retry later.'],
+  ['503', 'paused', 'Swaps and new keys are paused. Your funds are not affected.'],
+  ['503', 'route-format', 'Swaps are briefly unavailable. Wait at least Retry-After.'],
 ];
 
 const PREPARE_FIELDS: [string, string, string][] = [
-  ['owner', 'required', 'The wallet that pays and receives. It signs first.'],
+  ['owner', 'required', 'The wallet that pays, receives and signs first.'],
   ['inputMint, outputMint', 'required', 'Mint addresses. SOL is So11111111111111111111111111111111111111112.'],
-  ['amountIn', 'required', 'Base units, as a string ("5000000" is 5 USDC). It includes the fee when the fee is taken in the input token.'],
-  ['minOut', 'required', 'Your own positive floor, as an integer string in output base units: what your wallet must keep. Get a price independently. This field alone does not replace checking the transaction before signing.'],
-  ['slippageBps', 'optional', 'How far below the quote the swap may fill: 10 to 1500 (0.1% to 15%). Default 50, or 300 on a Pump.fun launch curve. The skill’s "auto" asks Jupiter for the trade’s own tolerance (0.5% to 3%) and sends that number; the owner’s policy may cap it (maxSlippageBps).'],
-  ['acceptCostBps', 'optional', 'Accept a protected route this many bps below the open market (see costs-more): a whole number, as a number or a string. A route up to 50 bps past it is also taken, so that a market drifting by a few bps does not ask again; minOut still holds.'],
-  ['ownRoutes, session, routes', 'optional', 'Routes your agent brings from Jupiter with its own key, in rounds: see Your own Jupiter key. The skill and the command line do it whenever JUPITER_API_KEY is set.'],
+  ['amountIn', 'required', 'Base units, as a string ("5000000" is 5 USDC).'],
+  ['minOut', 'required', 'The least your wallet must receive, in base units, from a price you got yourself.'],
+  ['slippageBps', 'optional', '10 to 1500. Default 50, or 300 on a Pump.fun curve.'],
+  ['acceptCostBps', 'optional', 'Accept a protected route this many bps below the market (costs-more). minOut still holds.'],
+  ['ownRoutes, session, routes', 'optional', 'Routes fetched with your own Jupiter key. See Your own Jupiter key.'],
 ];
 
 const PREPARE_ANSWER: [string, string][] = [
-  ['ticket', 'Pass it to finalize, with the signed transaction.'],
-  ['transaction', 'The unsigned transaction, base64. Verify it, then sign it as your wallet.'],
+  ['ticket', 'Pass it to finalize.'],
+  ['transaction', 'The unsigned transaction, base64. Verify it, then sign.'],
   ['messageSha256', 'The hash of the transaction message.'],
-  ['temporaryAuthority', 'The one-time key of this swap.'],
-  ['lastValidBlockHeight, blocksLeft', 'The transaction’s lifetime: 150 blocks, about 40 seconds.'],
-  ['amounts', 'amountIn, fee, feeMint, feeBps, quotedOut, minOut and priceImpactPct (null when Jupiter did not state it: unknown, not none).'],
-  ['costs', 'The network fee, rent returned and kept, Orientim’s fee in SOL (orientimFeeSolLamports, from whichever side), keptSolLamports: all the SOL the swap costs and does not return, and breakdown: the amount swapped, the fee in its own token and each SOL cost apart.'],
-  ['notices, tokens', 'A busy network, and what each token’s issuer can do: freeze balances, mint more, or move and burn them (permanentDelegate).'],
-  ['certificate, policy', 'What this exact transaction does, and the rules it was verified against.'],
+  ['temporaryAuthority', 'The swap’s one-time key.'],
+  ['lastValidBlockHeight, blocksLeft', 'The lifetime: 150 blocks, about 40 seconds.'],
+  ['amounts', 'amountIn, fee, feeMint, feeBps, quotedOut, minOut, priceImpactPct (null means unknown).'],
+  ['costs', 'Network fee, rent, Orientim’s fee, and keptSolLamports: all the SOL the swap does not return.'],
+  ['notices, tokens', 'A busy network, and whether a token’s issuer can freeze, mint or move balances.'],
+  ['certificate, policy', 'What the transaction does, and the rules it was checked against.'],
 ];
 
 /** What `orientim` exits with (src/cli.ts in @orientimhq/swap). */
 const EXIT_CODES: [string, string][] = [
-  ['0', 'Done. prepare: sign message. finalize: confirmed, with received. recover: all settled. check: safe to sign.'],
-  ['1', 'Refused, or not swapped (failed, expired or rejected), including error.code floor-too-low, price-impact-high, unavailable (a service did not answer: try again after retryAfter) and the owner’s limits (mint-not-allowed, output-not-allowed, amount-over-limit, daily-limit). Nothing is left to settle.'],
-  ['2', 'A usage or configuration error, such as a prepare without an order id: the answer says what is missing.'],
-  ['3', 'Settle first: an earlier swap may still land, another finalize from this wallet is still running (busy), or the state directory cannot be made or read (a finalize then answers outcome unknown). Run recover; start nothing new.'],
-  ['4', 'Orientim said no: error.code is one of the Errors below.'],
-  ['5', 'This order id already swapped, or its transaction may still land (prepare, or a finalize of a second transaction for it). It is never swapped twice.'],
+  ['0', 'Done: ready to sign, confirmed, all settled, or safe to sign.'],
+  ['1', 'Refused or not swapped; error.code says why. Nothing is left to settle.'],
+  ['2', 'Usage or configuration error; the answer says what is missing.'],
+  ['3', 'An earlier swap may still land. Run recover; start nothing new.'],
+  ['4', 'Orientim refused: error.code is one of the Errors below.'],
+  ['5', 'This order id already swapped, or may still land. It never swaps twice.'],
 ];
 
 /** The Agent Kit plugin, made with the owner's limits. */
@@ -212,10 +212,7 @@ export default async function Page() {
             <header className="dev-head">
               <p className="eyebrow">For AI agents and bots</p>
               <h1>Give your agent a wallet, not a blank cheque.</h1>
-              <p className="lead">
-                An agent that trades needs a wallet. The skill checks each transaction against your limits, on your own RPC,
-                before it signs.
-              </p>
+              <p className="lead">Each swap is checked against your limits, on your own RPC, before the agent signs.</p>
               <ul className="agent-points dev-pitch">
                 {PITCH.map(([title, text]) => <li key={title}><b>{title}</b><span>{text}</span></li>)}
               </ul>
@@ -227,61 +224,49 @@ export default async function Page() {
 
             <section id="overview">
               <h2>Overview</h2>
-              <h3>Your strategy, Orientim&apos;s execution</h3>
               <p>
-                Your agent or bot decides when and what to trade, with any strategy: DCA, stop-loss or your own. Each swap it
-                decides on goes through Orientim, and your wallet signs it.
+                Your agent decides what to trade. Orientim builds the swap, your wallet signs it, and if less than your minimum would
+                arrive, the transaction reverts. Pick a way in:
               </p>
-              <p>The swap route only ever gets the amount you approve, under a one-time key, and if less than your minimum would arrive, the whole transaction reverts. Five ways in:</p>
               <div className="table-wrap">
                 <table>
                   <thead><tr><th>Use</th><th>For</th></tr></thead>
                   <tbody>
-                    <tr><td><a href="#agent-kit">Solana Agent Kit</a></td><td>Agents built on Solana Agent Kit: one action, with the kit&apos;s own wallet and RPC.</td></tr>
-                    <tr><td><a href="#skill">Agent skill</a></td><td>Coding agents: instructions, a working TypeScript example and the verifier.</td></tr>
-                    <tr><td><a href="#cli">Command line</a></td><td>Bots in Python, Rust, Go or any language that can start a process.</td></tr>
-                    <tr><td><a href="#mcp">MCP server</a></td><td>Claude Desktop, Cursor and other assistants that work through tools.</td></tr>
-                    <tr><td><a href="#api">API</a></td><td>Your own integration: two calls, with <a href="#verify">the check</a> run before you sign.</td></tr>
+                    <tr><td><a href="#agent-kit">Solana Agent Kit</a></td><td>Agents built on Solana Agent Kit.</td></tr>
+                    <tr><td><a href="#skill">Agent skill</a></td><td>Coding agents such as Claude Code.</td></tr>
+                    <tr><td><a href="#cli">Command line</a></td><td>Bots in Python, Rust, Go or any language.</td></tr>
+                    <tr><td><a href="#mcp">MCP server</a></td><td>Claude Desktop, Cursor and other assistants.</td></tr>
+                    <tr><td><a href="#api">API</a></td><td>Your own client. It must run <a href="#verify">the check</a> before signing and keep its own <a href="#recovery">records</a>.</td></tr>
                   </tbody>
                 </table>
               </div>
-              <p>These are ways to connect, not different products:</p>
+              <p>All but the API check, record and recover each swap for you. You need:</p>
               <ul>
-                <li><strong>The Agent Kit plugin, the skill, the command line or the MCP server</strong> bring the check before signing, the record of each order and the recovery after an interruption.</li>
-                <li><strong>The API directly</strong>: your client runs <a href="#verify">the check</a> before signing, keeps a record of each order, and confirms the result (<a href="#recovery">Results and recovery</a>).</li>
-              </ul>
-              <p>You need:</p>
-              <ul>
-                <li>An <a href="#access">API key</a> for the wallet that swaps (not for the MCP server: it gets one itself).</li>
-                <li>An RPC of your own.</li>
-                <li>A Jupiter API key of your own (free at developers.jup.ag), for the agent&apos;s own price. It never leaves your machine.</li>
-                <li>A wallet that signs first and hands the transaction back: a local key or a signing service.</li>
-                <li>Node 20.18 or later (Claude Desktop brings its own).</li>
+                <li>An <a href="#access">API key</a> for the wallet (the MCP server gets its own).</li>
+                <li>Your own RPC, and your own <a href="https://developers.jup.ag">Jupiter API key</a> (free).</li>
+                <li>A wallet that signs and hands the transaction back: a key file or a signing service.</li>
+                <li>Node 20.18 or later.</li>
               </ul>
             </section>
 
             <section id="start">
               <h2>Quickstart</h2>
               <p>
-                <strong>Using Claude Desktop?</strong> Download <a href={SKILL_EXTENSION}>orientim.mcpb</a>, open it and
-                answer its questions: no Orientim API key, and nothing else to install (<a href="#mcp">MCP server</a>). For a bot or a coding
-                agent, follow these steps.
+                On Claude Desktop, open <a href={SKILL_EXTENSION}>orientim.mcpb</a> and answer its questions (<a href="#mcp">MCP server</a>).
+                Otherwise:
               </p>
               <ol>
-                <li><strong>Get an API key</strong> with the wallet your agent swaps from, in <a href="#access">API keys</a>.</li>
+                <li><strong>Get an API key</strong> for the wallet: <a href="#access">API keys</a>.</li>
                 <li>
-                  <strong>Install the package</strong>, <code>@orientimhq/swap</code> (v{SKILL_VERSION}), in a folder of its own. It
-                  holds the instructions for your agent, the <code>orientim</code> command, the MCP server and the verifier. Its source
-                  is open, under Apache-2.0, at <a href={SKILL_SOURCE}>github.com/orientimhq/orientim-protected-swap</a>.
+                  <strong>Install</strong> <code>@orientimhq/swap</code> v{SKILL_VERSION} (<a href={SKILL_SOURCE}>source</a>, Apache-2.0).
                   <pre tabIndex={0}><code>{`npm install --save-exact @orientimhq/swap@${SKILL_VERSION}`}</code></pre>
                 </li>
                 <li>
-                  <strong>Check it</strong> against GitHub rather than this site: npm&apos;s provenance names the repository, the
-                  workflow and the commit it was built from.
+                  <strong>Check it</strong> was built from the GitHub source.
                   <pre tabIndex={0}><code>{`npm audit signatures`}</code></pre>
                 </li>
                 <li>
-                  <strong>Set it up</strong>: every setting is in the <a href="https://github.com/orientimhq/orientim-protected-swap/blob/main/skills/orientim-protected-swap/reference/GUIDE.md#setup">guide</a>.
+                  <strong>Configure</strong> (all settings: <a href="https://github.com/orientimhq/orientim-protected-swap/blob/main/skills/orientim-protected-swap/reference/GUIDE.md#setup">guide</a>).
                   <pre tabIndex={0}><code>{`export ORIENTIM_API_URL=https://orientim.com
 export ORIENTIM_API_KEY=ori_...
 export SOLANA_RPC_URL=<your own RPC>
@@ -289,8 +274,7 @@ export JUPITER_API_KEY=<your Jupiter key>
 export ORIENTIM_POLICY=/home/agent/orientim-policy.json`}</code></pre>
                 </li>
                 <li>
-                  <strong>Write the owner&apos;s limits</strong> in that policy file, where the agent cannot edit it: here 50 USDC a
-                  swap, 200 USDC a day, and only SOL to buy. A daily limit needs its own <code>stateDir</code>, an absolute path.
+                  <strong>Set the owner&apos;s limits</strong> in a file the agent cannot edit: 50 USDC a swap, 200 a day, only into SOL. A daily limit needs a <code>stateDir</code>.
                   <pre tabIndex={0}><code>{`{
   "maxAmountIn": { "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": "50000000" },
   "maxAmountInPerDay": { "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": "200000000" },
@@ -299,22 +283,20 @@ export ORIENTIM_POLICY=/home/agent/orientim-policy.json`}</code></pre>
 }`}</code></pre>
                 </li>
                 <li>
-                  <strong>Try it without signing</strong>: 5 USDC to SOL, prepared and verified on your RPC, with what it would cost.
+                  <strong>Try it</strong> without signing.
                   <pre tabIndex={0}><code>{`npx orientim swap --in EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \\
   --out So11111111111111111111111111111111111111112 --amount 5000000 \\
   --owner <wallet> --dry-run`}</code></pre>
                 </li>
                 <li>
-                  <strong>Swap</strong>, with one order id, the same on every retry. It signs with the wallet&apos;s key file;
-                  for a signing service, see <a href="#skill">AI agents</a> or <a href="#cli">Bots</a>.
+                  <strong>Swap</strong>, with the same order id on every retry.
                   <pre tabIndex={0}><code>{`export ORIENTIM_WALLET_KEYPAIR=/path/to/wallet.json
 npx orientim swap --in EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \\
   --out So11111111111111111111111111111111111111112 --amount 5000000 --id order-1`}</code></pre>
                 </li>
                 <li>
-                  <strong>Make restarts safe</strong>, before the first real swap: one order id per trading decision, the same on every
-                  retry; the state directory on a disk that outlives the bot; on every start, <code>recover</code> first (exit 3 means
-                  start nothing new); and only <code>confirmed</code> counts as done. See <a href="#recovery">Results and recovery</a>.
+                  <strong>Make restarts safe</strong>: keep the state directory on a lasting disk, run <code>recover</code> on every start,
+                  and count only <code>confirmed</code> as done (<a href="#recovery">Results and recovery</a>).
                 </li>
               </ol>
             </section>
@@ -322,8 +304,7 @@ npx orientim swap --in EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \\
             <section id="access">
               <h2>API keys</h2>
               <p>
-                Get a key at once, with no form: the wallet your agent swaps from signs a message, and the key is bound to that
-                wallet. Signing moves nothing. The wallet needs at least 0.01 SOL. A key lasts 90 days; sign again for a new one.
+                The wallet signs a message and gets a key for itself. Signing moves nothing. The wallet needs 0.01 SOL; a key lasts 90 days.
               </p>
               <KeyAccess
                 ways={[
@@ -332,18 +313,13 @@ npx orientim swap --in EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v \\
                     label: 'Agent or bot wallet',
                     content: (
                       <>
-                        <p>
-                          For a wallet in a key file or a signing service (Turnkey, Privy and others). The agent signs with its
-                          own key; the key file never leaves the machine. With <code>@orientimhq/swap</code> installed:
-                        </p>
+                        <p>A key file or a signing service (Turnkey, Privy). The key never leaves your machine.</p>
                         <pre tabIndex={0}><code>{`export ORIENTIM_API_URL=https://orientim.com
-echo '{"wallet": "<the agent wallet address>"}' | npx orientim key-challenge
-# sign the bytes of "message" (the same bytes as "messageBase64", decoded) with the agent's key, then
-# send "message" as it came, in plain text, not base64:
+echo '{"wallet": "<address>"}' | npx orientim key-challenge
+# sign the bytes of "message" with the wallet, then send "message" unchanged:
 echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | npx orientim key`}</code></pre>
                         <p>
-                          In code, <code>requestApiKey</code> from <code>@orientimhq/swap</code> does both steps. It signs only Orientim&apos;s key message
-                          for that wallet, and refuses anything else. The HTTP calls are in <a href="#keys">Keys</a>.
+                          In code: <code>requestApiKey</code>, which signs only Orientim&apos;s key message. Over HTTP: <a href="#keys">Keys</a>.
                         </p>
                       </>
                     ),
@@ -353,7 +329,7 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | npx ori
                     label: 'Wallet in the browser',
                     content: (
                       <>
-                        <p>For a wallet in a browser extension (Phantom, Solflare, Backpack): connect it and sign.</p>
+                        <p>Phantom, Solflare or Backpack: connect and sign.</p>
                         <GetApiKey skill={{ href: '#start', version: SKILL_VERSION }} />
                       </>
                     ),
@@ -365,8 +341,7 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | npx ori
             <section id="agent-kit" className="way">
               <h2>Solana Agent Kit</h2>
               <p className="way-lead">
-                One action, <code>ORIENTIM_PROTECTED_SWAP</code>, with the kit&apos;s own wallet and RPC. The rest of{' '}
-                <a href="https://github.com/sendaifun/solana-agent-kit">the kit</a> stays as it is.
+                Adds one action, <code>ORIENTIM_PROTECTED_SWAP</code>, to <a href="https://github.com/sendaifun/solana-agent-kit">the kit</a>. It uses the kit&apos;s wallet and RPC.
               </p>
               <KeyAccess
                 label="Set up Solana Agent Kit"
@@ -386,17 +361,16 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | npx ori
                 ]}
               />
               <ul className="way-notes">
-                <li><code>amount</code> in whole tokens, as text (<code>&quot;0.5&quot;</code>); <code>receivedAmount</code> comes back the same way.</li>
-                <li>A <code>policy</code> is required. Asked again with the same <code>orderId</code>, an order never swaps twice.</li>
-                <li>At most 3% slippage, unless the policy&apos;s <code>maxSlippageBps</code> allows more. A kit set to <code>signOnly</code> is refused.</li>
+                <li><code>amount</code> is in whole tokens, as text (<code>&quot;0.5&quot;</code>).</li>
+                <li>A <code>policy</code> is required. The same <code>orderId</code> never swaps twice.</li>
+                <li>Slippage is capped at 3% unless the policy raises it. <code>signOnly</code> kits are not supported.</li>
               </ul>
             </section>
 
             <section id="skill" className="way">
               <h2>AI agents: the skill</h2>
               <p className="way-lead">
-                For coding agents such as Claude Code: <code>SKILL.md</code>, the <code>orientim</code> command and the library, all in{' '}
-                <code>@orientimhq/swap</code>.
+                For coding agents such as Claude Code. <code>@orientimhq/swap</code> holds the skill, the <code>orientim</code> command and the library.
               </p>
               <KeyAccess
                 label="Set up the skill"
@@ -408,7 +382,7 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | npx ori
                       <>
                         <pre tabIndex={0}><code>{`npm install --save-exact @orientimhq/swap@${SKILL_VERSION}
 cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skills/`}</code></pre>
-                        <p className="hint">Another agent: point it to that folder&apos;s <code>SKILL.md</code> (also <a href={SKILL_FOLDER}>on GitHub</a>). Settings: <a href="#start">Quickstart</a>.</p>
+                        <p className="hint">Other agents: point them to <code>SKILL.md</code> (<a href={SKILL_FOLDER}>GitHub</a>). Settings: <a href="#start">Quickstart</a>.</p>
                       </>
                     ),
                   },
@@ -419,7 +393,7 @@ cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skill
                       <>
                         <pre tabIndex={0}><code>{`npx orientim swap --in <mint> --out <mint> --amount 5000000 \\
   --owner <wallet> --dry-run`}</code></pre>
-                        <p className="hint">Prepared and verified on your RPC, with what it would cost. Nothing is signed.</p>
+                        <p className="hint">Shows the swap and its cost. Nothing is signed.</p>
                       </>
                     ),
                   },
@@ -437,23 +411,22 @@ cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skill
                 ]}
               />
               <ul className="way-notes">
-                <li>The same order id on every retry: an order that swapped, or may still land, is never swapped again.</li>
-                <li>In your own code, the owner&apos;s limits hold only when <code>policy</code> and <code>spends</code> are passed, as in the example.</li>
-                <li>A signing service: pass <code>signerFromSignTransaction</code> (Turnkey, Privy) or <code>signerFromSignBytes</code> (a KMS, an HSM) as <code>wallet</code>. One that can only sign and send cannot be used.</li>
+                <li>Use the same order id on every retry. An order never swaps twice.</li>
+                <li>In your own code, pass <code>policy</code> and <code>spends</code>, or the owner&apos;s limits do not apply.</li>
+                <li>Signing service: pass <code>signerFromSignTransaction</code> (Turnkey, Privy) or <code>signerFromSignBytes</code> (KMS, HSM) as <code>wallet</code>.</li>
               </ul>
-              <h3>Safe setup against a misled agent</h3>
+              <h3>Production setup</h3>
               <ul className="way-notes">
-                <li>The key out of the agent&apos;s reach: a signing service, a KMS or an HSM.</li>
-                <li>The owner&apos;s policy at <code>/etc/orientim/policy.json</code> (<code>C:\ProgramData\Orientim\policy.json</code> on Windows), read-only to the agent.</li>
-                <li>The skill as the agent&apos;s only way to move funds, from a wallet holding only what it may swap.</li>
+                <li>Keep the key out of the agent&apos;s reach: a signing service, a KMS or an HSM.</li>
+                <li>Put the policy at <code>/etc/orientim/policy.json</code> (<code>C:\ProgramData\Orientim\policy.json</code> on Windows), read-only to the agent.</li>
+                <li>Fund the wallet with only what the agent may swap.</li>
               </ul>
             </section>
 
             <section id="cli" className="way">
               <h2>Bots: the command line</h2>
               <p className="way-lead">
-                For bots in Python, Rust, Go or any language: JSON in on stdin, JSON out on stdout, and an exit code. The bot keeps
-                its key and signs one message.
+                For bots in any language: JSON on stdin, JSON on stdout, and an exit code. Your bot signs one message.
               </p>
               <KeyAccess
                 label="Set up the command line"
@@ -468,10 +441,10 @@ cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skill
                     label: 'The flow',
                     content: (
                       <ol>
-                        <li><strong>recover</strong>: settles what a stopped run left. Exit 3: start nothing new.</li>
-                        <li><strong>prepare</strong> <code>{'{"intent": {...}}'}</code>: answers <code>message</code> and <code>checked</code>, verified on your RPC.</li>
-                        <li><strong>Sign</strong> the bytes of <code>message</code> (base64) with the wallet&apos;s ed25519 key.</li>
-                        <li><strong>finalize</strong> <code>{'{"checked": ..., "signature": "<base58>"}'}</code>: answers the <code>outcome</code> and <code>received</code>.</li>
+                        <li><strong>recover</strong>: settles earlier swaps. Exit 3: start nothing new.</li>
+                        <li><strong>prepare</strong> <code>{'{"intent": {...}}'}</code>: returns <code>message</code> and <code>checked</code>.</li>
+                        <li><strong>Sign</strong> the bytes of <code>message</code> (base64) with the wallet&apos;s key.</li>
+                        <li><strong>finalize</strong> <code>{'{"checked": ..., "signature": "<base58>"}'}</code>: returns <code>outcome</code> and <code>received</code>.</li>
                       </ol>
                     ),
                   },
@@ -491,17 +464,16 @@ cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skill
                 ]}
               />
               <ul className="way-notes">
-                <li>Decide on an error&apos;s <code>code</code>. <code>untrustedServerMessage</code> is for your logs only.</li>
-                <li>In Rust, <code>keypair.sign_message(&amp;message).to_string()</code> gives the same base58 signature.</li>
-                <li><code>resolve</code> settles by hand a swap the chain can no longer prove; <code>key-challenge</code> and <code>key</code> get the <a href="#access">API key</a>.</li>
+                <li>Branch on <code>error.code</code>. <code>untrustedServerMessage</code> is for logs only.</li>
+                <li>Rust: <code>keypair.sign_message(&amp;message).to_string()</code>.</li>
+                <li><code>resolve</code> settles a swap by hand; <code>key-challenge</code> and <code>key</code> get an <a href="#access">API key</a>.</li>
               </ul>
             </section>
 
             <section id="mcp" className="way">
               <h2>Assistants: the MCP server</h2>
               <p className="way-lead">
-                For Claude Desktop, Claude Code, Cursor and any client that starts a local MCP server. No API key of your own: the
-                server gets the wallet&apos;s key itself (the wallet needs 0.01 SOL).
+                For Claude Desktop, Claude Code, Cursor and any client that runs a local MCP server. It gets its own API key.
               </p>
               <KeyAccess
                 label="Set up the MCP server"
@@ -513,8 +485,7 @@ cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skill
                       <>
                         <pre tabIndex={0}><code>{`gh attestation verify orientim.mcpb -R orientimhq/orientim-protected-swap`}</code></pre>
                         <p className="hint">
-                          Download <a href={SKILL_EXTENSION}>orientim.mcpb</a> (v{SKILL_VERSION}), check it as above and open it. Claude Desktop
-                          asks for your RPC and the wallet&apos;s keypair file, and brings its own Node.
+                          Download <a href={SKILL_EXTENSION}>orientim.mcpb</a> (v{SKILL_VERSION}), verify it and open it. It asks for your RPC and keypair file.
                         </p>
                       </>
                     ),
@@ -530,8 +501,7 @@ cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skill
                     label: 'Own agent',
                     content: (
                       <p className="hint">
-                        Your agent starts the same server and gets the same tools, with your yes before each swap: see{' '}
-                        <a href="/developers/vercel-ai-sdk">the Vercel AI SDK</a> and <a href="/developers/langchain">LangChain</a> examples.
+                        Start the same server from your agent: <a href="/developers/vercel-ai-sdk">Vercel AI SDK</a> and <a href="/developers/langchain">LangChain</a> examples.
                       </p>
                     ),
                   },
@@ -541,73 +511,62 @@ cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skill
                 <table>
                   <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
                   <tbody>
-                    <tr><td><code>orientim_wallet</code></td><td>The wallet&apos;s address and balances, read on your RPC.</td></tr>
-                    <tr><td><code>orientim_quote</code></td><td>Prices and verifies a swap, in whole tokens. Nothing is signed.</td></tr>
-                    <tr><td><code>orientim_swap</code></td><td>Swaps the quote you said yes to, and only that one, within 10 minutes.</td></tr>
-                    <tr><td><code>orientim_recover</code></td><td>Settles a swap that was interrupted.</td></tr>
+                    <tr><td><code>orientim_wallet</code></td><td>Address and balances.</td></tr>
+                    <tr><td><code>orientim_quote</code></td><td>Prices and verifies a swap. Nothing is signed.</td></tr>
+                    <tr><td><code>orientim_swap</code></td><td>Swaps the quote you approved, within 10 minutes.</td></tr>
+                    <tr><td><code>orientim_recover</code></td><td>Settles an interrupted swap.</td></tr>
                   </tbody>
                 </table>
               </div>
               <ul className="way-notes">
-                <li>Each quote is confirmed in your client before it swaps, when the client supports it.</li>
-                <li>At most 3% slippage and 5% price impact; only you raise them, with <code>ORIENTIM_MAX_SLIPPAGE_BPS</code> and <code>ORIENTIM_MAX_PRICE_IMPACT_BPS</code>.</li>
-                <li>It runs where the key is, on your machine: assistants that only reach remote servers, such as ChatGPT, cannot start it.</li>
+                <li>Your client asks you before each swap, when it supports it.</li>
+                <li>Caps: 3% slippage and 5% price impact. Raise them with <code>ORIENTIM_MAX_SLIPPAGE_BPS</code> and <code>ORIENTIM_MAX_PRICE_IMPACT_BPS</code>.</li>
+                <li>It runs locally, next to the key. Remote-only assistants such as ChatGPT cannot use it.</li>
               </ul>
             </section>
 
             <section id="how">
               <h2>How a protected swap works</h2>
               <ol>
-                <li><strong>Prepare</strong>: Orientim builds and verifies the transaction and returns it unsigned, with a ticket.</li>
-                <li><strong>Verify</strong>: your agent runs Orientim&apos;s verifier on the exact bytes, with chain state from its own RPC.</li>
-                <li><strong>Sign</strong>: your wallet signs first. Orientim never holds your key.</li>
-                <li><strong>Finalize</strong>: Orientim adds the last signature, with the one-time key, and sends it once.</li>
+                <li><strong>Prepare</strong>: Orientim builds the transaction and returns it unsigned, with a ticket.</li>
+                <li><strong>Verify</strong>: your agent checks the exact bytes on its own RPC.</li>
+                <li><strong>Sign</strong>: your wallet signs. Orientim never holds your key.</li>
+                <li><strong>Finalize</strong>: Orientim adds its one-time signature and sends it.</li>
               </ol>
-              <p>
-                The transaction lives 150 blocks, about 40 seconds. Verify, sign and finalize promptly; with fewer than 30 blocks
-                left, prepare again instead.
-              </p>
+              <p>A transaction lives about 40 seconds. With fewer than 30 blocks left, prepare again.</p>
             </section>
 
             <section id="verify">
               <h2>Verify before you sign</h2>
               <p>
-                With the check, a compromised server or an impostor URL can refuse or delay a swap, but cannot make your wallet
-                sign one that moves more than the approved amount, or one priced below a floor you got yourself.{' '}
-                <strong>Without it, you are trusting Orientim&apos;s server with your whole wallet.</strong>
+                With the check, even a compromised server cannot make your wallet sign more than you approved, or below your own
+                floor. <strong>Without it, you trust Orientim&apos;s server with your wallet.</strong>
               </p>
               <p>
-                <code>checkPrepared(prepared, intent, yourRpc)</code>, in <code>@orientimhq/swap</code>, does all of it and returns the problems it found;
-                sign only when there are none. The skill and the command line run it for you.
+                <code>checkPrepared(prepared, intent, yourRpc)</code> returns the problems it finds. Sign only when there are none.
+                The skill and the command line run it for you. It checks:
               </p>
               <ul>
-                <li>Holds the transaction to your limits: the fee, the network fee and your own minimum.</li>
-                <li>Checks the exact bytes against chain state from your own RPC, and simulates them there.</li>
-                <li>Accepts rent the route keeps only up to 0.001 SOL, or less with <code>maxRouteCostLamports</code>.</li>
+                <li>The fee, the network fee and your minimum.</li>
+                <li>The exact bytes, simulated on your own RPC.</li>
+                <li>Rent kept by the route: at most 0.001 SOL (<code>maxRouteCostLamports</code>).</li>
               </ul>
               <p>
-                Your minimum is required, and it must be a price you got yourself, never Orientim&apos;s: <code>ownMinimum</code> asks
-                Jupiter for one. For a large order, check it against a second source as well.
+                Your minimum must come from your own price, never Orientim&apos;s; <code>ownMinimum</code> gets one from Jupiter.
               </p>
               <p>
-                Calling the API yourself, in any language? Pipe prepare&apos;s answer to the command line before you sign:{' '}
-                <code>{'{"prepared": ..., "intent": {...}}'}</code> into <code>npx orientim check</code> exits 0 only when it is safe
-                to sign.
+                Any language: pipe <code>{'{"prepared": ..., "intent": {...}}'}</code> into <code>npx orientim check</code>. Exit 0 means safe to sign.
               </p>
             </section>
 
             <section id="own-routes">
               <h2>Your own Jupiter key</h2>
               <p>
-                With <code>JUPITER_API_KEY</code> set, the skill and the command line fetch the swap&apos;s routes from Jupiter with your
-                key, which never leaves your process, and Orientim builds and checks the swap around them.{' '}
-                <code>ORIENTIM_OWN_ROUTES=0</code> (or <code>ownRoutes: false</code> in code) lets Orientim&apos;s key fetch them instead.
+                With <code>JUPITER_API_KEY</code> set, the skill fetches routes with your key, which never leaves your process.{' '}
+                <code>ORIENTIM_OWN_ROUTES=0</code> (<code>ownRoutes: false</code> in code) uses Orientim&apos;s key instead.
               </p>
-              <ul>
-                <li>Every round is one prepare request toward the API&apos;s <a href="#limits">rate limit</a>.</li>
-              </ul>
               <p>
-                For a direct API client, the rounds (<code>409 routes-needed</code>, sessions and time budgets) are in{' '}
+                Each round counts as one prepare toward the <a href="#limits">rate limit</a>. Direct API clients: the rounds are in{' '}
                 <code>reference/AGENT-API.md</code>.
               </p>
             </section>
@@ -615,60 +574,43 @@ cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skill
             <section id="recovery">
               <h2>Results and recovery</h2>
               <p>
-                The skill and the command line keep the record and read the result on chain for you. They answer an <code>outcome</code>:{' '}
-                <code>confirmed</code>, <code>failed</code>, <code>expired</code>, <code>unknown</code> (check again before anything new),
-                or <code>rejected</code> (finalize refused, and the transaction can no longer land).
+                The skill and the command line read the result on chain and return an <code>outcome</code>:{' '}
+                <code>confirmed</code>, <code>failed</code>, <code>expired</code>, <code>rejected</code>, or <code>unknown</code> (check again before anything new).
               </p>
               <h3>For a direct API client</h3>
               <p>
-                The transaction&apos;s id on chain is your wallet&apos;s signature, known before finalize. Keep it, with the ticket, before
-                you call finalize: whatever finalize answers, or if no answer arrives, that signature is how you find out what
-                happened.
+                Your wallet&apos;s signature is the transaction id. Store it with the ticket before you call finalize; it is how you
+                find out what happened.
               </p>
               <div className="table-wrap">
                 <table>
                   <thead><tr><th>status</th><th>Meaning</th></tr></thead>
                   <tbody>
-                    <tr><td><code>sent</code></td><td>Accepted, or already on chain. Confirm it on chain; re-broadcast <code>signedTransaction</code> until it confirms or its lifetime passes. It can land only once.</td></tr>
-                    <tr><td><code>unknown</code></td><td>The connection failed after the request left. Check the signature before anything else.</td></tr>
-                    <tr><td><code>signed</code></td><td>Asked with <code>{'"send": false'}</code>: signed, not sent by Orientim. Send it yourself; until it confirms, this says nothing about the swap.</td></tr>
-                    <tr><td><code>rejected</code></td><td>This request never sent it, usually because the price moved.</td></tr>
+                    <tr><td><code>sent</code></td><td>Accepted. Confirm on chain; re-send <code>signedTransaction</code> until it confirms or expires. It lands only once.</td></tr>
+                    <tr><td><code>unknown</code></td><td>The answer was lost. Check the signature first.</td></tr>
+                    <tr><td><code>signed</code></td><td>With <code>{'"send": false'}</code>: signed, not sent. Send it yourself.</td></tr>
+                    <tr><td><code>rejected</code></td><td>Not sent, usually because the price moved.</td></tr>
                   </tbody>
                 </table>
               </div>
               <p>
-                <strong>Only a swap confirmed on chain is done.</strong> <code>sent</code> says the transaction was accepted for
-                broadcast, and <code>unknown</code> that the answer was lost: neither says that the swap happened, and neither that
-                it did not. Until the chain answers, the swap may still land.
+                <strong>Only a swap confirmed on chain is done.</strong> <code>sent</code> and <code>unknown</code> mean it may still land.
               </p>
               <p>
-                <strong>Orientim keeps no order database.</strong> It does not track or deduplicate your orders: your own store and
-                the chain are the record. The skill
-                and the command line keep that store for you; a direct API client keeps its own and runs{' '}
-                <a href="#verify">the check</a> before every signature.
+                <strong>Orientim keeps no order database.</strong> Your store and the chain are the record. The skill keeps that store
+                for you.
               </p>
               <ul>
-                <li>Finalizing the same ticket again is safe: it answers for the same transaction, which can land only once.</li>
-                <li>Two prepares for one trading decision are two different transactions. A direct bot must assign a stable order id, store the signed transaction and signature durably before finalize, and serialize work per wallet across all workers.</li>
-                <li>
-                  Before preparing the same swap again, make sure the one you signed can no longer land: no record of its signature,
-                  and the network past its last valid block.
-                </li>
-                <li>
-                  Run one swap per wallet at a time. The skill does all of this for you (<code>protectedSwap</code>,{' '}
-                  <code>recoverPending</code>), and <code>npx orientim resolve</code> settles a swap by hand.
-                </li>
+                <li>Finalizing the same ticket again is safe: the transaction lands only once.</li>
+                <li>Two prepares are two transactions. Use one order id per decision and one swap per wallet at a time.</li>
+                <li>Prepare the same swap again only once the signed one can no longer land.</li>
               </ul>
               <h3>On every start, for a direct API client</h3>
               <ol>
-                <li>Load every swap you stored as signed and not yet settled: its order id, signature, signed bytes and last valid block height.</li>
-                <li>Look each signature up on your RPC. Confirmed or failed: record that outcome on its order.</li>
-                <li>
-                  No record: re-send the same signed bytes until its lifetime passes, and record it expired only when the network
-                  is past its last valid block, read as one view (the full rule is in <code>reference/AGENT-API.md</code>, under
-                  Finalize).
-                </li>
-                <li>Only then prepare anything new for that order, or for that wallet. An outcome you cannot prove stays unknown: settle it by hand.</li>
+                <li>Load every signed swap not yet settled.</li>
+                <li>Look up each signature on your RPC and record confirmed or failed.</li>
+                <li>Not found: re-send the same bytes, and mark it expired only once the network is past its last valid block.</li>
+                <li>Only then prepare anything new for that wallet.</li>
               </ol>
             </section>
 
@@ -676,10 +618,7 @@ cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skill
               <h2>Authentication</h2>
               <p>Base URL <code>https://orientim.com</code>. Every request carries an API key:</p>
               <pre tabIndex={0}><code>Authorization: Bearer ori_...</code></pre>
-              <p>
-                A key prepares swaps for its own wallet only; another <code>owner</code> is refused with{' '}
-                <code>403 wrong-wallet</code>. Calls may carry <code>x-orientim-skill: &lt;version&gt;</code>, as the skill does.
-              </p>
+              <p>A key prepares swaps for its own wallet only.</p>
             </section>
 
             <section id="prepare">
@@ -710,11 +649,7 @@ Content-Type: application/json
                   <tbody>{PREPARE_ANSWER.map(([f, text]) => <tr key={f}><td><code>{f}</code></td><td>{text}</td></tr>)}</tbody>
                 </table>
               </div>
-              <p>
-                A prepare answers within 45 seconds. One that takes longer, because Jupiter or the Solana RPC is slow, ends in{' '}
-                <code>503 unavailable</code> with nothing built; prepare again in a moment. The skill waits up to 60 seconds for it. A
-                request body may be up to 1 MiB, enough for the routes an agent brings.
-              </p>
+              <p>A prepare answers within 45 seconds, or <code>503 unavailable</code>. Bodies may be up to 1 MiB.</p>
             </section>
 
             <section id="finalize">
@@ -724,21 +659,16 @@ Authorization: Bearer ori_...
 Content-Type: application/json
 
 { "ticket": "eyJ2Ijox....", "signedTransaction": "<base64, signed by your wallet>" }`}</code></pre>
-              <p>
-                Orientim adds its signature and sends the transaction. Finalizing the same ticket again answers with that same
-                transaction and sends nothing new.
-              </p>
+              <p>Orientim signs and sends. The same ticket again returns the same transaction.</p>
               <pre tabIndex={0}><code>{`{
   "signature": "5h...",
   "status": "sent",
   "signedTransaction": "<base64, fully signed>",
   "lastValidBlockHeight": "312345678"
 }`}</code></pre>
-              <p>What each <code>status</code> means is in <a href="#recovery">Results and recovery</a>.</p>
               <p>
-                To send it your own way (a staked RPC, a sender service, a bundle), add <code>{'"send": false'}</code>: Orientim signs
-                and sends nothing, and answers <code>status</code> <code>signed</code> with the fully signed transaction. Send it at
-                once and again every few seconds until it confirms or its lifetime passes; the same bytes land only once.
+                <code>status</code>: see <a href="#recovery">Results and recovery</a>. To send it yourself (staked RPC, bundle), add{' '}
+                <code>{'"send": false'}</code> and re-send until it confirms or expires.
               </p>
             </section>
 
@@ -752,28 +682,16 @@ POST /api/v1/keys
 → { "key": "ori_...", "wallet": "<address>", "expiresAt": "..." }`}</code></pre>
               <ul>
                 <li>Sign the challenge within 10 minutes.</li>
-                <li>
-                  Sign only Orientim&apos;s key message for your own wallet: a signature over bytes someone else chose could be a
-                  signature for a transaction. The skill checks the message before anything is signed.
-                </li>
-                <li>
-                  <code>400 bad-signature</code>: the signature does not match, or the challenge expired, was not Orientim&apos;s, or
-                  names another site. <code>403 wallet-empty</code>: the wallet holds less than 0.01 SOL.
-                </li>
-                <li>
-                  From one IP address, 30 challenges and 10 keys an hour; one wallet gets 5 keys a day. Keep the key you have
-                  rather than ask again on every start. A <code>429</code> carries <code>Retry-After</code>.
-                </li>
-                <li>Getting a key needs skill 1.12.3 or later; an older copy is answered <code>426 skill-outdated</code>.</li>
+                <li>Sign only Orientim&apos;s key message. Other bytes could be a transaction.</li>
+                <li>Keep your key; do not request a new one on every start.</li>
               </ul>
             </section>
 
             <section id="errors">
               <h2>Errors</h2>
               <p>
-                Every error is <code>{'{ "error": { "code": "...", "message": "..." } }'}</code>, and the request that received it signed
-                and sent nothing. <code>price-moved</code> and <code>costs-more</code> carry <code>requiresApproval: true</code>: a worse
-                price is the user&apos;s decision, not a retry.
+                Every error is <code>{'{ "error": { "code": "...", "message": "..." } }'}</code>, and nothing was signed or sent.{' '}
+                <code>requiresApproval: true</code> means ask the user, do not retry.
               </p>
               <div className="table-wrap">
                 <table>
@@ -786,18 +704,11 @@ POST /api/v1/keys
             <section id="limits">
               <h2>Rate limits</h2>
               <ul>
-                <li>
-                  60 prepare and 30 finalize requests a minute, counted per wallet for a self-serve key, and 120 prepare a minute from one address; each round of{' '}
-                  <a href="#own-routes">your own routes</a> is one prepare request. A <code>429</code> carries{' '}
-                  <code>Retry-After</code>: the seconds until the count starts again.
-                </li>
-                <li>
-                  120 prepare and finalize requests a minute from one IP address, answered <code>429</code> above it.
-                </li>
-                <li>API keys: 30 challenges and 10 keys an hour from one IP address, and 5 keys a day for one wallet.</li>
-                <li>One swap per output token at a time, and one per wallet in the skill.</li>
-                <li>A key used to overload or attack the service is revoked.</li>
-                <li>For uptime monitors, <code>GET /api/health</code> needs no key: 200 when a swap could go through now, 503 when it could not.</li>
+                <li>Per wallet: 60 prepare and 30 finalize a minute.</li>
+                <li>Per IP address: 120 requests a minute.</li>
+                <li>Keys: 30 challenges and 10 keys an hour per IP, 5 keys a day per wallet.</li>
+                <li>A <code>429</code> carries <code>Retry-After</code>.</li>
+                <li><code>GET /api/health</code> needs no key: 200 when swaps can go through, else 503.</li>
               </ul>
             </section>
 
@@ -805,52 +716,31 @@ POST /api/v1/keys
               <h2>Fees and limits</h2>
               <ul>
                 <li>
-                  {feeText}, inside the transaction you sign, on one side of the swap: in SOL, USDC or USDT when the swap has one of
-                  them, otherwise in the input token, otherwise in SOL from the wallet. <code>amounts.feeMint</code> says which.
+                  {feeText}, inside the transaction, in SOL, USDC or USDT when the swap has one, else the input token
+                  (<code>amounts.feeMint</code>).
                   <ul>
                     <li>On the input: that share of <code>amountIn</code>.</li>
                     <li>
-                      On the output: that share of the enforced minimum, the minimum the transaction holds to, paid after it is
-                      checked; <code>amounts.minOut</code> is what the wallet keeps after it. With <a href="#own-routes">your own
-                      routes</a>, that minimum must be within 1% of Orientim&apos;s own price.
+                      On the output: that share of the enforced minimum. With <a href="#own-routes">your own routes</a>, it must be
+                      within 1% of Orientim&apos;s price.
                     </li>
-                    <li>
-                      In SOL from the wallet, for a pair neither token of which can carry it: that share of the swap&apos;s value in
-                      SOL; the wallet then needs that SOL besides the token.
-                    </li>
+                    <li>Otherwise: that share of the swap&apos;s value, in SOL from the wallet.</li>
                   </ul>
-                  A swap whose fee cannot be collected is refused with <code>503 fee-unavailable</code>.
                 </li>
-                <li>With the skill, your agent never pays an Orientim fee above 0.25% (up to 0.3% only when you set <code>maxFeeBps</code>), whatever the server says, nor a network fee above 0.001 SOL.</li>
-                <li>
-                  A slippage tolerance of your choice (<code>slippageBps</code>, 0.1% to 15%); 0.5% by default, 3% on a Pump.fun launch
-                  curve.
-                </li>
-                <li>
-                  Your agent takes no swap with a price impact above 5%, and stops before anything is prepared (<code>maxPriceImpactBps</code>{' '}
-                  raises it, to 20% at most).
-                </li>
-                <li>
-                  A limit no flag can loosen: in the skill, a minimum never more than 20% below Jupiter&apos;s own price
-                  (<code>floor-too-low</code>).
-                </li>
-                <li>
-                  The owner&apos;s own limits, per swap and per day for each input mint, and the tokens the wallet may buy, in a file (<code>ORIENTIM_POLICY</code>):
-                  your policy enforces them before anything is signed.
-                </li>
-                <li>
-                  Swaps smaller than about 0.004 SOL, or $1 of USDC or USDT, are not taken, except the sale of a token&apos;s
-                  whole balance.
-                </li>
+                <li>The skill refuses an Orientim fee above 0.25% (<code>maxFeeBps</code>, up to 0.3%) and a network fee above 0.001 SOL.</li>
+                <li>Slippage: 0.5% by default, 3% on a Pump.fun curve (<code>slippageBps</code>, 0.1% to 15%).</li>
+                <li>Price impact: at most 5% (<code>maxPriceImpactBps</code>, up to 20%).</li>
+                <li>The minimum is never more than 20% below Jupiter&apos;s price.</li>
+                <li>The owner&apos;s limits per swap, per day and per token (<code>ORIENTIM_POLICY</code>).</li>
+                <li>Smallest swap: about 0.004 SOL or $1, except selling a whole balance.</li>
               </ul>
             </section>
 
             <section id="supported">
               <h2>Tokens and wallets</h2>
               <p>
-                See <a href="/security#supported">supported tokens</a>. Wallets must be able to sign first
-                and hand the transaction back: local keys and signing services work; sign-and-send-only wallets and multisig vaults
-                do not.
+                See <a href="/security#supported">supported tokens</a>. Key files and signing services work; sign-and-send-only
+                wallets and multisig vaults do not.
               </p>
             </section>
 
@@ -858,19 +748,15 @@ POST /api/v1/keys
               <h2>Downloads</h2>
               <ul>
                 <li>
-                  <a href={`https://www.npmjs.com/package/@orientimhq/swap/v/${SKILL_VERSION}`}>@orientimhq/swap</a> on npm, version{' '}
-                  {SKILL_VERSION}: the library, the <code>orientim</code> command, the MCP server and the skill. Check it with{' '}
-                  <code>npm audit signatures</code>.
+                  <a href={`https://www.npmjs.com/package/@orientimhq/swap/v/${SKILL_VERSION}`}>@orientimhq/swap</a> v{SKILL_VERSION} on npm: library, CLI, MCP server and skill.
                 </li>
-                <li><a href={SKILL_EXTENSION}>orientim.mcpb</a>: the MCP server for Claude Desktop, the same version (<a href="#mcp">how to use it</a>).</li>
+                <li><a href={SKILL_EXTENSION}>orientim.mcpb</a>: the MCP server for Claude Desktop.</li>
                 <li>
-                  Check a download against GitHub, not this site: <code>gh attestation verify &lt;file&gt; -R
-                  orientimhq/orientim-protected-swap</code>, or its sha256 against <code>RELEASE-SHA256SUMS</code> on the{' '}
-                  <a href={SKILL_RELEASE}>GitHub release</a>. In PowerShell:{' '}
-                  <code>(Get-FileHash orientim.mcpb -Algorithm SHA256).Hash</code>.
+                  Verify: <code>gh attestation verify &lt;file&gt; -R orientimhq/orientim-protected-swap</code>, or the sha256 in{' '}
+                  <code>RELEASE-SHA256SUMS</code> on the <a href={SKILL_RELEASE}>release</a>.
                 </li>
-                <li><a href={SKILL_SOURCE}>Source on GitHub</a>: the package and its verifier, Apache-2.0, with a build that gives the same files, byte for byte.</li>
-                <li>The full API reference, every field and recovery step, is <code>reference/AGENT-API.md</code> in the skill folder.</li>
+                <li><a href={SKILL_SOURCE}>Source on GitHub</a>, Apache-2.0, with a reproducible build.</li>
+                <li>Full API reference: <code>reference/AGENT-API.md</code> in the skill folder.</li>
               </ul>
             </section>
           </article>
