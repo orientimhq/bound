@@ -15,9 +15,8 @@
 import { getTransactionSize } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import {
-  buildPolicy, compileProtectedSwap, JUPITER_PROGRAM, LEGACY_SIZE_LIMIT, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, withMinOut,
-} from '@orientimhq/swap/core';
+import { JUPITER_PROGRAM, LEGACY_SIZE_LIMIT, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@orientimhq/swap/core';
+import { buildPolicy, compileProtectedSwap, withMinOut } from '@orientim/builder';
 import type { IntermediateAta } from '@orientimhq/swap/core';
 import { createEphemeral, createRetryingRpc, fetchMints } from '@orientimhq/swap/solana';
 import {

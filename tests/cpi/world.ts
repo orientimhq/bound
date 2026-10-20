@@ -16,10 +16,8 @@ import {
 } from '@solana-program/token';
 import { LiteSVM } from 'litesvm';
 import { existsSync } from 'node:fs';
-import {
-  ataOf, buildPolicy, compileProtectedSwap, MINT_SIZE, SYSTEM_PROGRAM, tokenAmountOf, TOKEN_2022_PROGRAM,
-  TOKEN_PROGRAM, withTakerRent, WSOL_MINT,
-} from '@orientimhq/swap/core';
+import { ataOf, MINT_SIZE, SYSTEM_PROGRAM, tokenAmountOf, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { buildPolicy, compileProtectedSwap, withTakerRent } from '@orientim/builder';
 import type { AccountState, ChainSnapshot, Policy } from '@orientimhq/swap/core';
 import { verify } from '@orientimhq/swap/verifier';
 

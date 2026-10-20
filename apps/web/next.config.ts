@@ -9,7 +9,7 @@ checkDeploymentSettings(process.env);
 // The Content-Security-Policy for pages is set per request, with a nonce, in proxy.ts.
 // API responses are JSON (and the skill's files) under nosniff.
 const config: NextConfig = {
-  transpilePackages: ['@orientim/certificate', '@orientim/jupiter'],
+  transpilePackages: ['@orientim/builder', '@orientim/certificate', '@orientim/jupiter'],
   poweredByHeader: false,
   reactStrictMode: true,
   // Next adds a hash to the script tags it writes, so a browser refuses those scripts when they are

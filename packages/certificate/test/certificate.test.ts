@@ -4,7 +4,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
-import { compileProtectedSwap, JUPITER_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, withTakerRent } from '@orientimhq/swap/core';
+import { JUPITER_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { compileProtectedSwap, withTakerRent } from '@orientim/builder';
 import type { TxVersion } from '@orientimhq/swap/core';
 import { certificateJson, certify, VERIFIER_VERSION } from '../src/index.ts';
 import { BONK, compileRaw, cuIxs, honest, LIFETIME, randomAddress, scenario, USDC } from './fixtures.ts';

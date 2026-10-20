@@ -17,10 +17,8 @@ import {
 } from '@solana/kit';
 import type { Address, Blockhash, Instruction, KeyPairSigner, Transaction } from '@solana/kit';
 import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } from '@solana-program/compute-budget';
-import {
-  ataOf, buildPolicy, eventAuthorityOf, JUPITER_PROGRAM, protectedInstructions, routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM,
-  TOKEN_PROGRAM, withRouteRefund, withTakerRent, WSOL_MINT,
-} from '@orientimhq/swap/core';
+import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { buildPolicy, eventAuthorityOf, protectedInstructions, routeAccountOf, withRouteRefund, withTakerRent } from '@orientim/builder';
 import type { AccountState, ChainSnapshot, IntermediateAta, Policy, TxVersion } from '@orientimhq/swap/core';
 
 export const USDC = address('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');

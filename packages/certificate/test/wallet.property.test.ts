@@ -20,7 +20,7 @@ import {
   getTransactionEncoder, partiallySignTransaction,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
-import { compileProtectedSwap } from '@orientimhq/swap/core';
+import { compileProtectedSwap } from '@orientim/builder';
 import { LIGHTHOUSE_PROGRAM, verifyWalletReturn } from '../src/index.ts';
 import { LIFETIME, scenario } from './fixtures.ts';
 

@@ -7,10 +7,8 @@ import {
   getTransactionDecoder, getTransactionMessageComputeUnitLimit, getTransactionMessageComputeUnitPrice, getTransactionMessagePriorityFeeLamports,
 } from '@solana/kit';
 import type { Address } from '@solana/kit';
-import {
-  ataOf, ATA_PROGRAM, bondingCurveOf, CLOSE_USER_VOLUME_ACCUMULATOR, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, routeAccountOf, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM,
-  TOKEN_PROGRAM, WSOL_MINT,
-} from '@orientimhq/swap/core';
+import { ataOf, ATA_PROGRAM, bondingCurveOf, CLOSE_USER_VOLUME_ACCUMULATOR, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { routeAccountOf } from '@orientim/builder';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { JupiterError } from '../src/client.ts';
 import type { BuildParams, BuildResponse, JupiterClient } from '../src/client.ts';
