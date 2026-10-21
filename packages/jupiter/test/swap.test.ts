@@ -9,7 +9,8 @@ import {
   generateKeyPairSigner, pipe, setTransactionMessageFeePayerSigner, setTransactionMessageLifetimeUsingBlockhash,
 } from '@solana/kit';
 import type { Address, Blockhash } from '@solana/kit';
-import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM, tokenAccountSizeFor } from '@orientimhq/swap/core';
+import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@orientimhq/swap/core';
+import { tokenAccountSizeFor } from '@orientim/builder';
 import {
   compileIfFits, DEFAULT_SETTINGS, isMinimumOutputCheckInstruction, PUMP_CURVE_PROGRAM, quotedMinimum, slippageFor,
   strictMinimumOutput,
@@ -111,6 +112,11 @@ describe('the size of a new token account, which decides the rent shown before s
   it('CASH accounts are 175 bytes, as on mainnet', () => {
     const cash = mint2022([[3, 32], [12, 32], [6, 1], [4, 65], [14, 64], [18, 64], [19, 138]]);
     expect(tokenAccountSizeFor(TOKEN_2022_PROGRAM, cash)).toBe(175);
+  });
+
+  it('a mint extension the token program did not have yet: no size is guessed', () => {
+    expect(tokenAccountSizeFor(TOKEN_2022_PROGRAM, mint2022([[18, 64], [28, 8]]))).toBeNull();
+    expect(tokenAccountSizeFor(TOKEN_2022_PROGRAM, mint2022([[18, 64], [19, 100], [25, 56]]))).toBe(170);
   });
 });
 

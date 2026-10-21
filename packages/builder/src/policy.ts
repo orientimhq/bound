@@ -20,10 +20,15 @@ export function tokenAmountOf(data: Uint8Array | null | undefined): bigint {
  * sets, and one account-side extension for each mint extension that needs one: a transfer fee
  * withholds into the account (8 bytes), a transfer hook marks it (1), a non-transferable or
  * pausable mint flags it (0). Checked against mainnet in T12: PYUSD and USDG 187, CASH 175.
+ * Every other mint extension the token program knows today adds nothing to the account; one it does
+ * not know may, so the size is not guessed: null.
  */
-export function tokenAccountSizeFor(program: Address, mintData: Uint8Array | null | undefined): number {
+export function tokenAccountSizeFor(program: Address, mintData: Uint8Array | null | undefined): number | null {
   if (program !== TOKEN_2022_PROGRAM) return TOKEN_ACCOUNT_SIZE;
   const ACCOUNT_SIDE: Record<number, number> = { 1: 8, 9: 0, 14: 1, 26: 0 };
+  // Mint close authority, confidential transfers and their fee and mint-burn configs, default state,
+  // interest, permanent delegate, metadata and group pointers and data, scaled UI amount.
+  const MINT_ONLY = new Set([3, 4, 6, 10, 12, 16, 18, 19, 20, 21, 22, 23, 24, 25]);
   let size = TOKEN_ACCOUNT_SIZE + 1 + 4; // account type, then ImmutableOwner's empty entry
   if (mintData && mintData.length > TOKEN_ACCOUNT_SIZE && mintData[TOKEN_ACCOUNT_SIZE] === 1) {
     const view = new DataView(mintData.buffer, mintData.byteOffset, mintData.byteLength);
@@ -31,6 +36,7 @@ export function tokenAccountSizeFor(program: Address, mintData: Uint8Array | nul
       const type = view.getUint16(at, true);
       if (type === 0) break;
       if (ACCOUNT_SIDE[type] !== undefined) size += 4 + ACCOUNT_SIDE[type];
+      else if (!MINT_ONLY.has(type)) return null;
       at += 4 + view.getUint16(at + 2, true);
     }
   }

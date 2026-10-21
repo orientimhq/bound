@@ -169,6 +169,7 @@ describe('the local Pump.fun curve route', () => {
   const curveCases: [string, (curve: Uint8Array) => void, boolean][] = [
     ['a complete curve', d => { d[48] = 1; }, false],
     ['a cashback coin', d => { d[82] = 1; }, false],
+    ['a holder-reward coin', d => { d[124] = 1; }, false],
     ['a curve quoted in another token', d => { d[83] = 7; }, false],
     ["a curve's own creator fee", d => { new DataView(d.buffer).setBigUint64(115, 100n, true); }, true],
     ['an unknown layout', d => { d[0] ^= 0xff; }, true],

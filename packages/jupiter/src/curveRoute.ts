@@ -19,7 +19,7 @@ import type { ApiAccount, BuildParams, BuildResponse, JupiterClient } from './cl
  * Nothing is trusted more for being built here: the answer goes through `checkBuildResponse` and then
  * through the same pipeline as Jupiter's, the verifier and the final simulation included. Anything this
  * does not know to be built the way Jupiter builds it is left to Jupiter: another market or quote
- * token, a cashback coin, a creator fee of the curve's own, a fee schedule with more than one tier, a
+ * token, a cashback or holder-reward coin, a creator fee of the curve's own, a fee schedule with more than one tier, a
  * classic SPL mint, a sell paid to an account of its own, a buy the curve cannot fill, Jupiter's fast
  * mode, a narrower account budget, and every error.
  */
@@ -59,15 +59,17 @@ export type CurveFees = { protocolBps: bigint; creatorBps: bigint };
 
 /**
  * The bonding curve, or why this does not build on it. Offsets per Pump's IDL: the reserves, then
- * `complete` at 48, `is_mayhem_mode` at 81, `is_cashback_coin` at 82, `quote_mint` at 83 and
- * `creator_fee_bps` at 115. A mayhem coin trades through the same accounts and fees.
+ * `complete` at 48, `is_mayhem_mode` at 81, `is_cashback_coin` at 82, `quote_mint` at 83,
+ * `creator_fee_bps` at 115 and `is_holder_reward` at 124. A mayhem coin trades through the same
+ * accounts and fees; a holder-reward coin has not been compared with Jupiter's route.
  */
 export function readCurve(state: AccountState | null | undefined): Curve | string {
   if (!state || state.owner !== PUMP_CURVE_PROGRAM) return 'no curve';
   const d = state.data;
-  if (d.length < 123 || hex(d, 0, 8) !== CURVE_DISCRIMINATOR) return 'unknown curve layout';
+  if (d.length < 125 || hex(d, 0, 8) !== CURVE_DISCRIMINATOR) return 'unknown curve layout';
   if (d[48] !== 0) return 'curve complete';
   if (d[82] !== 0) return 'cashback coin';
+  if (d[124] !== 0) return 'holder-reward coin';
   if (d.subarray(83, 115).some(x => x !== 0)) return 'quoted in another token';
   if (u64(d, 115) !== 0n) return "the curve's own creator fee";
   const curve = { virtualToken: u64(d, 8), virtualQuote: u64(d, 16), realToken: u64(d, 24), realQuote: u64(d, 32) };
@@ -290,7 +292,7 @@ export function localCurveRoutes(opts: LocalCurveOptions = {}): (jupiter: Jupite
   }
 
   // Left to Jupiter as expected: nothing to say.
-  const EXPECTED = new Set(['not a SOL pair', 'fast mode', 'narrower account budget', 'curve excluded', 'sell to an account of its own', 'curve complete', 'no curve', 'cashback coin', 'quoted in another token', 'buy past what is left on the curve', 'sell past what the curve holds']);
+  const EXPECTED = new Set(['not a SOL pair', 'fast mode', 'narrower account budget', 'curve excluded', 'sell to an account of its own', 'curve complete', 'no curve', 'cashback coin', 'holder-reward coin', 'quoted in another token', 'buy past what is left on the curve', 'sell past what the curve holds']);
 
   return (jupiter, rpc) => ({
     ...jupiter,

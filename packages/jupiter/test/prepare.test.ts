@@ -507,6 +507,19 @@ describe('latency without weaker protection', () => {
     expect(simulations.count).toBe(3);
   });
 
+  it('the priority fee is asked on the pools alone, the same for two swaps with their own one-time keys', async () => {
+    const asked: (readonly Address[])[] = [];
+    const swaps = [];
+    for (let i = 0; i < 2; i++) swaps.push(await prepare(BONK, { priorityFee: async w => { asked.push(w); return 300_000n; } }));
+    expect(asked).toHaveLength(2);
+    expect(asked[0]!.length).toBeGreaterThan(0);
+    expect([...asked[1]!].sort()).toEqual([...asked[0]!].sort());
+    for (const p of swaps) {
+      const own = [p.policy.ephemeral, p.policy.accounts.eIn, p.policy.accounts.eOut, p.policy.accounts.wOut].filter(Boolean);
+      expect(asked.flat().some(a => own.includes(a))).toBe(false);
+    }
+  });
+
   it("the provider's estimate, when there is one, sets the priority fee; recent fees only when it has none", async () => {
     let asked: readonly Address[] = [];
     const estimated = await prepare(BONK, { feeLevels: [1n, 2n], priorityFee: async w => { asked = w; return 300_000n; } });

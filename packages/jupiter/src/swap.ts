@@ -4,8 +4,8 @@ import {
   SOLANA_ERROR__TRANSACTION__TOO_MANY_ACCOUNT_ADDRESSES,
 } from '@solana/kit';
 import type { Address, FullySignedTransaction, Instruction, KeyPairSigner, Transaction } from '@solana/kit';
-import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, LEGACY_SIZE_LIMIT, MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_ORIENTIM_LAMPORTS, LAMPORTS_PER_SIGNATURE, MAX_ROUTE_KEPT_LAMPORTS, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, WSOL_MINT, USDC_MINT, USDT_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM, PUMP_AMM_PROGRAM, FEE_TOKENS } from '@orientimhq/swap/core';
-import { bondingCurveOf, buildPolicy, compileProtectedSwap, withTakerRent, variantOf, withMinOut, eventAuthorityOf, routeAccountOf, withRouteRefund, feeSideFor, minimumForReceived, minimumReceived, outputFeeFor } from '@orientim/builder';
+import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, LEGACY_SIZE_LIMIT, MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_ORIENTIM_LAMPORTS, LAMPORTS_PER_SIGNATURE, MAX_ROUTE_KEPT_LAMPORTS, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAmountOf, V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, WSOL_MINT, USDC_MINT, USDT_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM, PUMP_AMM_PROGRAM, FEE_TOKENS } from '@orientimhq/swap/core';
+import { bondingCurveOf, buildPolicy, compileProtectedSwap, tokenAccountSizeFor, withTakerRent, variantOf, withMinOut, eventAuthorityOf, routeAccountOf, withRouteRefund, feeSideFor, minimumForReceived, minimumReceived, outputFeeFor } from '@orientim/builder';
 import type { AccountState, OrientimConfig, IntermediateAta, Policy, TxVersion, Violation } from '@orientimhq/swap/core';
 import type { Lifetime, RouteRefund } from '@orientim/builder';
 import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, simulate } from '@orientimhq/swap/solana';
@@ -824,6 +824,9 @@ export async function prepareProtectedSwap(deps: {
   // A Token-2022 account is larger when its mint needs account-side extensions, so its rent is
   // asked for at that size; the two common sizes were fetched above, in parallel.
   const outputAccountSize = tokenAccountSizeFor(outputTokenProgram, firstReads.get(req.outputMint)?.data);
+  if (outputAccountSize === null) {
+    throw new OrientimError('unsupported-token', `${req.outputMint} uses a token extension whose account size Orientim does not know.`);
+  }
   const newAccountRent = !wOutAddress ? 0n
     : outputAccountSize === TOKEN_ACCOUNT_SIZE ? classicRent
       : outputAccountSize === TOKEN_2022_ACCOUNT_SIZE ? extendedRent
@@ -1460,7 +1463,17 @@ export async function prepareProtectedSwap(deps: {
       }
       const swapAccounts = chosen.r.swapInstruction.accounts.map(a => address(a.pubkey));
       // The snapshot for the verifier and the fresh blockhash, together (idea 21).
-      const writable = chosen.r.swapInstruction.accounts.filter(a => a.isWritable).map(a => address(a.pubkey)).slice(0, 128);
+      // The priority fee is read on the accounts other swaps write too: E and the accounts this one
+      // swap opens or holds have no fee history, and would keep two swaps on the same pools from
+      // sharing one estimate.
+      const ownAccounts = new Set<string>([
+        E, policy.accounts.eIn, ...(policy.accounts.eOut ? [policy.accounts.eOut] : []),
+        // A route given a destination still names E's own account for the output, unused.
+        await ataOf(E, req.outputMint, outputTokenProgram),
+        ...(policy.accounts.wOut ? [policy.accounts.wOut] : []), ...chosen.intermediates.map(x => x.ata), ...underKey,
+      ]);
+      const writable = chosen.r.swapInstruction.accounts
+        .filter(a => a.isWritable && !ownAccounts.has(a.pubkey)).map(a => address(a.pubkey)).slice(0, 128);
       const [snapshot, { lifetime: finalLifetime, contextSlot }, feeLevel] = await Promise.all([
         fetchSnapshot({
           rpc,
