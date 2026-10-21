@@ -2,10 +2,10 @@ export { checkBuildResponse, createJupiterClient, JupiterError, toKitInstruction
 export type { ApiInstruction, BuildParams, BuildResponse, JupiterClient, TokenInfo } from './client.ts';
 export {
   BONDING_CURVE_LABEL, OrientimError, BUSY_MESSAGE, compileIfFits, countersignProtectedSwap, DEFAULT_SETTINGS, intermediatesFromSetup,
-  feeInSol, solValueOf, isCurveRoute, MIN_FEE, priceImpactOf, MIN_SWAP_MESSAGE, minimumOutput, prepareProtectedSwap, PUMP_CURVE_PROGRAM, quotedMinimum, recentFeeLevel, routeFloor,
+  feeBpsAt, feeInSol, solValueOf, isCurveRoute, MIN_FEE, priceImpactOf, MIN_SWAP_MESSAGE, minimumOutput, prepareProtectedSwap, PUMP_CURVE_PROGRAM, quotedMinimum, recentFeeLevel, routeFloor,
   revertedOnPrice, routeMissedItsThreshold, slippageFor, strictMinimumOutput, UNAVAILABLE_MESSAGE, withFloorAtLeast,
 } from './swap.ts';
-export type { Attempt, OrientimErrorCode, CostsMore, Countersignable, PreparedSwap, PriceMoved, ReferencePrice, SolValue, SwapRequest, SwapSettings } from './swap.ts';
+export type { Attempt, FeeTier, OrientimErrorCode, CostsMore, Countersignable, PreparedSwap, PriceMoved, ReferencePrice, SolValue, SwapRequest, SwapSettings } from './swap.ts';
 export { heliusPriorityFee } from './priorityFee.ts';
 export {
   MAX_PROVIDED_ROUTES, parseProvidedRoutes, parseRouteRequest, PROVIDED_ROUTE_TOLERANCE_BPS, providedRoutes, requestFor, routeKey, routeRequestOf,

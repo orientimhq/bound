@@ -81,6 +81,12 @@ on:
 permissions:
   contents: read
 
+# Orientim in the job runs as on Fly (fly.toml): production, one instance, so the checks production
+# makes and the tickets bound to the server's start are the ones exercised.
+env:
+  ORIENTIM_ENV: production
+  ORIENTIM_SINGLE_INSTANCE: '1'
+
 jobs:
   matrix:
     if: inputs.suite == 'matrix'

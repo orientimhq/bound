@@ -31,6 +31,31 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  image:
+    # The image Fly runs (Dockerfile, fly.toml), built and started as Fly starts it: it answers its
+    # liveness path, refuses what does not come through Cloudflare, runs unprivileged, and that
+    # process can write the Terms record to the mounted volume.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build
+        run: docker build --build-arg ORIENTIM_BUILD_ID=$GITHUB_SHA -t orientim .
+      - name: Start and check
+        run: |
+          secret=ci-origin-secret-0123456789abcdef
+          docker run -d --name app -p 8080:8080 -v data:/data -e ORIENTIM_TERMS_DIR=/data -e ORIENTIM_ORIGIN_SECRET=$secret -e ORIENTIM_SINGLE_INSTANCE=1 orientim
+          for i in $(seq 1 30); do curl -fs localhost:8080/api/live && break; sleep 2; done
+          code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          test "$(code localhost:8080/api/live)" = 200
+          test "$(code localhost:8080/api/status)" = 404
+          test "$(code localhost:8080/)" = 404
+          test "$(code -H "x-orientim-origin: $secret" localhost:8080/api/status)" = 200
+          test "$(code -H "x-orientim-origin: $secret" localhost:8080/)" = 200
+          test "$(docker exec app stat -c %U /proc/1)" = node
+          docker exec -u node app sh -c 'touch /data/write-test && rm /data/write-test'
+      - if: failure()
+        run: docker logs app
+
   package:
     # @orientimhq/swap, as package-lock.json pins it, is what its public repository's release
     # workflow published: npm's provenance names that repository, the workflow and the commit. The

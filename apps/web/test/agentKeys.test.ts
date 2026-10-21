@@ -477,3 +477,29 @@ describe('a seal has one spelling (found by fuzzing)', () => {
     for (const v of variants(ticket)) expect(await openTicket([ticketSecret], v)).toBeNull();
   });
 });
+
+describe('the Terms record on a disk of its own (ORIENTIM_TERMS_DIR, a Fly volume)', () => {
+  it('writes each acceptance as its own file by day, and two at the same second never overwrite one another', async () => {
+    const { mkdtemp, readdir, readFile, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { fileRecorder } = await import('../lib/server/agent/termsRecord.ts');
+    const dir = await mkdtemp(join(tmpdir(), 'orientim-terms-'));
+    try {
+      const a: Acceptance = {
+        wallet: '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM', terms: 'https://orientim.com/terms', termsUpdated: '2026-10-01',
+        message: 'm', signature: 's', acceptedAt: '2026-10-21T09:15:42.000Z', keyExpiresAt: '2027-01-19T09:15:42.000Z', skill: null,
+      };
+      const record = fileRecorder(dir);
+      await record(a);
+      await record({ ...a, signature: 't' });
+      const files = await readdir(join(dir, 'terms-acceptances', '2026-10-21'));
+      expect(files).toHaveLength(2);
+      for (const f of files) expect(f).toMatch(/^9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM-091542-[0-9a-f]{12}\.json$/);
+      const saved = await Promise.all(files.map(async f => JSON.parse(await readFile(join(dir, 'terms-acceptances', '2026-10-21', f), 'utf8'))));
+      expect(saved.map(x => x.signature).sort()).toEqual(['s', 't']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

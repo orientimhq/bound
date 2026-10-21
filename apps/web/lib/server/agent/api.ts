@@ -9,7 +9,7 @@ import { TOKEN_2022_PROGRAM } from '@orientimhq/swap/core';
 import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientimhq/swap/core';
 import type { AccountState, TxVersion } from '@orientimhq/swap/core';
 import { OrientimError, countersignProtectedSwap, DEFAULT_SETTINGS, parseProvidedRoutes, prepareProtectedSwap, providedRoutes, RoutesNeeded, RoutesUntrusted } from '@orientim/jupiter';
-import type { JupiterClient, PriorityFeeLevel, ReferencePrice, SolValue } from '@orientim/jupiter';
+import type { FeeTier, JupiterClient, PriorityFeeLevel, ReferencePrice, SolValue } from '@orientim/jupiter';
 import { BLOCKHASH_LIFE_BLOCKS, httpStatusOf, mintInfoOf, provesNeverLanded, readAccounts, sendOnce } from '@orientimhq/swap/solana';
 import { hasPermanentDelegate } from '@orientimhq/swap/verifier';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
@@ -45,6 +45,8 @@ export type AgentDeps = {
   keySecrets?: readonly Uint8Array[];
   revokedWallets?: ReadonlySet<string>;
   feeBps: bigint;
+  /** A lower fee for a large swap (NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS); none: `feeBps` at every size. */
+  feeTiers?: readonly FeeTier[];
   treasury: Address | null;
   excludeDexes: readonly string[];
   maxNetworkFeeLamports: bigint;
@@ -92,6 +94,11 @@ export type AgentDeps = {
    * instances share no memory. Prepare signs nothing, and runs either way.
    */
   sharedRequired?: boolean;
+  /**
+   * With one instance (env.ts, ORIENTIM_SINGLE_INSTANCE): this start's id. Tickets and sessions carry
+   * it, and one from an earlier start is refused, since what that start noted in memory is gone.
+   */
+  boot?: string;
 };
 
 /** Is `version` (major.minor.patch) older than `minimum`? A version that is not one is not judged. */
@@ -432,7 +439,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       // A session opens only for the swap and the key it was sealed for, under any secret still
       // accepted: a rotation does not end the sessions open at that moment (two minutes at most).
       if (!s || s.key !== key || s.owner !== owner || s.inputMint !== inputMint
-        || s.outputMint !== outputMint || s.amountIn !== amountIn.toString() || s.version !== version) {
+        || s.outputMint !== outputMint || s.amountIn !== amountIn.toString() || s.version !== version || s.boot !== deps.boot) {
         return fail(400, 'bad-session', 'This session is expired, or was opened for another swap or key: prepare again without it. Nothing was built.');
       }
       // E is one per session: a term, once a round has sent it, stays what it was. A first round may
@@ -488,6 +495,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     const session = () => kidOf(secret).then(kid => sealSession(secret, {
       v: 1, kid, nonce, key, owner: owner as string, inputMint: inMint, outputMint: outMint, amountIn: amountIn.toString(), version,
       exp: sessionExp ?? Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+      ...(deps.boot ? { boot: deps.boot } : {}),
       ...(price ? { ref: { out: price.value.out.toString(), min: price.value.minimum.toString(), at: price.at, slip, feeBps: deps.feeBps.toString(), treasury: treasuryText } } : {}),
       ...(solValue ? { sol: { amount: solValue.value.amount.toString(), value: solValue.value.value.toString(), at: solValue.at, slip: solSlip } } : {}),
       terms,
@@ -506,6 +514,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
         settings: {
           ...DEFAULT_SETTINGS,
           feeBps: deps.feeBps,
+          ...(deps.feeTiers?.length ? { feeTiers: deps.feeTiers } : {}),
           treasury: deps.treasury,
           excludeDexes: deps.excludeDexes,
           maxNetworkFeeLamports: deps.maxNetworkFeeLamports,
@@ -556,6 +565,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       lvbh: prepared.lifetime.lastValidBlockHeight.toString(),
       ...(wOut ? { wOut, b0: prepared.outputBalanceBefore.toString(), dust: (prepared.policy.minOut / DUST_DIVISOR).toString() } : {}),
       ...(wOut && prepared.contextSlot > 0n ? { slot: prepared.contextSlot.toString() } : {}),
+      ...(deps.boot ? { boot: deps.boot } : {}),
     });
     // Never a swap without the agent's own minimum: a first round can only ask for routes.
     if (minOut === undefined) return fail(400, 'bad-request', 'minOut is required to build the swap. Prepare again with it.');
@@ -833,6 +843,12 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
       return json(200, { signature, status: 'sent', signedTransaction: getBase64EncodedWireTransaction(signed), lastValidBlockHeight: ticket.lvbh });
     }
     if (deps.disabled) return refuse(503, 'paused', 'Protected swaps are paused. This request signed and sent nothing.');
+    // Prepared before this process started (one instance): one message per E and the output accounts
+    // held were noted in a memory that is gone, so nothing new is signed for it. A transaction already
+    // on chain is answered above, the same bytes again.
+    if (ticket.boot !== deps.boot) {
+      return refuse(409, 'server-restarted', 'Orientim restarted after this swap was prepared, and signs only swaps prepared since. Prepare it again; this request signed and sent nothing.');
+    }
     const shared = deps.shared ?? localShared;
     // Held per instance, one message per E and one swap per output account would not hold: nothing is signed.
     if (deps.sharedRequired && shared.kind !== 'redis') {

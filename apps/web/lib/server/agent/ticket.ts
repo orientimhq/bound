@@ -47,6 +47,8 @@ export type Ticket = {
    * before. Absent in tickets sealed before it, which finalize reads as it did then.
    */
   slot?: string;
+  /** The server start that sealed it (env.ts, BOOT_ID), with one instance; absent otherwise. */
+  boot?: string;
 };
 
 const enc = new TextEncoder();
@@ -120,6 +122,8 @@ export type Session = {
    * and a session cannot carry E into a swap built to other terms.
    */
   terms?: SessionTerms;
+  /** The server start that sealed it, with one instance; absent otherwise. */
+  boot?: string;
 };
 
 export type SessionTerms = { slip: number | null; cost: string | null; mode: 'standard' | 'fast'; min: string | null };
@@ -178,6 +182,7 @@ export async function openSession(secrets: readonly Uint8Array[], token: unknown
     if (fields.some(f => typeof f !== 'string') || !/^\d{1,20}$/.test(s.amountIn)) return null;
     if ((s.version !== 0 && s.version !== 1) || !Number.isInteger(s.exp) || s.exp < now) return null;
     if (s.ref !== undefined && !referenceOk(s.ref)) return null;
+    if (s.boot !== undefined && (typeof s.boot !== 'string' || !/^[A-Za-z0-9_-]{8,32}$/.test(s.boot))) return null;
     if (s.sol !== undefined && !solValueOk(s.sol)) return null;
     if (s.terms !== undefined && !termsOk(s.terms)) return null;
     return { session: s, secret };
@@ -220,6 +225,7 @@ export async function openTicket(secrets: readonly Uint8Array[], token: string):
     if (t.wOut !== undefined && (typeof t.wOut !== 'string' || typeof t.b0 !== 'string' || !/^\d{1,20}$/.test(t.b0))) return null;
     if (t.dust !== undefined && (t.wOut === undefined || typeof t.dust !== 'string' || !/^\d{1,20}$/.test(t.dust))) return null;
     if (t.slot !== undefined && (t.wOut === undefined || typeof t.slot !== 'string' || !/^\d{1,20}$/.test(t.slot))) return null;
+    if (t.boot !== undefined && (typeof t.boot !== 'string' || !/^[A-Za-z0-9_-]{8,32}$/.test(t.boot))) return null;
     return { ticket: t, secret };
   }
   return null;

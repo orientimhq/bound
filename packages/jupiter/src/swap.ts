@@ -5,7 +5,7 @@ import {
 } from '@solana/kit';
 import type { Address, FullySignedTransaction, Instruction, KeyPairSigner, Transaction } from '@solana/kit';
 import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, LEGACY_SIZE_LIMIT, MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_ORIENTIM_LAMPORTS, LAMPORTS_PER_SIGNATURE, MAX_ROUTE_KEPT_LAMPORTS, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAccountSizeFor, tokenAmountOf, V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, WSOL_MINT, USDC_MINT, USDT_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM, PUMP_AMM_PROGRAM, FEE_TOKENS } from '@orientimhq/swap/core';
-import { buildPolicy, compileProtectedSwap, withTakerRent, variantOf, withMinOut, eventAuthorityOf, routeAccountOf, withRouteRefund, feeSideFor, minimumForReceived, minimumReceived, outputFeeFor } from '@orientim/builder';
+import { bondingCurveOf, buildPolicy, compileProtectedSwap, withTakerRent, variantOf, withMinOut, eventAuthorityOf, routeAccountOf, withRouteRefund, feeSideFor, minimumForReceived, minimumReceived, outputFeeFor } from '@orientim/builder';
 import type { AccountState, OrientimConfig, IntermediateAta, Policy, TxVersion, Violation } from '@orientimhq/swap/core';
 import type { Lifetime, RouteRefund } from '@orientim/builder';
 import { fetchAccounts, fetchSnapshot, isInfrastructureProgram, mintInfoOf, simulate } from '@orientimhq/swap/solana';
@@ -58,7 +58,23 @@ export type SwapSettings = OrientimConfig & {
    * in another token has no price here and is not held to it. None when unset (tests, test mode).
    */
   minFee?: { lamports: bigint; stableUnits: bigint };
+  /** A lower fee for a large swap (`FeeTier`). None: `feeBps` at every size. */
+  feeTiers?: readonly FeeTier[];
 };
+
+/**
+ * A lower fee from a size up: `bps` once what the fee is taken from reaches `from` base units of
+ * `mint`. That is the amount in for a fee on the input, the minimum Orientim enforces for one on the
+ * output, and the swap's value in SOL for a fee in SOL. Only for a fee token: another has no price here.
+ */
+export type FeeTier = { mint: Address; from: bigint; bps: bigint };
+
+/** The fee in bps for `quantity` base units of `mint`: the lowest tier it reaches, else `feeBps`. */
+export function feeBpsAt(mint: Address, quantity: bigint, settings: Pick<SwapSettings, 'feeBps' | 'feeTiers'>): bigint {
+  let bps = settings.feeBps;
+  for (const t of settings.feeTiers ?? []) if (t.mint === mint && quantity >= t.from && t.bps < bps) bps = t.bps;
+  return bps;
+}
 
 /**
  * The smallest fee Orientim takes, and so the smallest swap it builds: 2,500 base
@@ -349,6 +365,15 @@ export function priceImpactOf(v: unknown): number | null {
   if (typeof v === 'number' ? !Number.isFinite(v) : typeof v !== 'string' || v.trim() === '') return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * A Pump.fun bonding curve still trading: the curve program's account, its `complete` flag (after
+ * the discriminator and five u64 reserves, at byte 48) not yet set. Once complete, the token trades on
+ * PumpSwap and elsewhere, at the usual tolerance.
+ */
+export function activeCurve(state: { owner: Address; data: Uint8Array } | null | undefined): boolean {
+  return !!state && state.owner === CURVE_PROGRAM && state.data.length > 48 && state.data[48] === 0;
 }
 
 export function isCurveRoute(r: Pick<BuildResponse, 'routePlan' | 'swapInstruction'>): boolean {
@@ -735,15 +760,19 @@ export async function prepareProtectedSwap(deps: {
   const outputFeeCandidates = settings.treasury && req.outputMint !== WSOL_MINT && FEE_TOKENS.includes(req.outputMint)
     ? await Promise.all(bothPrograms.map(tp => ataOf(settings.treasury!, req.outputMint, tp)))
     : [];
+  // The Pump.fun bonding curve of each token of the swap, read with the rest: a token still on its
+  // curve trades there only, so the route is asked for at the curve tolerance from the start.
+  const curves = await Promise.all([req.inputMint, req.outputMint].filter(m => m !== WSOL_MINT).map(bondingCurveOf));
   const [firstReads, classicRent, extendedRent] = await Promise.all([
     fetchAccounts(rpc, [
       req.inputMint, req.outputMint, ...feeCandidates, ...outputFeeCandidates, ...wOutCandidates, ...wInCandidates, ...treasuryWallet,
-      ...(req.minWalletLamports !== undefined ? [req.owner] : []),
+      ...(req.minWalletLamports !== undefined ? [req.owner] : []), ...curves,
     ]),
     wOutCandidates.length ? rentFor(TOKEN_ACCOUNT_SIZE) : Promise.resolve(0n),
     wOutCandidates.length ? rentFor(TOKEN_2022_ACCOUNT_SIZE) : Promise.resolve(0n),
   ]);
   const mints = new Map([req.inputMint, req.outputMint].map(m => [m, mintInfoOf(firstReads.get(m))]));
+  const onCurve = curves.some(c => activeCurve(firstReads.get(c)));
 
   // R7 up front, so a token we cannot isolate is refused before anything is quoted or built.
   for (const m of [req.inputMint, req.outputMint]) {
@@ -825,12 +854,14 @@ export async function prepareProtectedSwap(deps: {
   });
   // A value an earlier round of the same swap got is used while fresh, for the same amount only.
   let solFee: bigint | undefined;
+  let solFeeBps: bigint | undefined;
   if (settings.treasury && treasuryWalletReady && tokenCarries === null) {
     const amount = req.amountIn - (inputFee ? transferFeeOn(req.amountIn, inputFee) : 0n);
     const known = deps.solValue && deps.solValue.amount === amount ? deps.solValue.value : undefined;
     const value = known ?? await solValueOf(deps.pricing ?? jupiter, { inputMint: req.inputMint, amount, taker: E, slippageBps: settings.slippageBps });
     if (value !== undefined && known === undefined) deps.onSolValue?.({ amount, value });
-    solFee = value === undefined ? undefined : (value * settings.feeBps) / 10_000n;
+    solFee = value === undefined ? undefined : (value * feeBpsAt(WSOL_MINT, value, settings)) / 10_000n;
+    solFeeBps = value === undefined ? undefined : feeBpsAt(WSOL_MINT, value, settings);
   }
   const policy = await buildPolicy({
     intent: { owner: req.owner, inputMint: req.inputMint, outputMint: req.outputMint, amountIn: req.amountIn },
@@ -842,7 +873,12 @@ export async function prepareProtectedSwap(deps: {
     // The extension itself, not this epoch's rate: an account that has ever received the token
     // may hold withheld fees, and the cleanup must harvest them whatever the rate is today.
     inputTransferFee: inputTaxes,
-    config: settings,
+    // The rate at this size (`feeBpsAt`): of the amount in for a fee on the input, of the value in SOL
+    // for one in SOL. A fee on the output is rated on each route's minimum (`policyFor`).
+    config: {
+      ...settings,
+      feeBps: tokenCarries === 'input' ? feeBpsAt(req.inputMint, req.amountIn, settings) : tokenCarries === null && solFeeBps !== undefined ? solFeeBps : settings.feeBps,
+    },
     // Like Jupiter's fee: SOL first, then USDC and USDT, on whichever side; otherwise the input token.
     feeAccountExists,
     outputFeeAccountExists,
@@ -929,7 +965,7 @@ export async function prepareProtectedSwap(deps: {
     // Each route is built at its own tolerance, so that Jupiter's program enforces a second floor on
     // chain that does not depend on the balance Orientim read from the RPC. A curve route
     // is asked for again at the curve tolerance once it is known to be one.
-    slippageBps: settings.chosenSlippageBps ?? (req.expectCurve ? settings.curveSlippageBps : settings.slippageBps),
+    slippageBps: settings.chosenSlippageBps ?? (req.expectCurve || onCurve ? settings.curveSlippageBps : settings.slippageBps),
     destinationTokenAccount: policy.accounts.wOut ?? undefined,
   };
   // Individual quotes fail transiently ("pool has not been updated", "zero tradable amount"):
@@ -1031,7 +1067,13 @@ export async function prepareProtectedSwap(deps: {
   let takerRent = 0n;
   // Pump's per-buyer account under E, closed after the swap and returned to W.
   let routeRefund: RouteRefund | null = null;
-  const policyFor = (r: BuildResponse) => withRouteRefund(withTakerRent(withMinOut(policy, floorOf(r)), takerRent), routeRefund);
+  // A fee on the output is rated on the minimum it is taken from. What the user accepted (`accepted`,
+  // `keeps`) stays at the full rate, so a lower one only leaves the wallet more.
+  const policyFor = (r: BuildResponse) => {
+    const floor = floorOf(r);
+    const rated = policy.feeSide === 'output' ? { ...policy, feeBps: feeBpsAt(req.outputMint, floor, settings) } : policy;
+    return withRouteRefund(withTakerRent(withMinOut(rated, floor), takerRent), routeRefund);
+  };
   const priceMoved = (r: BuildResponse, message = 'The best route now gives less than your minOut: the price moved beyond the slippage tolerance. Nothing was signed.') =>
     new OrientimError('price-moved', message, [], {
       newMinOut: routeFloor(r, slippageFor(r, settings)),
@@ -1050,6 +1092,11 @@ export async function prepareProtectedSwap(deps: {
     set: (rent: bigint) => void,
     /** Also read after the swap, behind E: the account the route opens, to learn what it holds. */
     watch: Address[] = [],
+    /**
+     * Tried first once the probe says what the route spends: the swap with the account the route
+     * opened closed back to W, simulated at once. Null when it cannot be: the usual measurement follows.
+     */
+    closeFirst?: (spent: bigint, probed: Simulation) => Promise<{ trial: ReturnType<typeof compileProtectedSwap>; sim: Simulation } | null>,
   ) => {
     const attempt = (rent: bigint) => {
       set(rent);
@@ -1074,6 +1121,8 @@ export async function prepareProtectedSwap(deps: {
       if (!probed.ok) { set(0n); return { trial: probe, sim: probed }; }
       const spent = MAX_TAKER_RENT_LAMPORTS - (probed.lamportsAfter[0] ?? MAX_TAKER_RENT_LAMPORTS);
       if (spent <= 0n) { set(0n); return null; }
+      const closed = closeFirst ? await closeFirst(spent, probed) : null;
+      if (closed) return closed;
       const exact = attempt(spent);
       if (!exact) { set(0n); return null; }
       const sim = await measuredSimulation(rpc, exact.transaction, [E, ...watch]);
@@ -1290,7 +1339,30 @@ export async function prepareProtectedSwap(deps: {
     const knownRent = chosen.r.swapInstruction.accounts.some(a => RENT_CHARGING_PROGRAMS.has(a.pubkey));
     const opened = await routeAccountIn(chosen.r, E);
     const watchOpened = opened ? [opened.account] : [];
-    const early = knownRent ? await measureTakerRent(buildTrial, rent => { takerRent = rent; }, watchOpened) : null;
+    /**
+     * The probe already shows the account the route opened under E. When it holds exactly its rent,
+     * the swap that closes it and returns that rent to W is simulated straight away, funded with what
+     * the probe saw spent, and must leave E with nothing: one simulation instead of two. Anything else
+     * falls back to measuring the rent first, and the close after it (below).
+     */
+    const closeFirst = opened ? async (spent: bigint, probed: Simulation) => {
+      const held = probed.lamportsAfter[1] ?? 0n;
+      if (held <= 0n || held > MAX_TAKER_RENT_LAMPORTS || held !== await rentFor(probed.sizesAfter[1] ?? 0)) return null;
+      takerRent = spent;
+      routeRefund = { ...opened, lamports: held };
+      let built: ReturnType<typeof compileProtectedSwap> | null = null;
+      try {
+        built = timed(buildTrial);
+        if (!fits(built.size, built.staticAccounts, req.version)) built = null;
+      } catch {
+        built = null;
+      }
+      const closed = built ? await measuredSimulation(rpc, built.transaction, [E, ...watchOpened]) : null;
+      if (built && closed?.ok && closed.lamportsAfter[0] === 0n) return { trial: built, sim: closed };
+      routeRefund = null;
+      return null;
+    } : undefined;
+    const early = knownRent ? await measureTakerRent(buildTrial, rent => { takerRent = rent; }, watchOpened, closeFirst) : null;
     let trial = early ? early.trial : timed(buildTrial);
     let sim = early ? early.sim : await measuredSimulation(rpc, trial.transaction);
     // Some routes open an account in the taker's name and make the taker pay its rent — both of
@@ -1302,7 +1374,7 @@ export async function prepareProtectedSwap(deps: {
     let probedForRent = !!early;
     if (!early && !sim.ok && failedInSwap(sim, trial.transaction, lookups) && sim.logs.some(l => l.includes('insufficient lamports'))) {
       probedForRent = true;
-      const measured = await measureTakerRent(() => compile(chosen.r, lifetime, chosen.intermediates, MAX_COMPUTE_UNITS), rent => { takerRent = rent; }, watchOpened);
+      const measured = await measureTakerRent(() => compile(chosen.r, lifetime, chosen.intermediates, MAX_COMPUTE_UNITS), rent => { takerRent = rent; }, watchOpened, closeFirst);
       if (measured) {
         trial = measured.trial;
         sim = measured.sim;
@@ -1328,7 +1400,8 @@ export async function prepareProtectedSwap(deps: {
     // so such a route is refused, never left with value under E. Rent a route takes for an account
     // of any other market is caught by the final simulation, which refuses every account the route
     // opens and leaves open.
-    if (sim.ok && takerRent > 0n && opened) {
+    // Already closed by `closeFirst`, the swap was simulated with the close and left E empty.
+    if (sim.ok && takerRent > 0n && opened && !routeRefund) {
       const held = sim.lamportsAfter[1] ?? 0n;
       const rentOnly = held > 0n && held === await rentFor(sim.sizesAfter[1] ?? 0);
       // Holding more than its rent (a cashback coin's account), what it holds depends on the price at

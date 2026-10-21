@@ -39,3 +39,32 @@ describe('deployment settings', () => {
     expect(() => checkDeploymentSettings({ NEXT_PUBLIC_ORIENTIM_FEE_BPS: '0' })).not.toThrow();
   });
 });
+
+describe('the lower fee for a large swap', () => {
+  it('is off unless set; 15 bps from $10,000 of USDC or USDT, and from the SOL value given', async () => {
+    const { feeTiersSetting } = await import('../lib/settings.ts');
+    expect(feeTiersSetting({})).toEqual([]);
+    expect(feeTiersSetting({ NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS: '15' }).map(t => [t.from, t.bps])).toEqual([[10_000_000_000n, 15n], [10_000_000_000n, 15n]]);
+    const withSol = feeTiersSetting({ NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS: '15', NEXT_PUBLIC_ORIENTIM_FEE_TIER_SOL: '50' });
+    expect(withSol).toHaveLength(3);
+    expect(withSol[2].from).toBe(50_000_000_000n);
+  });
+
+  it('refuses a rate not below the fee, a bad SOL amount, or SOL without a rate', async () => {
+    const { feeTiersSetting } = await import('../lib/settings.ts');
+    expect(() => feeTiersSetting({ NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS: '25' })).toThrow('below the fee of 25');
+    expect(() => feeTiersSetting({ NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS: '0.15' })).toThrow();
+    expect(() => feeTiersSetting({ NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS: '15', NEXT_PUBLIC_ORIENTIM_FEE_TIER_SOL: '0' })).toThrow();
+    expect(() => feeTiersSetting({ NEXT_PUBLIC_ORIENTIM_FEE_TIER_SOL: '50' })).toThrow('without NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS');
+    expect(() => checkDeploymentSettings({ NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS: '30' })).toThrow();
+  });
+});
+
+describe('the mints the lower fee is measured in', () => {
+  it('are the ones @orientimhq/swap/core names', async () => {
+    const core = await import('@orientimhq/swap/core');
+    const { feeTiersSetting } = await import('../lib/settings.ts');
+    const mints = feeTiersSetting({ NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS: '15', NEXT_PUBLIC_ORIENTIM_FEE_TIER_SOL: '1' }).map(t => t.mint);
+    expect(mints).toEqual([core.USDC_MINT, core.USDT_MINT, core.WSOL_MINT]);
+  });
+});

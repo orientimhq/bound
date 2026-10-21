@@ -1,0 +1,60 @@
+# Orientim on Fly.io: one machine, behind Cloudflare (docs/FLY.md).
+# Deploy: fly deploy --build-arg ORIENTIM_BUILD_ID=$(git rev-parse HEAD)
+# Secrets (fly secrets set, never here): RPC_URL, RPC_URL_FALLBACK, JUPITER_API_KEY, ORIENTIM_API_SECRET,
+# ORIENTIM_API_KEYS, ORIENTIM_KEY_SECRET, ORIENTIM_ORIGIN_SECRET.
+
+app = "orientim"
+primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[build]
+  dockerfile = "Dockerfile"
+
+  # Public, compiled into the page: the same values as the release build (release.yml).
+  [build.args]
+    NEXT_PUBLIC_ORIENTIM_TREASURY = "ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE"
+    NEXT_PUBLIC_ORIENTIM_FEE_BPS = "25"
+
+# One machine, updated in place: the old process stops before the new one starts, so there are never
+# two. Tickets prepared before a restart are refused (server-restarted) and prepared again.
+[deploy]
+  strategy = "rolling"
+  max_unavailable = 1
+
+[env]
+  ORIENTIM_ENV = "production"
+  ORIENTIM_SINGLE_INSTANCE = "1"
+  ORIENTIM_CLIENT_IP_HEADER = "cf-connecting-ip"
+  ORIENTIM_PUBLIC_ORIGIN = "https://orientim.com"
+  ORIENTIM_TERMS_DIR = "/data"
+  NODE_OPTIONS = "--max-old-space-size=3072"
+
+# The Terms each key accepted, one file each (ORIENTIM_TERMS_DIR). Take a volume snapshot daily (Fly does by default).
+[[mounts]]
+  source = "orientim_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  # The one path answered without Cloudflare's header (proxy.ts): it only says the process is up.
+  [[http_service.checks]]
+    grace_period = "30s"
+    interval = "15s"
+    timeout = "5s"
+    method = "GET"
+    path = "/api/live"
+
+[[vm]]
+  size = "performance-1x"
+  memory = "4gb"

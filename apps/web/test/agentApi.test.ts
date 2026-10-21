@@ -505,6 +505,29 @@ describe('finalize', () => {
     expect((await finalize({ ...w, deps: { ...required.deps, shared: redis } }, p.ticket, signed)).status).toBe(200);
     expect(w.sent).toHaveLength(1);
   });
+
+  it('with one instance, a ticket from before a restart is refused as server-restarted; one from this start is signed', async () => {
+    const w = await world();
+    const before = { ...w, deps: { ...w.deps, boot: 'start-one-aaaa', shared: memoryShared() } };
+    const p = await prepared(before);
+    const signed = await signAsWallet(w.W, p.transaction);
+    // The process restarted: a new id, and a memory that holds nothing of the swap above.
+    const after = { ...w, deps: { ...w.deps, boot: 'start-two-bbbb', shared: memoryShared() } };
+    const res = await finalize(after, p.ticket, signed);
+    expect(res.status).toBe(409);
+    const { error } = await res.json();
+    expect(error.code).toBe('server-restarted');
+    expect(error.message).toContain('signed and sent nothing');
+    expect(error.signedTransaction).toBeUndefined();
+    expect(w.sent).toHaveLength(0);
+    // A ticket without a start id (sealed with more than one instance) is refused there too.
+    const plain = await prepared(w);
+    expect((await finalize(after, plain.ticket, await signAsWallet(w.W, plain.transaction))).status).toBe(409);
+    // Prepared again in this start, it is signed and sent.
+    const again = await prepared(after);
+    expect((await finalize(after, again.ticket, await signAsWallet(w.W, again.transaction))).status).toBe(200);
+    expect(w.sent).toHaveLength(1);
+  });
 });
 
 describe('a finalize repeated after its answer was lost', () => {
@@ -531,6 +554,15 @@ describe('a finalize repeated after its answer was lost', () => {
     const again = await res.json();
     expect(again).toMatchObject({ status: 'sent', signature: first.signature, signedTransaction: first.signedTransaction });
     expect(again.signature).toBe(signatureOf(signed));
+    expect(w.sent).toHaveLength(1);
+  });
+
+  it('the same after a restart, with one instance: what is on chain is answered, not refused', async () => {
+    const { w, p, signed, first } = await landedSwap();
+    const restarted = { ...w, deps: { ...w.deps, boot: 'start-two-bbbb' } };
+    const res = await finalize(restarted, p.ticket, signed);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ status: 'sent', signature: first.signature });
     expect(w.sent).toHaveLength(1);
   });
 
@@ -757,6 +789,29 @@ describe('API keys from the environment', () => {
     }
   });
 
+  it('ORIENTIM_ENV=production is production on any host; with one instance, Redis is not required and tickets carry the start', async () => {
+    const { agentDeps } = await import('../lib/server/agent/config.ts');
+    const { BOOT_ID } = await import('../lib/server/env.ts');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    Object.assign(process.env, {
+      ORIENTIM_API_SECRET: Buffer.alloc(32, 1).toString('base64'), ORIENTIM_API_KEYS: `a:${sha('key-one')}`,
+      ORIENTIM_ENV: 'production', NEXT_PUBLIC_ORIENTIM_TREASURY: TREASURY,
+    });
+    try {
+      expect(agentDeps()).toMatchObject({ sharedRequired: true });
+      expect(agentDeps()?.boot).toBeUndefined();
+      process.env.ORIENTIM_SINGLE_INSTANCE = '1';
+      expect(agentDeps()).toMatchObject({ sharedRequired: false, boot: BOOT_ID });
+      // Production without a treasury still turns the API off, wherever it runs.
+      delete process.env.NEXT_PUBLIC_ORIENTIM_TREASURY;
+      expect(agentDeps()).toBeNull();
+    } finally {
+      for (const k of ['ORIENTIM_API_SECRET', 'ORIENTIM_API_KEYS', 'ORIENTIM_ENV', 'NEXT_PUBLIC_ORIENTIM_TREASURY', 'ORIENTIM_SINGLE_INSTANCE']) delete process.env[k];
+      vi.restoreAllMocks();
+    }
+  });
+
   it('a malformed entry is skipped without taking its id, so it cannot shut out a valid key', async () => {
     const { keysOf } = await import('../lib/server/agent/config.ts');
     const keys = keysOf(`ops:typo,ops:${sha('key-one')},bad id:${sha('key-two')}`);
@@ -765,6 +820,38 @@ describe('API keys from the environment', () => {
 });
 
 describe("the fee, taken like Jupiter's", () => {
+  const USDC_TIER = { mint: USDC, from: 10_000_000_000n, bps: 15n };
+  const SOL_TIER = { mint: WSOL_MINT, from: 50_000_000_000n, bps: 15n };
+  type Amounts = { amounts: Record<string, string>; policy: Record<string, string> };
+
+  it('a large swap pays the lower fee from $10,000 of USDC in, and the full fee a unit below', async () => {
+    const w = await world();
+    const tiered = { ...w, deps: { ...w.deps, feeTiers: [USDC_TIER] } };
+    const below = await prepared(tiered, { amountIn: '9999999999' }) as unknown as Amounts;
+    expect(below.amounts).toMatchObject({ feeMint: USDC, feeBps: '25', fee: '24999999' });
+    const at = await prepared(tiered, { amountIn: '10000000000' }) as unknown as Amounts;
+    expect(at.amounts).toMatchObject({ feeMint: USDC, feeBps: '15', fee: '15000000', swapAmount: '9985000000' });
+    // Without tiers, the same swap pays the full fee.
+    expect((await prepared(w, { amountIn: '10000000000' }) as unknown as Amounts).amounts).toMatchObject({ feeBps: '25', fee: '25000000' });
+  });
+
+  it('a fee on the output is rated on the minimum it is taken from', async () => {
+    for (const [out, bps] of [[60_000_000_000n, '15'], [40_000_000_000n, '25']] as const) {
+      const w = await world({ treasuryWallet: true, jupiter: fakeJupiter({ out }) });
+      const p = await prepared({ ...w, deps: { ...w.deps, feeTiers: [SOL_TIER] } }) as unknown as Amounts;
+      expect(p.amounts.feeMint).toBe(WSOL_MINT);
+      expect(p.amounts.feeBps).toBe(bps);
+      expect(BigInt(p.amounts.fee)).toBe((BigInt(p.policy.minOut) * BigInt(bps)) / 10_000n);
+      expect(BigInt(p.amounts.minOut) + BigInt(p.amounts.fee)).toBe(BigInt(p.policy.minOut));
+    }
+  });
+
+  it('a tier in another token than the fee is paid in changes nothing', async () => {
+    const w = await world();
+    const p = await prepared({ ...w, deps: { ...w.deps, feeTiers: [{ ...SOL_TIER, from: 1n }] } }, { amountIn: '10000000000' }) as unknown as Amounts;
+    expect(p.amounts).toMatchObject({ feeMint: USDC, feeBps: '25' });
+  });
+
   it('a sale into SOL names SOL as the fee token and states the minimum the wallet keeps', async () => {
     const w = await world({ treasuryWallet: true });
     const p = await prepared(w) as unknown as { amounts: Record<string, string>; policy: Record<string, string> };
@@ -990,6 +1077,22 @@ describe("routes the agent brings from Jupiter with its own key", () => {
     // Finalize as ever: the wallet signs, E signs last.
     const fin = await agentFinalize(post('finalize', { ticket: p.ticket, signedTransaction: await signAsWallet(w.W, p.transaction) }), w.deps);
     expect(fin.status).toBe(200);
+  });
+
+  it('with one instance, a session from before a restart is refused, and a new one can be opened', async () => {
+    const w = await world();
+    const before = { ...w, deps: { ...w.deps, boot: 'start-one-aaaa' } };
+    const first = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true })), before.deps);
+    expect(first.status).toBe(409);
+    const { session } = (await first.json() as Asked).error;
+    expect(JSON.parse(Buffer.from(session.split('.')[0], 'base64url').toString('utf8')).boot).toBe('start-one-aaaa');
+    const after = { ...w.deps, boot: 'start-two-bbbb' };
+    const res = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true, session })), after);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.code).toBe('bad-session');
+    const fresh = await agentPrepare(post('prepare', swapBody(w.W.address, { ownRoutes: true })), after);
+    expect(fresh.status).toBe(409);
+    expect((await fresh.json() as Asked).error.code).toBe('routes-needed');
   });
 
   it('a session opens only for the swap and the key it was sealed for, and routes come only with ownRoutes', async () => {

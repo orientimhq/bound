@@ -1,4 +1,5 @@
 import { Redis } from '@upstash/redis';
+import { isProduction, singleInstance } from './env';
 
 /**
  * State every instance of the deployment sees at once: Redis (Upstash, over REST), when the
@@ -166,7 +167,7 @@ export function redisFromEnv(): Shared | null {
     fromEnv = { for: identity, shared: url && token ? redisShared(url, token) : null };
     if (!fromEnv.shared && sharedRequired()) {
       console.error('No Redis (UPSTASH_REDIS_REST_URL / KV_REST_API_URL): finalize refuses every swap, since one message per one-time key and one swap in flight per output account would hold per instance only. Connect Upstash Redis, or set ORIENTIM_TEST_MODE=1 if that is meant.');
-    } else if (!fromEnv.shared && process.env.VERCEL_ENV === 'production') {
+    } else if (!fromEnv.shared && isProduction() && !singleInstance()) {
       console.warn('No Redis (UPSTASH_REDIS_REST_URL / KV_REST_API_URL), in test mode: one message per one-time key, one swap in flight per output account, the rate limits and the RPC failover hold per instance only.');
     }
   }
@@ -176,9 +177,10 @@ export function redisFromEnv(): Shared | null {
 /**
  * Must finalize have Redis to sign? In production, yes: serverless instances share no memory, so
  * without it two instances could each sign a swap into one output account, or another message with
- * one E. Unless ORIENTIM_TEST_MODE=1, as for a production without a fee.
+ * one E. Not with one instance (ORIENTIM_SINGLE_INSTANCE=1), whose memory every request shares and
+ * whose tickets from an earlier start are refused (env.ts, BOOT_ID). Nor with ORIENTIM_TEST_MODE=1.
  */
-export const sharedRequired = () => process.env.VERCEL_ENV === 'production' && process.env.ORIENTIM_TEST_MODE !== '1';
+export const sharedRequired = () => isProduction() && process.env.ORIENTIM_TEST_MODE !== '1' && !singleInstance();
 
 /** Redis when the deployment has it, else this instance's memory. */
 export function sharedState(): Shared {

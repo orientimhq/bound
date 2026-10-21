@@ -1,3 +1,6 @@
+import { randomBytes } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { put } from '@vercel/blob';
 
 /**
@@ -32,5 +35,20 @@ export function blobRecorder(token: string): RecordAcceptance {
     await put(`terms-acceptances/${day}/${a.wallet}-${time}.json`, `${JSON.stringify(a, null, 2)}\n`, {
       access: 'private', addRandomSuffix: true, contentType: 'application/json', token,
     });
+  };
+}
+
+/**
+ * Each acceptance as its own file under `dir` (ORIENTIM_TERMS_DIR, a disk that outlives the process,
+ * such as a Fly volume), by day: <dir>/terms-acceptances/2026-10-21/<wallet>-<time>-<random>.json.
+ * Created only if it does not exist yet, so a record is never overwritten.
+ */
+export function fileRecorder(dir: string): RecordAcceptance {
+  return async a => {
+    const day = a.acceptedAt.slice(0, 10);
+    const time = a.acceptedAt.slice(11, 19).replaceAll(':', '');
+    const folder = join(dir, 'terms-acceptances', day);
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, `${a.wallet}-${time}-${randomBytes(6).toString('hex')}.json`), `${JSON.stringify(a, null, 2)}\n`, { flag: 'wx' });
   };
 }

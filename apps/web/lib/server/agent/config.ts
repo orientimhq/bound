@@ -6,10 +6,21 @@ import { redisFromEnv, sharedRequired, sharedState } from '../shared';
 import { withSharedFee, withSharedReads } from '../sharedReads';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { serverConfig } from '../config';
-import { treasurySetting } from '../../settings';
+import { BOOT_ID, isProduction, singleInstance } from '../env';
+import { feeTiersSetting, treasurySetting } from '../../settings';
 import { DEFAULT_KEYS_PER_HOUR, type AccessDeps } from './access';
 import type { AgentDeps } from './api';
-import { blobRecorder } from './termsRecord';
+import { blobRecorder, fileRecorder } from './termsRecord';
+
+/** The lower fee for a large swap, as the build checked it; one fee at every size if it cannot be read. */
+function tiers() {
+  try {
+    return feeTiersSetting(process.env);
+  } catch (e) {
+    sayOnce(`${(e as Error).message} One fee at every size.`, 'warn');
+    return [];
+  }
+}
 
 /**
  * The agent API is off unless the deployment sets both of these (tools/agent-key.ts makes them).
@@ -134,7 +145,7 @@ export function agentDeps(): AgentDeps | null {
   }
   // In production a swap without Orientim's fee is a misconfiguration (a treasury not copied to a new
   // project, say), never a mode: the API stays off and says why, unless ORIENTIM_TEST_MODE=1.
-  if (process.env.VERCEL_ENV === 'production' && process.env.ORIENTIM_TEST_MODE !== '1' && (treasury === null || feeBps === 0n)) {
+  if (isProduction() && process.env.ORIENTIM_TEST_MODE !== '1' && (treasury === null || feeBps === 0n)) {
     console.error(`The agent API is off: production without ${treasury === null ? 'a treasury (NEXT_PUBLIC_ORIENTIM_TREASURY)' : 'a fee (ORIENTIM_API_FEE_BPS is 0)'}. Set ORIENTIM_TEST_MODE=1 if that is meant.`);
     return null;
   }
@@ -176,6 +187,7 @@ export function agentDeps(): AgentDeps | null {
     revokedWallets: new Set((process.env.ORIENTIM_API_REVOKED ?? '').split(',').map(s => s.trim()).filter(Boolean)),
     // The API rejects fees above the shipped skill's 30 bps cap before reaching here.
     feeBps,
+    feeTiers: tiers(),
     treasury: treasury ? address(treasury) : null,
     excludeDexes: server.excludeDexes,
     maxNetworkFeeLamports: server.maxNetworkFeeLamports,
@@ -194,6 +206,8 @@ export function agentDeps(): AgentDeps | null {
     shared: sharedState(),
     // In production finalize signs only with Redis (shared.ts): without it, it refuses.
     sharedRequired: sharedRequired(),
+    // With one instance, tickets and sessions carry this start's id; one from an earlier start is refused.
+    ...(singleInstance() ? { boot: BOOT_ID } : {}),
   };
 }
 
@@ -218,7 +232,7 @@ export function accessDeps(): AccessDeps | null {
   let origin = publicOrigin();
   if (origin === undefined) return null;
   // Unset in production: the key message would name whatever host a request claims, so keys stay off.
-  if (origin === null && process.env.VERCEL_ENV === 'production') {
+  if (origin === null && isProduction()) {
     sayOnce('ORIENTIM_PUBLIC_ORIGIN is not set: self-serve keys stay off in production.');
     return null;
   }
@@ -241,12 +255,13 @@ export function accessDeps(): AccessDeps | null {
   const perHour = process.env.ORIENTIM_KEY_MAX_PER_HOUR?.trim() ?? '';
   const maxKeysPerHour = /^\d{1,6}$/.test(perHour) && Number(perHour) > 0 ? Number(perHour) : DEFAULT_KEYS_PER_HOUR;
   const blobToken = process.env.BLOB_READ_WRITE_TOKEN?.trim();
-  if (!blobToken && process.env.VERCEL_ENV === 'production') {
-    sayOnce('BLOB_READ_WRITE_TOKEN is not set: keys are issued, but the Terms they accept are not recorded. Connect a private Blob store.', 'warn');
+  const termsDir = process.env.ORIENTIM_TERMS_DIR?.trim();
+  if (!blobToken && !termsDir && isProduction()) {
+    sayOnce('Neither ORIENTIM_TERMS_DIR nor BLOB_READ_WRITE_TOKEN is set: keys are issued, but the Terms they accept are not recorded.', 'warn');
   }
   return {
     rpc: deps.rpc, keySecrets: secrets, minLamports, origin, disabled: deps.disabled, maxKeysPerHour, minSkillVersion: deps.minSkillVersion ?? null,
-    recordAcceptance: blobToken ? blobRecorder(blobToken) : null,
+    recordAcceptance: termsDir ? fileRecorder(termsDir) : blobToken ? blobRecorder(blobToken) : null,
   };
 }
 

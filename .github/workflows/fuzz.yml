@@ -1,23 +1,23 @@
 name: Fuzz
 
 # Millions of generated cases, in parallel shards, each with a seed of its own. They cover:
-# - the verifier (honest transactions, attacks, Token-2022, the tolerance rule);
 # - the swap at any tolerance;
 # - agents and bots end to end, against honest and lying servers, with any tolerance and price impact,
 #   with the agent's own routes or Orientim's;
 # - the current flow end to end: own routes in rounds, the fee on the input or output, an agent's
 #   Jupiter far below the market (Orientim's routes instead), and who sends;
 # - the small functions every channel leans on;
-# - the edges: any amount, decimals, quote and balance, and any price the market may give;
-# - any change to an honest transaction, bytes or instructions, several at once;
 # - the owner's limits for agents and bots, the 20% floor, and a bot that edits prepare's answer;
 # - the owner's ceilings on tolerance, floor and price impact, "auto" tolerance, and the archive's
 #   proof of expiry, for agents and bots alike;
 # - what a wallet hands back: a changed message passes only as Lighthouse assertions added;
 # - a hostile swap program running random plans in a real Solana VM (litesvm), 400,000 cases;
 # - many clients through one API key: bursts of up to 150 swaps in the same second, and 100,000
-#   cases of up to four clients swapping at once, each with rules of its own.
-# About 29,612,000 cases a run.
+#   cases of up to four clients swapping at once, each with rules of its own;
+# - one instance (Fly) restarted at any point between prepare and finalize.
+# The verifier's own suites (honest transactions, attacks, Token-2022, the tolerance rule, the edges,
+# mutations) build their transactions with @orientim/builder, which is no longer in the public
+# package: they run here again once @orientimhq/swap 3.0.0 is pinned.
 #
 # By hand only (Actions, Fuzz, Run workflow), before a release: a run is some 1,000 billed minutes,
 # half of a private repository's free month. CI runs the same properties at their normal size on
@@ -37,200 +37,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - suite: verifier-honest
-            shard: 1
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every honest shape'
-            proves: "every honest transaction the compiler builds passes"
-          - suite: verifier-honest
-            shard: 2
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every honest shape'
-            proves: "every honest transaction the compiler builds passes"
-          - suite: verifier-honest
-            shard: 3
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every honest shape'
-            proves: "every honest transaction the compiler builds passes"
-          - suite: verifier-honest
-            shard: 4
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every honest shape'
-            proves: "every honest transaction the compiler builds passes"
-          - suite: verifier-honest
-            shard: 5
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every honest shape'
-            proves: "every honest transaction the compiler builds passes"
-          - suite: verifier-honest
-            shard: 6
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every honest shape'
-            proves: "every honest transaction the compiler builds passes"
-          - suite: verifier-honest
-            shard: 7
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every honest shape'
-            proves: "every honest transaction the compiler builds passes"
-          - suite: verifier-honest
-            shard: 8
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every honest shape'
-            proves: "every honest transaction the compiler builds passes"
-          - suite: verifier-attacks
-            shard: 1
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every attack'
-            proves: "every attack on the transaction is refused"
-          - suite: verifier-attacks
-            shard: 2
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every attack'
-            proves: "every attack on the transaction is refused"
-          - suite: verifier-attacks
-            shard: 3
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every attack'
-            proves: "every attack on the transaction is refused"
-          - suite: verifier-attacks
-            shard: 4
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every attack'
-            proves: "every attack on the transaction is refused"
-          - suite: verifier-attacks
-            shard: 5
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every attack'
-            proves: "every attack on the transaction is refused"
-          - suite: verifier-attacks
-            shard: 6
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every attack'
-            proves: "every attack on the transaction is refused"
-          - suite: verifier-attacks
-            shard: 7
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every attack'
-            proves: "every attack on the transaction is refused"
-          - suite: verifier-attacks
-            shard: 8
-            of: 8
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'every attack'
-            proves: "every attack on the transaction is refused"
-          - suite: verifier-token2022
-            shard: 1
-            of: 4
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'extension we refuse'
-            proves: "a Token-2022 mint with a refused extension never passes"
-          - suite: verifier-token2022
-            shard: 2
-            of: 4
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'extension we refuse'
-            proves: "a Token-2022 mint with a refused extension never passes"
-          - suite: verifier-token2022
-            shard: 3
-            of: 4
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'extension we refuse'
-            proves: "a Token-2022 mint with a refused extension never passes"
-          - suite: verifier-token2022
-            shard: 4
-            of: 4
-            file: public/packages/verifier/test/property.test.ts
-            runs: 100000
-            filter: 'extension we refuse'
-            proves: "a Token-2022 mint with a refused extension never passes"
-          - suite: token2022-matrix
-            shard: 1
-            of: 1
-            file: public/packages/verifier/test/extensions.test.ts
-            runs: 2000000
-            proves: "the Token-2022 extension matrix"
-          - suite: tolerance-rule
-            shard: 1
-            of: 8
-            file: public/packages/verifier/test/slippage.property.test.ts
-            runs: 150000
-            proves: "a route is refused exactly when above the tolerance or below the minimum"
-          - suite: tolerance-rule
-            shard: 2
-            of: 8
-            file: public/packages/verifier/test/slippage.property.test.ts
-            runs: 150000
-            proves: "a route is refused exactly when above the tolerance or below the minimum"
-          - suite: tolerance-rule
-            shard: 3
-            of: 8
-            file: public/packages/verifier/test/slippage.property.test.ts
-            runs: 150000
-            proves: "a route is refused exactly when above the tolerance or below the minimum"
-          - suite: tolerance-rule
-            shard: 4
-            of: 8
-            file: public/packages/verifier/test/slippage.property.test.ts
-            runs: 150000
-            proves: "a route is refused exactly when above the tolerance or below the minimum"
-          - suite: tolerance-rule
-            shard: 5
-            of: 8
-            file: public/packages/verifier/test/slippage.property.test.ts
-            runs: 150000
-            proves: "a route is refused exactly when above the tolerance or below the minimum"
-          - suite: tolerance-rule
-            shard: 6
-            of: 8
-            file: public/packages/verifier/test/slippage.property.test.ts
-            runs: 150000
-            proves: "a route is refused exactly when above the tolerance or below the minimum"
-          - suite: tolerance-rule
-            shard: 7
-            of: 8
-            file: public/packages/verifier/test/slippage.property.test.ts
-            runs: 150000
-            proves: "a route is refused exactly when above the tolerance or below the minimum"
-          - suite: tolerance-rule
-            shard: 8
-            of: 8
-            file: public/packages/verifier/test/slippage.property.test.ts
-            runs: 150000
-            proves: "a route is refused exactly when above the tolerance or below the minimum"
           - suite: page-swap
             shard: 1
             of: 4
@@ -315,54 +121,6 @@ jobs:
             file: apps/web/test/pure.property.test.ts
             runs: 1000000
             proves: "slippage input and storage, key message and seal, what arrived"
-          - suite: edges
-            shard: 1
-            of: 4
-            file: public/packages/verifier/test/extremes.property.test.ts
-            runs: 200000
-            proves: "fees, minimums and the verifier at any amount, decimals, quote and balance"
-          - suite: edges
-            shard: 2
-            of: 4
-            file: public/packages/verifier/test/extremes.property.test.ts
-            runs: 200000
-            proves: "fees, minimums and the verifier at any amount, decimals, quote and balance"
-          - suite: edges
-            shard: 3
-            of: 4
-            file: public/packages/verifier/test/extremes.property.test.ts
-            runs: 200000
-            proves: "fees, minimums and the verifier at any amount, decimals, quote and balance"
-          - suite: edges
-            shard: 4
-            of: 4
-            file: public/packages/verifier/test/extremes.property.test.ts
-            runs: 200000
-            proves: "fees, minimums and the verifier at any amount, decimals, quote and balance"
-          - suite: mutations
-            shard: 1
-            of: 4
-            file: public/packages/verifier/test/mutation.property.test.ts
-            runs: 100000
-            proves: "any change to an honest transaction: a verdict every time, nothing harmful accepted"
-          - suite: mutations
-            shard: 2
-            of: 4
-            file: public/packages/verifier/test/mutation.property.test.ts
-            runs: 100000
-            proves: "any change to an honest transaction: a verdict every time, nothing harmful accepted"
-          - suite: mutations
-            shard: 3
-            of: 4
-            file: public/packages/verifier/test/mutation.property.test.ts
-            runs: 100000
-            proves: "any change to an honest transaction: a verdict every time, nothing harmful accepted"
-          - suite: mutations
-            shard: 4
-            of: 4
-            file: public/packages/verifier/test/mutation.property.test.ts
-            runs: 100000
-            proves: "any change to an honest transaction: a verdict every time, nothing harmful accepted"
           - suite: page-price
             shard: 1
             of: 4
@@ -579,6 +337,30 @@ jobs:
             file: apps/web/test/agents.load.property.test.ts
             runs: 6250
             proves: "one API key in a burst is served exactly its limit; many clients at once, each with its own rules, never swap an order twice or cross a limit"
+          - suite: restarts
+            shard: 1
+            of: 4
+            file: apps/web/test/agents.restart.property.test.ts
+            runs: 2500
+            proves: "with one instance restarted at any point, a swap prepared before a restart is never signed, each transaction is sent once, and what landed is answered"
+          - suite: restarts
+            shard: 2
+            of: 4
+            file: apps/web/test/agents.restart.property.test.ts
+            runs: 2500
+            proves: "with one instance restarted at any point, a swap prepared before a restart is never signed, each transaction is sent once, and what landed is answered"
+          - suite: restarts
+            shard: 3
+            of: 4
+            file: apps/web/test/agents.restart.property.test.ts
+            runs: 2500
+            proves: "with one instance restarted at any point, a swap prepared before a restart is never signed, each transaction is sent once, and what landed is answered"
+          - suite: restarts
+            shard: 4
+            of: 4
+            file: apps/web/test/agents.restart.property.test.ts
+            runs: 2500
+            proves: "with one instance restarted at any point, a swap prepared before a restart is never signed, each transaction is sent once, and what landed is answered"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

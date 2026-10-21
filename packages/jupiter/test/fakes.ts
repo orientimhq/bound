@@ -137,6 +137,11 @@ export function lamportsSentToTaker(wire: string): {
  */
 const pumpCurves = new Map<string, Account>();
 
+/** Forgets the curves earlier tests' routes wrote: a token whose curve is on chain is asked for at the curve tolerance. */
+export function clearPumpCurves(): void {
+  pumpCurves.clear();
+}
+
 /**
  * What the cluster charges for a message, as getFeeForMessage prices it: 5,000 lamports a signature,
  * and the priority fee its compute budget sets (a v0 message's limit times its price, rounded up; a

@@ -1,5 +1,25 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+
+/** The header Cloudflare adds to every request it forwards (a request header rule), with ORIENTIM_ORIGIN_SECRET. */
+export const ORIGIN_HEADER = 'x-orientim-origin';
+/** Answered without the header: the host's own liveness check, which does nothing but say the process is up. */
+const LIVE_PATH = '/api/live';
+
+const digest = (s: string) => createHash('sha256').update(s).digest();
+
+/**
+ * Behind Cloudflare, the server answers only what Cloudflare forwards: a request that reaches the host
+ * directly (its own *.fly.dev name or its address) has no secret, so it never gets past the rate limits
+ * and the firewall at the edge. Off when ORIENTIM_ORIGIN_SECRET is not set (Vercel, development).
+ */
+export function fromEdge(request: Request): boolean {
+  const secret = process.env.ORIENTIM_ORIGIN_SECRET?.trim();
+  if (!secret) return true;
+  const given = request.headers.get(ORIGIN_HEADER);
+  return given !== null && timingSafeEqual(digest(given), digest(secret));
+}
 
 /**
  * Nonce-based CSP for every page. The developer page asks a wallet to sign Orientim's key message, so
@@ -9,6 +29,14 @@ import type { NextRequest } from 'next/server';
  * and connect-src closed it has no way to send anything out.
  */
 export function proxy(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+  if (path !== LIVE_PATH && !fromEdge(request)) {
+    return new NextResponse('Not found', { status: 404, headers: { 'cache-control': 'no-store' } });
+  }
+  // API answers and prefetches carry no page, so no CSP.
+  const prefetch = request.headers.has('next-router-prefetch') || request.headers.get('purpose') === 'prefetch';
+  if (path.startsWith('/api/') || path === '/api' || prefetch) return NextResponse.next();
+
   const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString('base64');
   const dev = process.env.NODE_ENV === 'development';
   const csp = [
@@ -32,14 +60,7 @@ export function proxy(request: NextRequest) {
   return response;
 }
 
+// Every request but Next's own static files and the icon, which are public and the same for everyone.
 export const config = {
-  matcher: [
-    {
-      source: '/((?!api|_next/static|_next/image|favicon.ico).*)',
-      missing: [
-        { type: 'header', key: 'next-router-prefetch' },
-        { type: 'header', key: 'purpose', value: 'prefetch' },
-      ],
-    },
-  ],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };

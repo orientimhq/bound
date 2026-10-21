@@ -28,16 +28,19 @@ Production needs Redis that every instance shares: Upstash, over REST (`UPSTASH_
 `UPSTASH_REDIS_REST_TOKEN`, or the `KV_REST_API_URL` and `KV_REST_API_TOKEN` that Vercel's Upstash
 integration sets). It keeps one message per one-time key, one swap in flight per output account, the
 rate limits and the RPC failover's notes. Serverless instances share no memory, so without it two
-finalizes on two instances could each sign: in production (`VERCEL_ENV=production`) finalize then
-refuses every swap with 503 `unavailable`, signing nothing, and `/api/health` answers 503 with
-`sharedState: "missing"`; prepare still runs. `ORIENTIM_TEST_MODE=1` runs on each instance's memory
-instead. Keep the database's eviction off: an evicted hold or one-time-key record would let a second
+finalizes on two instances could each sign: in production (`ORIENTIM_ENV=production`, or Vercel's
+`VERCEL_ENV=production`) finalize then refuses every swap with 503 `unavailable`, signing nothing, and
+`/api/health` answers 503 with `sharedState: "missing"`; prepare still runs. `ORIENTIM_TEST_MODE=1`
+runs on each instance's memory instead. One instance needs no Redis (`ORIENTIM_SINGLE_INSTANCE=1`, as
+on Fly, docs/FLY.md): its memory is what every request shares, and a ticket or session sealed before
+the process last started is refused (409 `server-restarted`), so nothing it held is relied on after a
+restart. Run exactly one instance in that mode. Keep the database's eviction off: an evicted hold or one-time-key record would let a second
 swap be signed.
 
 ## Self-serve keys
 
 `ORIENTIM_KEY_SECRET` turns them on. The key message always names `ORIENTIM_PUBLIC_ORIGIN`,
-whatever host a request claims; in production (`VERCEL_ENV=production`) keys stay off without it, and
+whatever host a request claims; in production (`ORIENTIM_ENV=production`) keys stay off without it, and
 on a preview without it the message names the deployment's own `VERCEL_URL` (keys work only on that
 address, not on a branch alias). In
 production the agent API also stays off without a treasury or with `ORIENTIM_API_FEE_BPS=0`, unless

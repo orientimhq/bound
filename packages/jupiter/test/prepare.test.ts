@@ -2,13 +2,13 @@
  * Attack scenarios as regression tests: the real pipeline (prepare → compile → verify) runs against
  * a fake RPC and a fake Jupiter that answer the way an attacker would.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   address, decompileTransactionMessage, generateKeyPairSigner, getCompiledTransactionMessageDecoder,
 } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
 import {
-  ataOf, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
+  ataOf, bondingCurveOf, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
 } from '@orientimhq/swap/core';
 import { OrientimError, DEFAULT_SETTINGS, LEFT_UNDER_KEY_MESSAGE, MIN_FEE, prepareProtectedSwap, revertedOnPrice, withFloorAtLeast } from '../src/swap.ts';
 import type { SwapSettings } from '../src/swap.ts';
@@ -18,10 +18,14 @@ import { JupiterError } from '../src/client.ts';
 import type { BuildParams, JupiterClient } from '../src/client.ts';
 
 import {
-  BONK, clusterFeeOf, DECIMALS, DEX, fakeJupiter, fakeRpc, feeMint, fundedAccounts, hookMint, mint, OUT, plain2022Mint, POOL, PUMP,
+  BONK, clearPumpCurves, clusterFeeOf, DECIMALS, DEX, fakeJupiter, fakeRpc, feeMint, fundedAccounts, hookMint, mint, OUT, plain2022Mint, POOL, PUMP,
   tokenAccount, USDC,
 } from './fakes.ts';
 import type { Account } from './fakes.ts';
+
+// A curve one test's route wrote stays on the fake chain otherwise, and would make the next test's
+// token one still on its curve.
+afterEach(clearPumpCurves);
 
 async function setup(output: Address, opts: { delegate?: boolean; wOutExists?: boolean; memo?: boolean; frozenWOut?: boolean } = {}) {
   const W = (await generateKeyPairSigner()).address;
@@ -465,6 +469,27 @@ describe('latency without weaker protection', () => {
     expect(asked.every(p => p.slippageBps === 300)).toBe(true);
   });
 
+  it('a token whose curve is on chain and not complete is asked for at 3% from the start, without a hint', async () => {
+    const curve = await bondingCurveOf(BONK);
+    for (const [complete, bps] of [[0, 300], [1, 50]] as const) {
+      const data = new Uint8Array(81);
+      data[48] = complete;
+      const asked: BuildParams[] = [];
+      const jupiter = complete ? fakeJupiter({ asked }) : fakeJupiter({ label: 'Pump.fun', curveProgram: true, asked });
+      const prepared = await prepare(BONK, { jupiter, chain: [...onChain, [curve, { owner: PUMP, data }]] });
+      expect(prepared.policy.minOut).toBe(floor(bps));
+      expect(asked.every(p => p.slippageBps === bps)).toBe(true);
+      clearPumpCurves();
+    }
+  });
+
+  it('an account at the curve address that the curve program does not own is no curve', async () => {
+    const asked: BuildParams[] = [];
+    const prepared = await prepare(BONK, { jupiter: fakeJupiter({ asked }), chain: [[await bondingCurveOf(BONK), { owner: DEX, data: new Uint8Array(81) }]] });
+    expect(prepared.policy.minOut).toBe(floor(50));
+    expect(asked.every(p => p.slippageBps === 50)).toBe(true);
+  });
+
   it('a wrong curve hint still builds an ordinary route at 0.5%', async () => {
     const asked: BuildParams[] = [];
     const prepared = await prepare(BONK, { jupiter: fakeJupiter({ asked }), expectCurve: true });
@@ -611,10 +636,19 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
     expect(prepared.certificate.routeRefundLamports).toBe(1_346_200n);
   });
 
-  it('one more simulation than before, to check E ends with nothing, and the final one', async () => {
+  it('the probe, then the swap with the close at once, which must leave E with nothing, and the final one', async () => {
     const simulations = { count: 0 };
     await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true, simulations });
-    expect(simulations.count).toBe(4);
+    expect(simulations.count).toBe(3);
+  });
+
+  it('rent that moves under the close falls back to measuring it exactly, in the same round', async () => {
+    const simulations = { count: 0 };
+    const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true, rentMoves: 1, simulations });
+    expect(prepared.policy.routeRefund).toBe(1_346_200n);
+    expect(prepared.attempts).toHaveLength(1);
+    // The probe, the close that saw the rent move, the exact measurement, the close after it, the final one.
+    expect(simulations.count).toBe(5);
   });
 
   it('a route that opens no such account returns nothing and adds nothing', async () => {
@@ -629,8 +663,8 @@ describe("Pump's per-buyer account under E is closed after the swap and its rent
     expect(prepared.policy.routeRefund).toBe(1_346_200n);
   });
 
-  it('rent that moves twice is measured afresh on a new quote, and no market is blamed for it', async () => {
-    const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true, rentMoves: 2 });
+  it('rent that moves through two rounds of measuring is measured afresh on a new quote, and no market is blamed for it', async () => {
+    const prepared = await prepare(BONK, { input: WSOL_MINT, amountIn: 100_000_000n, jupiter: curve(), takerRent: 1_346_200n, expectCurve: true, rentMoves: 4 });
     expect(prepared.policy.routeRefund).toBe(1_346_200n);
     expect(prepared.attempts[0].simulation).toBe('the rent the market charges moved while it was measured');
     expect(prepared.attempts[0].blamed).toBeNull();
