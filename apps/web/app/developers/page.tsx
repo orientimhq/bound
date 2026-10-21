@@ -4,7 +4,7 @@ import { MobileNav } from '@/components/site/MobileNav';
 import { DevNav, type DevNavGroup } from '@/components/site/DevNav';
 import { GetApiKey } from '@/components/site/GetApiKey';
 import { KeyAccess } from '@/components/site/KeyAccess';
-import { FEE_BPS, TREASURY } from '@/lib/client/config';
+import { FEE_BPS, FEE_TIER_TEXT, TREASURY } from '@/lib/client/config';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
 import { SKILL_EXTENSION, SKILL_FOLDER, SKILL_RELEASE, SKILL_VERSION } from '@/lib/server/skill';
 
@@ -17,7 +17,9 @@ export const metadata = {
 };
 
 /** The fee this build charges, as the other pages state it. */
-const feeText = TREASURY ? `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%` : 'No fee (test deployment)';
+const feeText = TREASURY
+  ? `${(Number(FEE_BPS) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%${FEE_TIER_TEXT ? ` (${FEE_TIER_TEXT})` : ''}`
+  : 'No fee (test deployment)';
 
 /** Why an agent needs this, before the docs: what a developer gets, in their words. */
 const PITCH: [string, string][] = [

@@ -1,6 +1,6 @@
 import { connection } from 'next/server';
 import { InfoPage } from '@/components/site/InfoPage';
-import { FEE_BPS, TREASURY } from '@/lib/client/config';
+import { FEE_BPS, FEE_TIER_TEXT, TREASURY } from '@/lib/client/config';
 import { legal } from '@/lib/legal';
 import { signPageChunks } from '@/lib/server/scriptIntegrity';
 
@@ -122,7 +122,7 @@ export default async function Page() {
           <table>
             <thead><tr><th>Cost</th><th>Amount</th><th>Who receives it</th></tr></thead>
             <tbody>
-              <tr><td>Orientim fee</td><td>{TREASURY ? `${feeText} of the swap: of the amount in, when taken from the input; of the enforced minimum, when taken from the output; of the swap’s value in SOL, when paid in SOL from your wallet` : 'None'}</td><td>Orientim. Inside the transaction you sign: in SOL, USDC or USDT when the swap has one of them, otherwise in the input token or in SOL from your wallet.</td></tr>
+              <tr><td>Orientim fee</td><td>{TREASURY ? `${feeText}${FEE_TIER_TEXT ? ` (${FEE_TIER_TEXT})` : ''} of the swap: of the amount in, when taken from the input; of the enforced minimum, when taken from the output; of the swap’s value in SOL, when paid in SOL from your wallet` : 'None'}</td><td>Orientim. Inside the transaction you sign: in SOL, USDC or USDT when the swap has one of them, otherwise in the input token or in SOL from your wallet.</td></tr>
               <tr><td>Network fee</td><td>Usually under 0.0001 SOL; with the skill, never more than 0.001 SOL</td><td>Solana&apos;s validators. The exact amount is stated before your agent signs.</td></tr>
               <tr><td>Market account fee</td><td>Only on some markets, such as a Pump.fun launch curve</td><td>The market. Stated before your agent signs, with what comes back.</td></tr>
               <tr><td>Token transfer tax</td><td>Only on tokens that tax transfers</td><td>The token&apos;s issuer. Stated before your agent signs.</td></tr>

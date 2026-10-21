@@ -50,6 +50,13 @@ describe('the lower fee for a large swap', () => {
     expect(withSol[2].from).toBe(50_000_000_000n);
   });
 
+  it('is stated on the pages after the fee, and not at all when off', async () => {
+    const { feeTierText } = await import('../lib/settings.ts');
+    expect(feeTierText({})).toBe('');
+    expect(feeTierText({ NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS: '15' })).toBe('0.15% from $10,000 of USDC or USDT');
+    expect(feeTierText({ NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS: '15', NEXT_PUBLIC_ORIENTIM_FEE_TIER_SOL: '85' })).toBe('0.15% from $10,000 of USDC or USDT or 85 SOL');
+  });
+
   it('refuses a rate not below the fee, a bad SOL amount, or SOL without a rate', async () => {
     const { feeTiersSetting } = await import('../lib/settings.ts');
     expect(() => feeTiersSetting({ NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS: '25' })).toThrow('below the fee of 25');

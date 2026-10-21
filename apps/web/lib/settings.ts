@@ -62,6 +62,18 @@ export function feeTiersSetting(env: Record<string, string | undefined>): { mint
   ];
 }
 
+/**
+ * The lower fee as the pages state it after the fee ("0.15% from $10,000 of USDC or USDT or 85 SOL"),
+ * or empty when every size pays the fee.
+ */
+export function feeTierText(env: Record<string, string | undefined>): string {
+  const tiers = feeTiersSetting(env);
+  if (!tiers.length) return '';
+  const sol = tiers.find(t => t.mint === WSOL_MINT);
+  const percent = `${(Number(tiers[0]!.bps) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
+  return `${percent} from $10,000 of USDC or USDT${sol ? ` or ${(sol.from / 1_000_000_000n).toLocaleString('en-US')} SOL` : ''}`;
+}
+
 /** Two signatures: a network fee limit below this refuses every swap. */
 const LEAST_NETWORK_FEE_LAMPORTS = 10_000n;
 

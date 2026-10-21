@@ -1,6 +1,6 @@
 import { address } from '@solana/kit';
 import type { Address } from '@solana/kit';
-import { feeBpsSetting, treasurySetting } from '../settings';
+import { feeBpsSetting, feeTierText, treasurySetting } from '../settings';
 
 /**
  * Fee settings fixed at build time. They are compiled into the bundle, so with a reproducible
@@ -12,3 +12,9 @@ import { feeBpsSetting, treasurySetting } from '../settings';
 const treasury = treasurySetting(process.env.NEXT_PUBLIC_ORIENTIM_TREASURY);
 export const TREASURY: Address | null = treasury ? address(treasury) : null;
 export const FEE_BPS: bigint = feeBpsSetting(process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS);
+/** The lower fee for a large swap, as the pages state it; empty when every size pays FEE_BPS. */
+export const FEE_TIER_TEXT: string = feeTierText({
+  NEXT_PUBLIC_ORIENTIM_FEE_BPS: process.env.NEXT_PUBLIC_ORIENTIM_FEE_BPS,
+  NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS: process.env.NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS,
+  NEXT_PUBLIC_ORIENTIM_FEE_TIER_SOL: process.env.NEXT_PUBLIC_ORIENTIM_FEE_TIER_SOL,
+});
