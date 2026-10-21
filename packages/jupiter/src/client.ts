@@ -70,6 +70,11 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 /** How long a page waits after Jupiter kept refusing with 429 before it asks again. */
 const COOL_DOWN_MS = 5_000;
 
+/** How long Jupiter's market labels are kept before they are asked for again. */
+export const LABELS_MS = 60 * 60_000;
+/** After a failed ask, the labels kept are used this long before the next ask. */
+const LABELS_RETRY_MS = 60_000;
+
 const UINT = /^\d{1,20}$/;
 
 /**
@@ -149,7 +154,10 @@ export function createJupiterClient(opts: {
   // key is shared by every user of the site: asking again at once only prolongs the overload.
   let coolUntil = 0;
   const headers: Record<string, string> = opts.apiKey ? { 'x-api-key': opts.apiKey } : {};
-  let labels: Record<string, string> | null = null;
+  // Jupiter adds markets: a process that runs for weeks (one Fly machine) asks again every hour, and
+  // keeps the labels it has when that ask fails.
+  let labels: { value: Record<string, string>; at: number } | null = null;
+  let labelsAsk: Promise<Record<string, string>> | null = null;
 
   async function get<T>(url: string): Promise<T> {
     if (Date.now() < coolUntil) throw new JupiterError('Jupiter 429: still cooling down after too many requests', 429);
@@ -208,8 +216,16 @@ export function createJupiterClient(opts: {
       return get<TokenInfo[]>(`${opts.tokensUrl}?${new URLSearchParams({ query })}`);
     },
     async programLabels() {
-      labels ??= await get<Record<string, string>>(opts.labelsUrl);
-      return labels;
+      if (labels && Date.now() - labels.at < LABELS_MS) return labels.value;
+      labelsAsk ??= get<Record<string, string>>(opts.labelsUrl)
+        .then(value => (labels = { value, at: Date.now() }).value)
+        .catch(e => {
+          if (!labels) throw e;
+          labels = { ...labels, at: Date.now() - LABELS_MS + LABELS_RETRY_MS };
+          return labels.value;
+        })
+        .finally(() => { labelsAsk = null; });
+      return labelsAsk;
     },
   };
 }

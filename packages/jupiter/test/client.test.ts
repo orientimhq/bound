@@ -2,9 +2,9 @@
  * Jupiter is untrusted, including the shape of its answers: a malformed quote must fail as a
  * JupiterError, not as a crash further down the pipeline.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { address } from '@solana/kit';
-import { checkBuildResponse, createJupiterClient, JupiterError } from '../src/client.ts';
+import { checkBuildResponse, createJupiterClient, JupiterError, LABELS_MS } from '../src/client.ts';
 
 const good = {
   inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
@@ -152,5 +152,48 @@ describe('a Jupiter that does not answer', () => {
       inputMint: address(good.inputMint), outputMint: address(good.outputMint), amount: 1n,
       taker: address('11111111111111111111111111111111'), slippageBps: 50, maxAccounts: 64,
     })).rejects.toMatchObject({ status: 504 });
+  });
+});
+
+describe("Jupiter's market labels", () => {
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('are asked for again after an hour, once for callers at the same time, and kept when that ask fails', async () => {
+    vi.useFakeTimers();
+    let asks = 0;
+    let answer: () => Response = () => Response.json({ A: 'Whirlpool' });
+    const client = createJupiterClient({
+      buildUrl: 'https://jupiter.test/build', tokensUrl: 'https://jupiter.test/tokens', labelsUrl: 'https://jupiter.test/labels', retryBaseMs: 1,
+      fetchImpl: (async () => { asks++; return answer(); }) as unknown as typeof fetch,
+    });
+    expect(await client.programLabels()).toEqual({ A: 'Whirlpool' });
+    vi.advanceTimersByTime(LABELS_MS - 1);
+    expect(await client.programLabels()).toEqual({ A: 'Whirlpool' });
+    expect(asks).toBe(1);
+
+    vi.advanceTimersByTime(1);
+    answer = () => Response.json({ A: 'Whirlpool', B: 'NewMarket' });
+    const [one, two] = await Promise.all([client.programLabels(), client.programLabels()]);
+    expect(one).toEqual({ A: 'Whirlpool', B: 'NewMarket' });
+    expect(two).toBe(one);
+    expect(asks).toBe(2);
+
+    vi.advanceTimersByTime(LABELS_MS);
+    answer = () => new Response('not found', { status: 404 });
+    expect(await client.programLabels()).toEqual({ A: 'Whirlpool', B: 'NewMarket' });
+    // The labels kept serve a minute before Jupiter is asked again.
+    const failed = asks;
+    expect(await client.programLabels()).toEqual({ A: 'Whirlpool', B: 'NewMarket' });
+    expect(asks).toBe(failed);
+  });
+
+  it('a first ask that fails is the error, and the next call asks again', async () => {
+    let asks = 0;
+    const client = createJupiterClient({
+      buildUrl: 'https://jupiter.test/build', tokensUrl: 'https://jupiter.test/tokens', labelsUrl: 'https://jupiter.test/labels',
+      fetchImpl: (async () => (++asks === 1 ? new Response('not found', { status: 404 }) : Response.json({ A: 'Whirlpool' }))) as unknown as typeof fetch,
+    });
+    await expect(client.programLabels()).rejects.toBeInstanceOf(JupiterError);
+    expect(await client.programLabels()).toEqual({ A: 'Whirlpool' });
   });
 });
