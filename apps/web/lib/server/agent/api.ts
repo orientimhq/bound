@@ -32,6 +32,11 @@ import type { SessionReference, SessionSolValue, SessionTerms } from './ticket';
 export type AgentDeps = {
   rpc: SolanaRpc;
   jupiter: JupiterClient;
+  /**
+   * Swaps on an active Pump.fun curve built from the chain rather than asked of Jupiter or of the
+   * agent (ORIENTIM_LOCAL_CURVE, curveRoute.ts): wraps each request's clients, with its RPC.
+   */
+  curveRoutes?: (client: JupiterClient, rpc: SolanaRpc) => JupiterClient;
   /** The RPC provider's priority estimate; without it, recent fees on the swap's accounts. */
   priorityFee?: PriorityFeeLevel;
   /** Server secrets, the current one first; older ones still open their tickets while they rotate out. */
@@ -502,6 +507,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     }));
     // From an agent's own routes, or Orientim's client; Orientim's fee in SOL is always priced by its
     // own, and with an agent's routes a fee on the output is held to its own price (`reference`).
+    // A curve route built here asks neither Jupiter nor the agent (curveRoutes).
+    const curve = (client: JupiterClient) => (deps.curveRoutes ? deps.curveRoutes(client, deadline.rpc) : client);
     const build = (jupiter: JupiterClient, reference?: JupiterClient) => deadline.within(prepareProtectedSwap(
       {
         rpc: deadline.rpc,
@@ -537,7 +544,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
     // Where the swap's routes came from, for the operator's count: the agent's, or Orientim's.
     let routesFrom: 'agent' | 'orientim' | 'orientim-fallback' = routes ? 'agent' : 'orientim';
     try {
-      prepared = routes ? await build(deadline.bind(routes), deadline.jupiter) : await build(deadline.jupiter);
+      prepared = routes ? await build(curve(deadline.bind(routes)), curve(deadline.jupiter)) : await build(curve(deadline.jupiter));
     } catch (e) {
       // The routes the build needs next, for the one-time key it builds around: the agent fetches
       // them from Jupiter with its own key and prepares again with the session.
@@ -554,7 +561,7 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
       if (!(unusable && routes)) throw e;
       logEvent('routes_not_used', { key, reason: maskedReason(e.message, 200) });
       routesFrom = 'orientim-fallback';
-      prepared = await build(deadline.jupiter);
+      prepared = await build(curve(deadline.jupiter));
     }
     // The hash finalize will hold the agent to, computed here from the bytes rather than taken from
     // the certificate: it is the one value the fee depends on.

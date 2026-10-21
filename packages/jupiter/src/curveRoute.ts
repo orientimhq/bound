@@ -143,11 +143,20 @@ export type LocalCurveOptions = {
 };
 
 /**
- * `jupiter`, with the swaps on an active Pump.fun curve built locally. Only a request carrying
- * `pumpCurve` (the curve the pipeline read as active for this pair) is considered; any other goes to
- * Jupiter unchanged, and so does every curve swap this cannot build exactly as Jupiter does.
+ * `jupiter`, with the swaps on an active Pump.fun curve built locally from `rpc`. Only a request
+ * carrying `pumpCurve` (the curve the pipeline read as active for this pair) is considered; any other
+ * goes to `jupiter` unchanged, and so does every curve swap this cannot build exactly as Jupiter does.
  */
 export function withLocalCurveRoutes(jupiter: JupiterClient, rpc: SolanaRpc, opts: LocalCurveOptions = {}): JupiterClient {
+  return localCurveRoutes(opts)(jupiter, rpc);
+}
+
+/**
+ * `withLocalCurveRoutes` for many clients, with one cache of Pump's global account, its fee config
+ * and the lookup table between them: the clients of each request (Orientim's, or the routes an agent
+ * brought) and the RPC under that request's deadline.
+ */
+export function localCurveRoutes(opts: LocalCurveOptions = {}): (jupiter: JupiterClient, rpc: SolanaRpc) => JupiterClient {
   const now = opts.now ?? Date.now;
   const random = opts.random ?? Math.random;
   let shared: Shared | null = null;
@@ -159,7 +168,7 @@ export function withLocalCurveRoutes(jupiter: JupiterClient, rpc: SolanaRpc, opt
     }
   };
 
-  async function local(p: BuildParams): Promise<BuildResponse | string> {
+  async function local(p: BuildParams, rpc: SolanaRpc): Promise<BuildResponse | string> {
     const isBuy = p.inputMint === WSOL_MINT && p.outputMint !== WSOL_MINT;
     const isSell = p.outputMint === WSOL_MINT && p.inputMint !== WSOL_MINT;
     if (!isBuy && !isSell) return 'not a SOL pair';
@@ -283,13 +292,13 @@ export function withLocalCurveRoutes(jupiter: JupiterClient, rpc: SolanaRpc, opt
   // Left to Jupiter as expected: nothing to say.
   const EXPECTED = new Set(['not a SOL pair', 'fast mode', 'narrower account budget', 'curve excluded', 'sell to an account of its own', 'curve complete', 'no curve', 'cashback coin', 'quoted in another token', 'buy past what is left on the curve', 'sell past what the curve holds']);
 
-  return {
+  return (jupiter, rpc) => ({
     ...jupiter,
     async build(p) {
       if (!p.pumpCurve) return jupiter.build(p);
       let built: BuildResponse | string;
       try {
-        built = await local(p);
+        built = await local(p, rpc);
       } catch (e) {
         built = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
       }
@@ -300,5 +309,5 @@ export function withLocalCurveRoutes(jupiter: JupiterClient, rpc: SolanaRpc, opt
       if (!EXPECTED.has(built)) fallback(built);
       return jupiter.build(p);
     },
-  };
+  });
 }

@@ -1,5 +1,5 @@
 import { address } from '@solana/kit';
-import { createJupiterClient, heliusPriorityFee, MIN_FEE, withLocalCurveRoutes } from '@orientim/jupiter';
+import { createJupiterClient, heliusPriorityFee, localCurveRoutes, MIN_FEE } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
 import { createServerRpc, mainPassedOver } from '../rpcFailover';
 import { redisFromEnv, sharedRequired, sharedState } from '../shared';
@@ -101,7 +101,7 @@ export function keysOf(value: string | undefined): Map<string, string> {
 
 // The clients are kept per instance. The settings are read on every request, but a host may fix the
 // environment per deployment (Vercel does): see the runbook in docs/OPERATORS.md for pausing and revoking.
-let clients: { rpc: SolanaRpc; jupiter: JupiterClient; priorityFee: PriorityFeeLevel; for: string } | null = null;
+let clients: { rpc: SolanaRpc; jupiter: JupiterClient; priorityFee: PriorityFeeLevel; curveRoutes: AgentDeps['curveRoutes']; for: string } | null = null;
 
 /** The self-serve key secrets, the current one first; none when self-serve keys are off. */
 export function keySecrets(): Uint8Array[] {
@@ -165,13 +165,14 @@ export function agentDeps(): AgentDeps | null {
       // Asked of the main RPC itself, around the failover: not while it is passed over, when it would
       // only add its timeout to every build. The recent fees on the accounts then come from the backup.
       priorityFee: writable => (mainPassedOver(rpc) ? Promise.resolve(null) : helius(writable)),
-      jupiter: (j => (localCurve ? withLocalCurveRoutes(j, rpc) : j))(createJupiterClient({
+      jupiter: createJupiterClient({
         buildUrl: 'https://api.jup.ag/swap/v2/build',
         tokensUrl: 'https://api.jup.ag/tokens/v2/search',
         labelsUrl: 'https://api.jup.ag/swap/v2/program-id-to-label',
         apiKey: jupiterApiKey ?? undefined,
         timeoutMs: 15_000,
-      })),
+      }),
+      curveRoutes: localCurve ? localCurveRoutes() : undefined,
     };
   }
   const count = (name: string, fallback: number) => {
@@ -182,6 +183,7 @@ export function agentDeps(): AgentDeps | null {
   return {
     rpc: clients.rpc,
     jupiter: clients.jupiter,
+    ...(clients.curveRoutes ? { curveRoutes: clients.curveRoutes } : {}),
     priorityFee: clients.priorityFee,
     secrets: previous ? [current, previous] : [current],
     keys,

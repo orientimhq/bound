@@ -86,6 +86,7 @@ permissions:
 env:
   ORIENTIM_ENV: production
   ORIENTIM_SINGLE_INSTANCE: '1'
+  ORIENTIM_LOCAL_CURVE: '1'
 
 jobs:
   matrix:

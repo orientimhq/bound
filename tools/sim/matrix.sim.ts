@@ -47,7 +47,7 @@ import {
 import type { Address, Rpc, SolanaRpcApi } from '@solana/kit';
 import { ataOf, JUPITER_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
 import { jupiterDestination, jupiterRouteArgs } from '@orientimhq/swap/verifier';
-import { createJupiterClient, heliusPriorityFee, MIN_FEE } from '@orientim/jupiter';
+import { createJupiterClient, heliusPriorityFee, localCurveRoutes, MIN_FEE } from '@orientim/jupiter';
 import { createRetryingRpc } from '@orientimhq/swap/solana';
 import { agentPrepare } from '../../apps/web/lib/server/agent/api.ts';
 import type { AgentDeps } from '../../apps/web/lib/server/agent/api.ts';
@@ -63,6 +63,9 @@ const RPC_URL = process.env.RPC_URL || 'https://api.mainnet-beta.solana.com';
 const JUPITER_API_KEY = process.env.JUPITER_API_KEY || undefined;
 /** Routes fetched by the agent with its own key (the default with a key); SIM_OWN_ROUTES=0: Orientim's key builds them. */
 const OWN_ROUTES = process.env.SIM_OWN_ROUTES !== '0';
+// As production on Fly: Pump.fun curve routes built by Orientim, Jupiter asked only when one cannot be.
+const LOCAL_CURVE = process.env.ORIENTIM_LOCAL_CURVE === '1';
+const curveBuilds = { local: 0, unexpected: [] as string[] };
 const JUPITER_INTERVAL_MS = Number(process.env.SIM_JUPITER_INTERVAL_MS ?? (JUPITER_API_KEY ? 1_100 : 2_200));
 const PUMP_TOKENS = Math.max(1, Number(process.env.SIM_PUMP_TOKENS ?? 3) || 3);
 const GROUPS = (process.env.SIM_GROUPS ?? '').split(',').map(s => s.trim()).filter(Boolean);
@@ -477,6 +480,7 @@ async function mainnet(): Promise<World> {
     // As production: 0.25% to Orientim's own treasury, HumidiFi excluded, the default network fee cap.
     feeBps: 25n, treasury: address(ORIENTIM_TREASURY), excludeDexes: ['HumidiFi'], maxNetworkFeeLamports: 500_000n,
     disabled: false, v1: true, fastRouting: true, perMinute: 1_000_000, minFee: MIN_FEE, ownRoutes: OWN_ROUTES,
+    ...(LOCAL_CURVE ? { curveRoutes: localCurveRoutes({ onLocal: () => void curveBuilds.local++, onFallback: r => { curveBuilds.unexpected.push(r); console.warn(`Pump.fun curve route left to Jupiter: ${r}`); } }) } : {}),
   };
   const fetchImpl = (async (url: string, init?: RequestInit) => {
     if (String(url).startsWith('https://api.jup.ag/')) return jupiterFetch(url, init);
@@ -1244,6 +1248,7 @@ function report(results: Result[], started: number, summaryOnly = false): string
   lines.push(`# Orientim mainnet simulation matrix (v${DEFAULT_VERSION} transactions unless a case names its own; routes from ${OWN_ROUTES && JUPITER_API_KEY ? "the agent's own Jupiter key" : "Orientim's key"})`, '');
   lines.push(`${results.length} cases in ${Math.round((Date.now() - started) / 60_000)} min: **${count('PASS')} passed**, ${count('REFUSED')} refused, ${count('UNTESTED')} untested, **${count('BUG')} to look at**.`, '');
   lines.push('Nothing was signed or sent: each swap stops before the wallet signs, after the full check simulated it on mainnet state.', '');
+  if (LOCAL_CURVE) lines.push(`Pump.fun curve routes built by Orientim: ${curveBuilds.local}; left to Jupiter for an unexpected reason: ${curveBuilds.unexpected.length ? curveBuilds.unexpected.join('; ') : 'none'}.`, '');
   const groups = [...new Set(results.map(r => r.group))];
   lines.push('| group | cases | passed | refused | untested | to look at |', '|---|---|---|---|---|---|');
   for (const g of groups) {

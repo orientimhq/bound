@@ -14,7 +14,8 @@ name: Fuzz
 # - a hostile swap program running random plans in a real Solana VM (litesvm), 400,000 cases;
 # - many clients through one API key: bursts of up to 150 swaps in the same second, and 100,000
 #   cases of up to four clients swapping at once, each with rules of its own;
-# - one instance (Fly) restarted at any point between prepare and finalize.
+# - one instance (Fly) restarted at any point between prepare and finalize;
+# - the Pump.fun curve route Orientim builds without Jupiter, on any curve, fees and amount.
 # The verifier's own suites (honest transactions, attacks, Token-2022, the tolerance rule, the edges,
 # mutations) build their transactions with @orientim/builder, which is no longer in the public
 # package: they run here again once @orientimhq/swap 3.0.0 is pinned.
@@ -361,6 +362,30 @@ jobs:
             file: apps/web/test/agents.restart.property.test.ts
             runs: 2500
             proves: "with one instance restarted at any point, a swap prepared before a restart is never signed, each transaction is sent once, and what landed is answered"
+          - suite: curve-route
+            shard: 1
+            of: 4
+            file: packages/jupiter/test/curveRoute.property.test.ts
+            runs: 50000
+            proves: "the Pump.fun curve route built without Jupiter, on any curve, fees, amount and tolerance: left to Jupiter exactly when it could not execute, otherwise read back by the verifier as built"
+          - suite: curve-route
+            shard: 2
+            of: 4
+            file: packages/jupiter/test/curveRoute.property.test.ts
+            runs: 50000
+            proves: "the Pump.fun curve route built without Jupiter, on any curve, fees, amount and tolerance: left to Jupiter exactly when it could not execute, otherwise read back by the verifier as built"
+          - suite: curve-route
+            shard: 3
+            of: 4
+            file: packages/jupiter/test/curveRoute.property.test.ts
+            runs: 50000
+            proves: "the Pump.fun curve route built without Jupiter, on any curve, fees, amount and tolerance: left to Jupiter exactly when it could not execute, otherwise read back by the verifier as built"
+          - suite: curve-route
+            shard: 4
+            of: 4
+            file: packages/jupiter/test/curveRoute.property.test.ts
+            runs: 50000
+            proves: "the Pump.fun curve route built without Jupiter, on any curve, fees, amount and tolerance: left to Jupiter exactly when it could not execute, otherwise read back by the verifier as built"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
