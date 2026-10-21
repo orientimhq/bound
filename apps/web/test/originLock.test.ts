@@ -11,7 +11,9 @@ const SECRET = 'a-long-random-origin-secret-for-tests-0001';
 const at = (path: string, headers: Record<string, string> = {}) => proxy(new NextRequest(`https://orientim.com${path}`, { headers }));
 
 describe('the origin lock', () => {
-  afterEach(() => { delete process.env.ORIENTIM_ORIGIN_SECRET; });
+  afterEach(() => {
+    for (const k of ['ORIENTIM_ORIGIN_SECRET', 'ORIENTIM_ENV', 'ORIENTIM_SINGLE_INSTANCE', 'ORIENTIM_CLIENT_IP_HEADER', 'VERCEL_ENV']) delete process.env[k];
+  });
 
   it('is off without ORIENTIM_ORIGIN_SECRET: every request is served, pages with their CSP', () => {
     const page = at('/');
@@ -45,5 +47,33 @@ describe('the origin lock', () => {
 
   it('a prefetch is served without a CSP, as before', () => {
     expect(at('/developers', { 'next-router-prefetch': '1' }).headers.get('content-security-policy')).toBeNull();
+  });
+
+  it('in production behind the edge, no secret or a short one answers 503 everywhere, /api/live included', () => {
+    for (const setup of [{ ORIENTIM_SINGLE_INSTANCE: '1' }, { ORIENTIM_CLIENT_IP_HEADER: 'cf-connecting-ip' }]) {
+      Object.assign(process.env, { ORIENTIM_ENV: 'production' }, setup);
+      for (const secret of [undefined, '', 'short-secret']) {
+        if (secret === undefined) delete process.env.ORIENTIM_ORIGIN_SECRET;
+        else process.env.ORIENTIM_ORIGIN_SECRET = secret;
+        for (const path of ['/', '/api/live', '/api/health', '/api/v1/prepare']) {
+          expect(at(path).status).toBe(503);
+          expect(at(path, { [ORIGIN_HEADER]: secret ?? '' }).status).toBe(503);
+        }
+      }
+      process.env.ORIENTIM_ORIGIN_SECRET = SECRET;
+      expect(at('/api/live').status).toBe(200);
+      expect(at('/api/v1/prepare').status).toBe(404);
+      expect(at('/api/v1/prepare', { [ORIGIN_HEADER]: SECRET }).status).toBe(200);
+      for (const k of ['ORIENTIM_ENV', 'ORIENTIM_SINGLE_INSTANCE', 'ORIENTIM_CLIENT_IP_HEADER']) delete process.env[k];
+    }
+  });
+
+  it("Vercel's production, development and a single instance outside production keep serving without a secret", () => {
+    for (const setup of [{ VERCEL_ENV: 'production' }, {}, { ORIENTIM_SINGLE_INSTANCE: '1' }]) {
+      Object.assign(process.env, setup);
+      expect(at('/').status).toBe(200);
+      expect(at('/api/live').status).toBe(200);
+      for (const k of Object.keys(setup)) delete process.env[k];
+    }
   });
 });

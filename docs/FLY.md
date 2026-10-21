@@ -37,6 +37,8 @@ end the tickets in flight; a new `ORIENTIM_KEY_SECRET` would end every self-serv
 2. SSL/TLS: Full (strict).
 3. Rules, Transform Rules, Modify Request Header: for all incoming requests, set static
    `x-orientim-origin` to the `ORIENTIM_ORIGIN_SECRET` value. Without it, Fly answers 404.
+   The secret is required: in production on one machine, without it (or with one under 32
+   characters) every request, `/api/live` included, is answered 503, so the deploy fails its check.
 4. Security, WAF, Rate limiting rules (the free plan's one rule): path starts with `/api/`, 300 requests
    per 10 seconds per IP, block for 10 seconds. The app keeps its own limits per key and per address.
 5. Leave caching on its defaults: every API answer says `no-store`.
