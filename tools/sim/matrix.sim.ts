@@ -680,6 +680,8 @@ function classify(e: unknown): Pick<Result, 'kind' | 'code' | 'detail'> {
   if (/^Jupiter answered 400 \(busy\)/.test(message)) return { kind: 'UNTESTED', code: 'jupiter-busy', detail: message.slice(0, 200) };
   const jupiterCode = /^Jupiter answered 4\d\d \(([A-Za-z0-9_]+)\)/.exec(message)?.[1];
   if (jupiterCode) return { kind: 'REFUSED', code: `jupiter-${jupiterCode.toLowerCase()}`, detail: message.slice(0, 200) };
+  // Jupiter's refusal of the agent's own price with no code the skill knows ("Insufficient liquidity").
+  if (/^Jupiter answered 400 when asked for your own price/.test(message)) return { kind: 'REFUSED', code: 'jupiter-refused', detail: message.slice(0, 200) };
   if (UNAVAILABLE.test(message) || /\b429\b/.test(message)) return { kind: 'UNTESTED', code: 'service', detail: message.slice(0, 200) };
   if (/without a price impact/.test(message)) return { kind: 'REFUSED', code: 'impact-unknown', detail: message.slice(0, 160) };
   return { kind: 'BUG', code: 'error', detail: message.slice(0, 400) };
