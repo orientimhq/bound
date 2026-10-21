@@ -772,7 +772,8 @@ export async function prepareProtectedSwap(deps: {
     wOutCandidates.length ? rentFor(TOKEN_2022_ACCOUNT_SIZE) : Promise.resolve(0n),
   ]);
   const mints = new Map([req.inputMint, req.outputMint].map(m => [m, mintInfoOf(firstReads.get(m))]));
-  const onCurve = curves.some(c => activeCurve(firstReads.get(c)));
+  const activeCurveAddress = curves.find(c => activeCurve(firstReads.get(c)));
+  const onCurve = activeCurveAddress !== undefined;
 
   // R7 up front, so a token we cannot isolate is refused before anything is quoted or built.
   for (const m of [req.inputMint, req.outputMint]) {
@@ -967,6 +968,8 @@ export async function prepareProtectedSwap(deps: {
     // is asked for again at the curve tolerance once it is known to be one.
     slippageBps: settings.chosenSlippageBps ?? (req.expectCurve || onCurve ? settings.curveSlippageBps : settings.slippageBps),
     destinationTokenAccount: policy.accounts.wOut ?? undefined,
+    // Lets a client that builds curve routes itself (curveRoute.ts) do so; Jupiter is not told.
+    pumpCurve: activeCurveAddress,
   };
   // Individual quotes fail transiently ("pool has not been updated", "zero tradable amount"):
   // retry the baseline once and skip a failing maxAccounts level instead of giving up.

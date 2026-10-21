@@ -15,6 +15,9 @@
  *                     for either token: a validator's identity wallet stands in)
  *   a Pump.fun buy    on a bonding curve, and on PumpSwap: the market's account closed and refunded
  *
+ * The curve buy uses the route Orientim builds itself (curveRoute.ts), and that route is then compared
+ * with Jupiter's on a few new curves, buys and sells, byte for byte but for the buyback recipient.
+ *
  * Nothing is signed or sent. A public wallet holding SOL, USDC and USDT stands in for the treasury,
  * so that every fee path runs (CANARY_TREASURY overrides it).
  *
@@ -29,13 +32,14 @@
  * path) that could not be proven this run is not a pass, even when every other swap went through.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { address, getAddressDecoder, getBase64EncodedWireTransaction } from '@solana/kit';
+import { address, getAddressDecoder, getBase64EncodedWireTransaction, getProgramDerivedAddress } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { bondingCurveOf } from '@orientim/builder';
 import type { FeeSide, TxVersion } from '@orientimhq/swap/core';
 import { createEphemeral, createRetryingRpc, fetchAccounts, fetchMints, httpStatusOf } from '@orientimhq/swap/solana';
-import { OrientimError, createJupiterClient, DEFAULT_SETTINGS, JupiterError, prepareProtectedSwap } from '@orientim/jupiter';
-import type { PreparedSwap } from '@orientim/jupiter';
+import { OrientimError, createJupiterClient, DEFAULT_SETTINGS, JupiterError, prepareProtectedSwap, readBuybackRecipients, withLocalCurveRoutes } from '@orientim/jupiter';
+import type { BuildParams, BuildResponse, JupiterClient, PreparedSwap } from '@orientim/jupiter';
 
 const RPC_URL = process.env.RPC_URL || 'https://api.mainnet-beta.solana.com';
 const rpc = createRetryingRpc(RPC_URL, 8);
@@ -97,14 +101,14 @@ const unbuildable: string[] = [];
 
 async function swap(
   name: string, inputMint: Address, outputMint: Address, amountIn: bigint,
-  opts: { want?: string; feeSide?: FeeSide; version?: TxVersion; treasury?: Address } = {},
+  opts: { want?: string; feeSide?: FeeSide; version?: TxVersion; treasury?: Address; client?: JupiterClient } = {},
 ): Promise<'done' | 'elsewhere' | 'failed' | 'unbuildable'> {
   const { want } = opts;
   const mints = await fetchMints(rpc, [inputMint, outputMint]);
   for (let round = 0; round < 2; round++) {
     let prepared: PreparedSwap;
     try {
-      prepared = await prepareProtectedSwap({ rpc, jupiter, settings: { ...settings, treasury: opts.treasury ?? TREASURY } }, {
+      prepared = await prepareProtectedSwap({ rpc, jupiter: opts.client ?? jupiter, settings: { ...settings, treasury: opts.treasury ?? TREASURY } }, {
         owner: OWNER, ephemeral: await createEphemeral(), inputMint, outputMint, amountIn,
         inputDecimals: mints.get(inputMint)!.decimals, outputDecimals: mints.get(outputMint)!.decimals,
         version: opts.version ?? 0, acceptedCostBps: 5_000n,
@@ -229,6 +233,15 @@ const list = async (url: string): Promise<Listed[] | string> => {
     return e instanceof Error ? e.message : String(e);
   }
 };
+// A token on its curve is swapped with the route Orientim builds itself where it runs with
+// ORIENTIM_LOCAL_CURVE=1 (curveRoute.ts), Jupiter answering for the rest of the swap; the route is
+// compared with Jupiter's own further down.
+let builtLocally = 0;
+const localCurve = withLocalCurveRoutes(jupiter, rpc, {
+  onLocal: () => { builtLocally++; },
+  onFallback: reason => report('warn', 'Local curve route', `left to Jupiter: ${reason}`),
+});
+const curveTokens: Listed[] = [];
 for (const [market, want, url] of [
   ['Pump.fun curve', 'Pump.fun', 'https://api.jup.ag/tokens/v2/recent'],
   ['PumpSwap', 'Pump.fun Amm', 'https://api.jup.ag/tokens/v2/toptrending/1h?limit=100'],
@@ -241,9 +254,13 @@ for (const [market, want, url] of [
   let outcome: 'done' | 'elsewhere' | 'failed' | 'unbuildable' = 'elsewhere';
   const before = unbuildable.length;
   let tried = 0;
+  const onCurve = market === 'Pump.fun curve';
+  if (onCurve) curveTokens.push(...listed.filter(x => x.id.endsWith('pump')));
   for (const t of listed.filter(x => x.id.endsWith('pump')).slice(0, 8)) {
     tried++;
-    outcome = await swap(`SOL → ${t.symbol} (${market})`, WSOL_MINT, address(t.id), 20_000_000n, { want, feeSide: 'input' });
+    const local = builtLocally;
+    outcome = await swap(`SOL → ${t.symbol} (${market})`, WSOL_MINT, address(t.id), 20_000_000n, { want, feeSide: 'input', ...(onCurve ? { client: localCurve } : {}) });
+    if (onCurve && outcome === 'done' && builtLocally === local) report('warn', market, `${t.symbol} executed with Jupiter's route: the local curve route was not built`);
     if (outcome === 'done' || outcome === 'failed') break;
   }
   const failedInSimulation = unbuildable.slice(before);
@@ -254,6 +271,104 @@ for (const [market, want, url] of [
     } else {
       report('warn', market, `no listed token routed through ${market}${failedInSimulation.length ? `; ${failedInSimulation.length} failed in simulation on every route, first ${failedInSimulation[0]}` : ''}`);
     }
+  }
+}
+
+/**
+ * The route Orientim builds on a curve, against Jupiter's for the same swap: equal byte for byte but
+ * for the buyback recipient, which each picks among Pump's eight. Jupiter is asked first and the curve
+ * read right after, so that both price the same state; a curve that traded in between is asked again.
+ */
+const LEFT_TO_JUPITER = new Error('left to Jupiter');
+const localOnly = withLocalCurveRoutes({ ...jupiter, build: async () => { throw LEFT_TO_JUPITER; } }, rpc, {
+  onFallback: reason => report('warn', 'Local curve route', `left to Jupiter: ${reason}`),
+});
+const masked = (r: BuildResponse) => {
+  const ix = structuredClone(r.swapInstruction);
+  ix.accounts[24] = { ...ix.accounts[24]!, pubkey: 'buyback' };
+  return JSON.stringify({
+    inputMint: r.inputMint, outputMint: r.outputMint, inAmount: r.inAmount, outAmount: r.outAmount, otherAmountThreshold: r.otherAmountThreshold,
+    routePlan: r.routePlan, setupInstructions: r.setupInstructions, swapInstruction: ix, cleanup: r.cleanupInstruction, other: r.otherInstructions,
+    tables: r.addressesByLookupTableAddress,
+  });
+};
+const firstDifference = (a: BuildResponse, b: BuildResponse) => {
+  const i = a.swapInstruction.accounts.findIndex((x, k) => k !== 24 && JSON.stringify(x) !== JSON.stringify(b.swapInstruction.accounts[k]));
+  if (a.swapInstruction.accounts.length !== b.swapInstruction.accounts.length) return `${a.swapInstruction.accounts.length} accounts, Jupiter ${b.swapInstruction.accounts.length}`;
+  if (i >= 0) return `account ${i}: ${a.swapInstruction.accounts[i]!.pubkey}, Jupiter ${b.swapInstruction.accounts[i]!.pubkey}`;
+  if (a.swapInstruction.data !== b.swapInstruction.data) return 'instruction data';
+  return 'setup, route plan or lookup tables';
+};
+const pumpGlobal = (await getProgramDerivedAddress({ programAddress: PROGRAMS[1]![1], seeds: [new TextEncoder().encode('global')] }))[0];
+const [globalState] = (await fetchAccounts(rpc, [pumpGlobal])).values();
+const buyback = readBuybackRecipients(globalState);
+async function compareCurveRoute(name: string, params: BuildParams): Promise<'same' | 'differs' | 'moved' | 'left' | 'no-route'> {
+  const pumpCurve = await bondingCurveOf(params.inputMint === WSOL_MINT ? params.outputMint : params.inputMint);
+  for (let round = 0; round < 3; round++) {
+    let theirs: BuildResponse;
+    try {
+      theirs = await jupiter.build(params);
+    } catch (e) {
+      if (isLoad(e)) continue;
+      return 'no-route';
+    }
+    let mine: BuildResponse;
+    try {
+      mine = await localOnly.build({ ...params, pumpCurve });
+    } catch (e) {
+      if (e === LEFT_TO_JUPITER) return 'left';
+      throw e;
+    }
+    if (masked(mine) === masked(theirs)) {
+      const pick = theirs.swapInstruction.accounts[24]?.pubkey;
+      if (typeof buyback === 'string' || !buyback.includes(pick as Address)) {
+        report('fail', name, `Jupiter pays the buyback share to ${pick}, not one of Pump's recipients (${typeof buyback === 'string' ? buyback : buyback.length})`);
+        return 'differs';
+      }
+      return 'same';
+    }
+    if (mine.outAmount !== theirs.outAmount) continue; // the curve traded in between
+    report('fail', name, `the local curve route differs from Jupiter's: ${firstDifference(mine, theirs)}`);
+    return 'differs';
+  }
+  return 'moved';
+}
+{
+  const owner = OWNER;
+  let buys = 0, sells = 0, moved = 0;
+  for (const t of curveTokens.slice(0, 12)) {
+    if (buys >= 3 && sells >= 2) break;
+    const mint = address(t.id);
+    const program = (await fetchMints(rpc, [mint])).get(mint)?.program;
+    if (!program) continue;
+    const taker = (await createEphemeral()).address;
+    const buy: BuildParams = {
+      inputMint: WSOL_MINT, outputMint: mint, amount: 20_000_000n, taker, slippageBps: DEFAULT_SETTINGS.curveSlippageBps, maxAccounts: 64,
+      destinationTokenAccount: await ataOf(owner, mint, program),
+    };
+    const bought = await compareCurveRoute(`SOL → ${t.symbol} (local curve route)`, buy);
+    if (bought === 'differs') break;
+    if (bought === 'moved') moved++;
+    if (bought !== 'same') continue;
+    buys++;
+    // A sell of what half the SOL the curve holds buys back: a curve this new may hold only a few
+    // lamports, and a sell of more cannot execute.
+    const [curve] = (await fetchAccounts(rpc, [await bondingCurveOf(mint)])).values();
+    if (!curve || curve.data.length < 40) continue;
+    const view = new DataView(curve.data.buffer, curve.data.byteOffset, curve.data.byteLength);
+    const [virtualToken, virtualQuote, realQuote] = [view.getBigUint64(8, true), view.getBigUint64(16, true), view.getBigUint64(32, true)];
+    const half = (realQuote < 20_000_000n ? realQuote : 20_000_000n) / 2n;
+    if (half < 100_000n) continue;
+    const sold = await compareCurveRoute(`${t.symbol} → SOL (local curve route)`, {
+      inputMint: mint, outputMint: WSOL_MINT, amount: (half * virtualToken) / (virtualQuote - half), taker, slippageBps: DEFAULT_SETTINGS.curveSlippageBps, maxAccounts: 64,
+    });
+    if (sold === 'differs') break;
+    if (sold === 'moved') moved++;
+    if (sold === 'same') sells++;
+  }
+  if (buys && sells) report('ok', 'Local curve route', `Jupiter's own, byte for byte but for the buyback recipient: ${buys} buys, ${sells} sells`);
+  else if (verdicts.at(-1) !== 'fail') {
+    report('warn', 'Local curve route', `not compared with Jupiter on both sides this run (${buys} buys, ${sells} sells${moved ? `, ${moved} curves kept trading` : ''})`);
   }
 }
 

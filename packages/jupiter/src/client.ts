@@ -31,6 +31,11 @@ export type BuildParams = {
   mode?: 'fast';
   destinationTokenAccount?: Address;
   excludeDexes?: readonly string[];
+  /**
+   * The active Pump.fun bonding curve of the pair's token, when the pipeline read one. Never sent to
+   * Jupiter: it lets `withLocalCurveRoutes` build the curve route itself.
+   */
+  pumpCurve?: Address;
 };
 
 export type TokenInfo = {

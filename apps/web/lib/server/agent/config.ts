@@ -1,5 +1,5 @@
 import { address } from '@solana/kit';
-import { createJupiterClient, heliusPriorityFee, MIN_FEE } from '@orientim/jupiter';
+import { createJupiterClient, heliusPriorityFee, MIN_FEE, withLocalCurveRoutes } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
 import { createServerRpc, mainPassedOver } from '../rpcFailover';
 import { redisFromEnv, sharedRequired, sharedState } from '../shared';
@@ -151,7 +151,9 @@ export function agentDeps(): AgentDeps | null {
   }
   if (treasury === null || feeBps === 0n) sayOnce('The agent API takes no fee: no treasury, or ORIENTIM_API_FEE_BPS is 0.', 'warn');
   const redis = redisFromEnv();
-  const identity = `${rpcUrl}|${server.rpcFallbackUrl ?? ''}|${jupiterApiKey ?? ''}|${redis ? 'redis' : ''}`;
+  // Swaps on an active Pump.fun curve built from the chain instead of asked of Jupiter (curveRoute.ts).
+  const localCurve = process.env.ORIENTIM_LOCAL_CURVE === '1';
+  const identity = `${rpcUrl}|${server.rpcFallbackUrl ?? ''}|${jupiterApiKey ?? ''}|${redis ? 'redis' : ''}|${localCurve ? 'curve' : ''}`;
   if (clients?.for !== identity) {
     const rpc = createServerRpc(rpcUrl, server.rpcFallbackUrl, undefined, redis);
     // One estimate for the swaps that write the same accounts within two seconds (sharedReads.ts).
@@ -163,13 +165,13 @@ export function agentDeps(): AgentDeps | null {
       // Asked of the main RPC itself, around the failover: not while it is passed over, when it would
       // only add its timeout to every build. The recent fees on the accounts then come from the backup.
       priorityFee: writable => (mainPassedOver(rpc) ? Promise.resolve(null) : helius(writable)),
-      jupiter: createJupiterClient({
+      jupiter: (j => (localCurve ? withLocalCurveRoutes(j, rpc) : j))(createJupiterClient({
         buildUrl: 'https://api.jup.ag/swap/v2/build',
         tokensUrl: 'https://api.jup.ag/tokens/v2/search',
         labelsUrl: 'https://api.jup.ag/swap/v2/program-id-to-label',
         apiKey: jupiterApiKey ?? undefined,
         timeoutMs: 15_000,
-      }),
+      })),
     };
   }
   const count = (name: string, fallback: number) => {

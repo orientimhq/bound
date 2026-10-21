@@ -6,6 +6,8 @@ export {
   revertedOnPrice, routeMissedItsThreshold, slippageFor, strictMinimumOutput, UNAVAILABLE_MESSAGE, withFloorAtLeast,
 } from './swap.ts';
 export type { Attempt, FeeTier, OrientimErrorCode, CostsMore, Countersignable, PreparedSwap, PriceMoved, ReferencePrice, SolValue, SwapRequest, SwapSettings } from './swap.ts';
+export { CURVE_LOOKUP_TABLE, LOCAL_CURVE_MIN_ACCOUNTS, quoteBuy, quoteSell, readBuybackRecipients, withLocalCurveRoutes } from './curveRoute.ts';
+export type { LocalCurveOptions } from './curveRoute.ts';
 export { heliusPriorityFee } from './priorityFee.ts';
 export {
   MAX_PROVIDED_ROUTES, parseProvidedRoutes, parseRouteRequest, PROVIDED_ROUTE_TOLERANCE_BPS, providedRoutes, requestFor, routeKey, routeRequestOf,

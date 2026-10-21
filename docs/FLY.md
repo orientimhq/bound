@@ -56,6 +56,17 @@ volume daily; `fly ssh console` and `ls /data/terms-acceptances` to read it.
 prepared in the seconds before are prepared again. `fly releases` lists earlier images;
 `fly deploy --image <image>` returns to one. `ORIENTIM_DISABLED=1` (`fly secrets set`) pauses swaps.
 
+## Pump.fun curves without Jupiter
+
+`ORIENTIM_LOCAL_CURVE=1` (in `fly.toml`): a swap on an active Pump.fun bonding curve, SOL in or out, is
+built from the chain (the curve, Pump's fee config and global account, Jupiter's lookup table) in one
+RPC read, the same `route_v2` instruction Jupiter would give, without the round trip to Jupiter. It goes
+through the same checks as Jupiter's answer, the verifier and the final simulation included. Anything it
+does not know to build exactly as Jupiter does (a cashback coin, a curve's own creator fee, a second fee
+tier, a classic SPL mint, fast mode, a narrower account budget) and every error goes to Jupiter, and the
+log says why once. The canary compares the two routes on new curves, buys and sells, on every run: a
+difference fails it. Unset, every route comes from Jupiter.
+
 ## The lower fee for large swaps
 
 Off. `NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS=15` in `[build.args]` makes swaps of $10,000 or more in USDC or

@@ -28,6 +28,8 @@ kill_timeout = "30s"
   ORIENTIM_CLIENT_IP_HEADER = "cf-connecting-ip"
   ORIENTIM_PUBLIC_ORIGIN = "https://orientim.com"
   ORIENTIM_TERMS_DIR = "/data"
+  # Swaps on an active Pump.fun curve built from the chain, without asking Jupiter (docs/FLY.md).
+  ORIENTIM_LOCAL_CURVE = "1"
   NODE_OPTIONS = "--max-old-space-size=3072"
 
 # The Terms each key accepted, one file each (ORIENTIM_TERMS_DIR). Take a volume snapshot daily (Fly does by default).
