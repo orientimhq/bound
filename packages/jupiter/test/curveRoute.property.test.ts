@@ -8,8 +8,8 @@
  *   the curve, a sell past the SOL it holds) or there is nothing to swap;
  * - a route the verifier reads back as built: the amount in, the quote and the tolerance in its data,
  *   Jupiter's floor (rounded up, as Jupiter's own) never above the quote, the quote never above what
- *   the curve would pay without fees, more in never less out, the taker the only signer, and the
- *   destination, when there is one, where route_v2 delivers.
+ *   the curve would pay without fees, more in never less out but for the fees' rounding, the taker
+ *   the only signer, and the destination, when there is one, where route_v2 delivers.
  *
  * `npm run test:fuzz` runs 20,000 cases; ORIENTIM_FUZZ_RUNS and ORIENTIM_FUZZ_SEED set a shard.
  */
@@ -122,9 +122,10 @@ describe('the local Pump.fun curve route on any curve', () => {
           // Never more than the curve pays without fees.
           const feeless = x.isBuy ? (curve.vt * x.amount) / (curve.vq + x.amount) : (curve.vq * x.amount) / (curve.vt + x.amount);
           expect(out <= feeless).toBe(true);
-          // More in never gets less out.
+          // More in never gets less out, but for the rounding of the two fees: each is rounded up, as
+          // Pump's program rounds it, so one unit more in can cost up to a unit more of each.
           const more = x.isBuy ? quoteBuy(reserves, x.amount + 1n, fees) : quoteSell(reserves, x.amount + 1n, fees).out;
-          expect(more >= out).toBe(true);
+          expect(more >= out - 2n).toBe(true);
           // The taker alone signs, as the route's authority and as Pump's buyer.
           const accounts = r.swapInstruction.accounts;
           expect(r.swapInstruction.programId).toBe(JUPITER_PROGRAM);
