@@ -28,6 +28,7 @@ name: Simulation matrix
 #   nothing is sent. Orientim runs in the job, configured as a deployment is; api_url aims phases 1, 2, 3
 #   and 5 at a deployment (a preview, never production) with the keys in SIM_API_KEYS. Phases 4 and 6
 #   change the configuration, so they run only in the job. Optional: CANARY_RPC_URL_FALLBACK, the backup RPC.
+#   It runs on one CPU with a 4 GB heap limit, as the Fly machine (fly.toml).
 
 on:
   workflow_dispatch:
@@ -166,6 +167,10 @@ jobs:
           SIM_API_KEYS: ${{ secrets.SIM_API_KEYS }}
           SIM_WALLET_KEYPAIR: ${{ secrets.SIM_WALLET_KEYPAIR }}
           SIM_OUT: ${{ runner.temp }}/sim
-          # Memory is read after a forced garbage collection (phase 3).
-          NODE_OPTIONS: --expose-gc
-        run: node node_modules/vitest/vitest.mjs run --config tools/sim/vitest.config.ts tools/sim/capacity
+          # Memory is read after a forced garbage collection (phase 3); the heap sized for fly.toml's 4 GB.
+          NODE_OPTIONS: --expose-gc --max-old-space-size=3584
+        # One CPU, as fly.toml's performance-1x: the agents the run plays share it with Orientim, so the
+        # numbers are, if anything, below the machine's.
+        run: |
+          nproc
+          taskset -c 0 node node_modules/vitest/vitest.mjs run --config tools/sim/vitest.config.ts tools/sim/capacity
