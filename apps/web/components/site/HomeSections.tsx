@@ -42,11 +42,21 @@ const GET_IT: { id: string; label: string; line: string; note: ReactNode; docs: 
   },
 ];
 
-/** How an agent starts: the key, the skill, the first swap (the developer page has each in full). */
-const START_STEPS = [
-  ['Get an API key', 'Sign Orientim’s message with your agent’s wallet. The key comes at once and lasts 90 days; signing moves nothing. The MCP server gets one itself.'],
-  ['Install the package', 'One npm package, @orientimhq/swap: instructions for your agent, the MCP server, a command line for bots, and the verifier that checks every trade.'],
-  ['Ask for a trade', 'Tell your agent: “swap 5 USDC to SOL with Orientim”. It checks the transaction on its own RPC, then signs.'],
+/** One small line icon for each of AGENT_POINTS, in the same order. */
+const AGENT_ICONS = [
+  <path key="0" d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6l7-3z M9 12l2 2 4-4" />,
+  <path key="1" d="M12 3a9 9 0 100 18 9 9 0 000-18z M6 6l12 12" />,
+  <path key="2" d="M4 17l5-5 4 3 7-8 M4 20h16" />,
+  <path key="3" d="M7 11V8a5 5 0 0110 0v3 M5 11h14v10H5z M12 15v2" />,
+];
+
+/** The six fields of the owner policy file, as the limits diagram names them. */
+const LIMIT_CHIPS = ['Allowed tokens', 'Per-trade cap', 'Daily budget', 'Max slippage', 'Price floor', 'Impact cap'];
+
+const LIMIT_GROUPS = [
+  ['Spend caps', 'A cap per trade and a budget per day, set for each token your agent spends.'],
+  ['Asset allowlist', 'Only the tokens you chose can be bought. A token someone names to your agent is refused.'],
+  ['Price protection', 'The most slippage a trade may take, the furthest its floor may sit below the market price, and the largest price impact it may cause.'],
 ];
 
 const THREATS: [string, string, string, string][] = [
@@ -100,6 +110,10 @@ export function HomeSections() {
           <div className="section-head">
             <p className="eyebrow">Containment by design</p>
             <h2>Absolute separation between your capital and the market.</h2>
+            <p className="lead">
+              <b className="lead-strong">Least privilege, enforced per trade.</b> Each trade receives a single-use authority scoped to the
+              exact amount your agent is authorised to move. The wallet signs; it never enters the route.
+            </p>
           </div>
           <div className="glass-stage">
             <div className="ambient" aria-hidden="true" />
@@ -120,33 +134,27 @@ export function HomeSections() {
 
       <section className="section" id="agents">
         <div className="container">
-          <div className="dev-grid">
+          <div className="agents-head">
             <div>
               <p className="eyebrow eyebrow-cyan">Autonomous capital protection</p>
               <h2>When an agent hallucinates or gets hijacked, it still can’t spend past your limits.</h2>
-              <p className="lead">
-                The skill checks each transaction before signing. For bots using the API directly, run the same verification and
-                keep the signing key and spending policy outside the agent’s control.
-              </p>
-              <ul className="agent-points">
-                {AGENT_POINTS.map(([title, text]) => <li key={title}><b>{title}</b><span>{text}</span></li>)}
-              </ul>
-              <div className="cta-actions">
-                <a className="button ghost-link" href="/developers#mcp">Add to Claude Desktop</a>
-                <a className="button ghost-link" href="/developers">Developer docs</a>
-              </div>
             </div>
-            <div className="glass-stage">
-              <div className="ambient" aria-hidden="true" />
-              <div className="capsule-card">
-                <h3 className="start-title">Start in three steps</h3>
-                <ol className="start-steps">
-                  {START_STEPS.map(([title, text], i) => (
-                    <li key={title}><span className="step-n">{i + 1}</span><div><h3>{title}</h3><p>{text}</p></div></li>
-                  ))}
-                </ol>
-              </div>
-            </div>
+            <p className="lead">
+              The skill checks each transaction before signing. For bots using the API directly, run the same verification and
+              keep the signing key and spending policy outside the agent’s control.
+            </p>
+          </div>
+          <ul className="agent-points">
+            {AGENT_POINTS.map(([title, text], i) => (
+              <li key={title}>
+                <svg className="agent-icon" viewBox="0 0 24 24" aria-hidden="true">{AGENT_ICONS[i]}</svg>
+                <b>{title}</b><span>{text}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="cta-actions">
+            <a className="button ghost-link" href="/developers#mcp">Add to Claude Desktop</a>
+            <a className="button ghost-link" href="/developers">Developer docs</a>
           </div>
         </div>
       </section>
@@ -178,31 +186,71 @@ export function HomeSections() {
               ))}
             </ul>
           </div>
-          <div className="limits-band">
+        </div>
+      </section>
+
+      <section className="section" id="limits">
+        <div className="container">
+          <div className="limits-grid">
+            {/* The policy's six fields flow into the client on the agent's machine, which checks the trade before Solana sees it. */}
+            <div className="lim-diagram" role="img" aria-label="Six limits from your policy file go into Orientim on your machine, which checks every trade before it reaches Solana.">
+              <ul className="lim-chips" aria-hidden="true">
+                {LIMIT_CHIPS.map(c => <li key={c}>{c}</li>)}
+              </ul>
+              <svg className="lim-wires" viewBox="0 0 600 90" aria-hidden="true">
+                {['M100 0 C100 55 300 35 300 90', 'M300 0 V90', 'M500 0 C500 55 300 35 300 90'].map((d, i) => (
+                  <g key={d}>
+                    <path className="lim-line" d={d} />
+                    <path className="lim-dot" d={d} pathLength={100} style={{ animationDelay: `${i * 1.2}s` }} />
+                  </g>
+                ))}
+              </svg>
+              <div className="lim-hub" aria-hidden="true">
+                <b>Orientim · on your machine</b>
+                <span>pre-sign verification R1–R7</span>
+              </div>
+              <svg className="lim-out" viewBox="0 0 600 130" aria-hidden="true">
+                <path className="lim-line" d="M300 0 V76" />
+                <path className="lim-dot" d="M300 0 V76" pathLength={100} style={{ animationDelay: '2s' }} />
+                {[36, 24, 12].map(r => <circle key={r} className="lim-ring" cx="300" cy="88" r={r} />)}
+                <circle className="lim-node" cx="300" cy="88" r="6" />
+              </svg>
+              <p className="lim-chain" aria-hidden="true">Solana</p>
+            </div>
             <div>
               <p className="eyebrow eyebrow-cyan">Limits you set</p>
-              <h3>Rules in a file your agent can’t edit.</h3>
-              <p className="lead">Per swap, per day, the tokens it may buy and the most slippage it may take. Kept in /etc/orientim/policy.json, writable only by an administrator, your agent can’t raise them.</p>
-              <ul className="policy-chips">
-                <li><span>✓</span> At most 50 USDC a trade</li>
-                <li><span>✓</span> At most 200 USDC a day</li>
-                <li><span>✓</span> Buys only SOL</li>
-                <li><span>✓</span> Never more than 3% slippage</li>
-              </ul>
-            </div>
-            <div className="terminal policy">
-              <div className="terminal-bar"><span /><span /><span /><em>orientim-policy.json, annotated</em></div>
-              <pre tabIndex={0}>{`{
+              <h2>Your rules, enforced before every signature.</h2>
+              <p className="lead">
+                Six controls in one file your agent cannot edit. Every trade is checked against them on your own machine before the
+                wallet is asked to sign. A trade that breaks one is never signed.
+              </p>
+              <div className="lim-groups">
+                {LIMIT_GROUPS.map(([title, text], i) => (
+                  <details key={title} open={i === 0}>
+                    <summary>{title}</summary>
+                    <p>{text}</p>
+                  </details>
+                ))}
+              </div>
+              <details className="lim-policy">
+                <summary>View the policy file →</summary>
+                <div className="terminal policy">
+                  <div className="terminal-bar"><span /><span /><span /><em>/etc/orientim/policy.json, annotated</em></div>
+                  <pre tabIndex={0}>{`{
   "maxAmountIn": {
-    "EPjF…Dt1v": "50000000"`}<span className="dim">{`      // 50 USDC a swap`}</span>{`
+    "EPjF…Dt1v": "50000000"`}<span className="dim">{`      // 50 USDC a trade`}</span>{`
   },
   "maxAmountInPerDay": {
     "EPjF…Dt1v": "200000000"`}<span className="dim">{`     // 200 USDC a day`}</span>{`
   },
   "allowedOutputMints": ["So11…1112"],`}<span className="dim">{` // buys only SOL`}</span>{`
-  "maxSlippageBps": 300,`}<span className="dim">{`         // never more than 3%`}</span>{`
-  "stateDir": "/home/agent/.orientim-state"`}<span className="dim">{`  // where every swap is counted`}</span>{`
-}`}{'\n\n'}<span className="dim">{`# the agent is told to swap 500 USDC`}</span>{'\n'}<span className="ok">{`✓ your policy holds it to 50 USDC a swap`}</span>{'\n'}<span className="dim">{`# the agent is told to buy a token someone named`}</span>{'\n'}<span className="ok">{`✓ your policy allows only the tokens you chose`}</span>{'\n'}<span className="dim">{`# the agent is told to set slippage to 15%`}</span>{'\n'}<span className="ok">{`✓ your policy caps slippage at 3%`}</span></pre>
+  "maxSlippageBps": 300,`}<span className="dim">{`         // never more than 3% slippage`}</span>{`
+  "maxBelowBps": 500,`}<span className="dim">{`            // floor at most 5% below market`}</span>{`
+  "maxPriceImpactBps": 500,`}<span className="dim">{`      // price impact at most 5%`}</span>{`
+  "stateDir": "/home/agent/.orientim-state"`}<span className="dim">{`  // where every trade is counted`}</span>{`
+}`}{'\n\n'}<span className="dim">{`# the agent is told to trade 500 USDC`}</span>{'\n'}<span className="ok">{`✓ your policy holds it to 50 USDC a trade`}</span>{'\n'}<span className="dim">{`# the agent is told to buy a token someone named`}</span>{'\n'}<span className="ok">{`✓ your policy allows only the tokens you chose`}</span>{'\n'}<span className="dim">{`# the agent is told to set slippage to 15%`}</span>{'\n'}<span className="ok">{`✓ your policy caps slippage at 3%`}</span></pre>
+                </div>
+              </details>
             </div>
           </div>
           <p className="not-covered"><b>Your part:</b> keep the signing key in a separate signer with its own limits. The protection covers every trade through Orientim; an agent that can read its own key, transfers made outside Orientim, a key stolen from your machine and the value of the token you buy are outside it.</p>

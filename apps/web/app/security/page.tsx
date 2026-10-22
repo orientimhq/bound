@@ -48,7 +48,7 @@ export default async function Page() {
     <InfoPage
       eyebrow="Security"
       title="How Orientim protects you"
-      lead="A typical swap acts with the wallet's authority for the whole transaction. Orientim builds each swap so that the swap program never gets it: only the amount your agent approves is placed within its reach, under a one-time key that exists for this one transaction."
+      lead="Least privilege, enforced per trade. A typical swap acts with the wallet's authority for the whole transaction. Orientim builds each swap so that the swap program never gets it: only the amount your agent approves is placed within its reach, under a one-time key that exists for this one transaction."
     >
       <nav className="sub-nav" aria-label="On this page">
         <a href="#enforces">What it enforces</a>
