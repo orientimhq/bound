@@ -2,6 +2,7 @@ import { address } from '@solana/kit';
 import { createJupiterClient, heliusPriorityFee, localCurveRoutes, MIN_FEE } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
 import { createServerRpc, mainPassedOver } from '../rpcFailover';
+import { sharedJupiterGate } from '../jupiterGate';
 import { redisFromEnv, sharedRequired, sharedState } from '../shared';
 import { withSharedFee, withSharedReads } from '../sharedReads';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
@@ -171,6 +172,8 @@ export function agentDeps(): AgentDeps | null {
         labelsUrl: 'https://api.jup.ag/swap/v2/program-id-to-label',
         apiKey: jupiterApiKey ?? undefined,
         timeoutMs: 15_000,
+        // Never past the plan's limit: a request waits for room, each client in turn (jupiterGate.ts).
+        fetchImpl: sharedJupiterGate().wrap((...a) => fetch(...a)),
       }),
       curveRoutes: localCurve ? localCurveRoutes() : undefined,
     };

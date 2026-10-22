@@ -1,5 +1,6 @@
 import { serverConfig } from './config';
 import { agentEndpoints } from './agent/config';
+import { sharedJupiterGate } from './jupiterGate';
 import { redisFromEnv, sharedRequired } from './shared';
 
 export type Check = { ok: boolean; ms: number };
@@ -71,7 +72,7 @@ export async function checkHealth(fetchImpl: typeof fetch = (...a) => fetch(...a
     rpcCheck(rpcUrl, fetchImpl),
     rpcFallbackUrl ? rpcCheck(rpcFallbackUrl, fetchImpl) : Promise.resolve(null),
     timed(
-      () => fetchImpl('https://api.jup.ag/tokens/v2/search?query=So11111111111111111111111111111111111111112', {
+      () => sharedJupiterGate().counted(fetchImpl)('https://api.jup.ag/tokens/v2/search?query=So11111111111111111111111111111111111111112', {
         headers: jupiterApiKey ? { 'x-api-key': jupiterApiKey } : {}, cache: 'no-store',
         signal: AbortSignal.timeout(TIMEOUT_MS),
       }),
@@ -95,7 +96,7 @@ async function agentsCheck(fetchImpl: typeof fetch, siteRpcUrl: string, siteRpc:
   const [rpc, build] = await Promise.all([
     endpoints.rpcUrl === siteRpcUrl ? Promise.resolve(siteRpc) : rpcCheck(endpoints.rpcUrl, fetchImpl),
     timed(
-      () => fetchImpl(`https://api.jup.ag/swap/v2/build?${BUILD_CHECK}`, {
+      () => sharedJupiterGate().counted(fetchImpl)(`https://api.jup.ag/swap/v2/build?${BUILD_CHECK}`, {
         headers: endpoints.jupiterApiKey ? { 'x-api-key': endpoints.jupiterApiKey } : {}, cache: 'no-store',
         signal: AbortSignal.timeout(TIMEOUT_MS),
       }),

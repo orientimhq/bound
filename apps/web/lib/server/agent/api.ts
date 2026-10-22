@@ -15,6 +15,7 @@ import { hasPermanentDelegate } from '@orientimhq/swap/verifier';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { readBodyLimited } from '../body';
 import { loggableError, logEvent, maskedReason } from './events';
+import { jupiterLane } from '../jupiterGate';
 import { clientKey, limit } from '../rateLimit';
 import { memoryShared, type Shared } from '../shared';
 import { openKey } from './keys';
@@ -365,6 +366,11 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   if (deps.disabled) return fail(503, 'paused', 'Protected swaps are paused. Nothing was built.');
   const auth = await authenticate(req, deps, 'prepare');
   if (auth instanceof Response) return auth;
+  // The Jupiter requests this swap makes wait in this key's own turn (jupiterGate.ts).
+  return jupiterLane.run(auth.id, () => prepareFor(req, deps, auth));
+}
+
+async function prepareFor(req: Request, deps: AgentDeps, auth: { id: string; wallet: string | null }): Promise<Response> {
   const key = auth.id;
   // A copy of the skill older than this deployment serves: say so, rather than fail some other way.
   const skill = req.headers.get('x-orientim-skill') ?? '';

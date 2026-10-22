@@ -17,6 +17,7 @@ import { fakeJupiter, fakeRpc, fundedAccounts, mint, OUT, POOL, DEX, tokenAccoun
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
 import type { BuildParams } from '../../../packages/jupiter/src/client.ts';
 import { agentFinalize, agentPrepare, DUST_DIVISOR, FINALIZE_DEADLINE_MS, olderThan, PREPARE_DEADLINE_MS, withinDeadline } from '../lib/server/agent/api.ts';
+import { jupiterLane } from '../lib/server/jupiterGate.ts';
 import type { AgentDeps } from '../lib/server/agent/api.ts';
 import { ephemeralFor, kidOf, openTicket, sealTicket } from '../lib/server/agent/ticket.ts';
 import { issueKey } from '../lib/server/agent/keys.ts';
@@ -141,6 +142,15 @@ describe('prepare', () => {
     expect(Object.keys(tx.signatures).sort()).toEqual([w.W.address, p.temporaryAuthority].sort());
     // What the transaction has left to live, in blocks: the fake chain is at 1.
     expect((p as unknown as { blocksLeft: string }).blocksLeft).toBe('999');
+  });
+
+  it("the Jupiter requests of a prepare wait in its own key's turn", async () => {
+    const lanes: (string | undefined)[] = [];
+    const jupiter = fakeJupiter();
+    const w = await world({ jupiter: { ...jupiter, build: p => { lanes.push(jupiterLane.getStore()); return jupiter.build(p); } } });
+    await prepared(w);
+    expect(lanes.length).toBeGreaterThan(0);
+    expect(new Set(lanes)).toEqual(new Set(['agent-one']));
   });
 
   it('takes the tolerance the agent chose, as the page does, and says what the mints allow their issuers', async () => {
