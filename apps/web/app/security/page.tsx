@@ -85,10 +85,12 @@ export default async function Page() {
       </section>
 
       <section id="rules">
-        <h2>The 7 rules, checked before your wallet signs</h2>
+        <p className="eyebrow">Pre-sign verification</p>
+        <h2>Don&apos;t trust our servers. Check every instruction yourself before you sign.</h2>
         <p>
-          The open-source verifier decodes the exact bytes your wallet will sign and checks them against seven rules, with
-          every account read from your own RPC. Your wallet signs only a transaction that passes all seven.
+          Before your wallet signs, the open-source verifier decodes the exact transaction on your machine and checks it
+          against your own RPC. If anything differs from the amount you approved, the minimum you set or the isolation of your
+          wallet, it refuses, and your wallet never signs. These are the seven rules it checks:
         </p>
         <ol className="rules">
           {RULES.map(([id, name, text]) => (

@@ -213,7 +213,7 @@ export default async function Page() {
           <article className="dev-main prose">
             <header className="dev-head">
               <p className="eyebrow">For AI agents and bots</p>
-              <h1>Give your agent a wallet, not a blank cheque.</h1>
+              <h1>Deploy autonomous agents with hard limits, not a blank cheque.</h1>
               <p className="lead">Each swap is checked against your limits, on your own RPC, before the agent signs.</p>
               <ul className="agent-points dev-pitch">
                 {PITCH.map(([title, text]) => <li key={title}><b>{title}</b><span>{text}</span></li>)}

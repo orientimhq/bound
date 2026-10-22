@@ -10,7 +10,7 @@ const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', displ
 
 // One title and one description, the same in search results and in shared links (OG and X).
 const TITLE = 'Orientim — Protected swaps on Solana';
-const DESCRIPTION = 'Protected swaps on Solana for AI agents and bots: the swap gets only the amount your agent approves, never the wallet.';
+const DESCRIPTION = 'Execution isolation for Solana AI agents and trading bots: DEX routes never reach your wallet, every swap is verified before signing, and it settles at your minimum or reverts.';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://orientim.com'),

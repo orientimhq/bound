@@ -3,14 +3,16 @@ import { SKILL_EXTENSION } from '@/lib/server/skill';
 import { AgentTerminal, CapsuleFlow } from './Motion';
 
 const CAPSULE_STEPS = [
-  ['Your wallet never moves.', 'Your agent names the amount. Only that amount steps out, with the costs shown up front. The rest of your SOL, every other token and every NFT stay exactly where they are.'],
-  ['The trade gets its own wallet.', 'The amount moves into a one-time key built for this swap alone. Orientim routes it across Solana’s markets, and the route never sees your wallet.'],
-  ['Your price, or no trade.', 'Your agent sets the minimum before it signs. If the market can’t meet it, the whole swap reverts on chain: nothing is traded, and only the network fee is paid.', 'Reverted on chain'],
+  ['Strictly Bounded Principal', 'Your wallet authorizes only the input for a single trade, plus the fee and network costs shown before it signs. No open allowances, no lingering delegations, no exposure for the rest of your balance.'],
+  ['Isolated Route Execution', 'Liquidity pools, bonding curves and third-party contracts never receive your wallet or its token accounts; the only one they reach is the account that receives your output. The market’s complexity stays outside your vault.'],
+  ['Guaranteed Net Settlement', 'Either at least your minimum output lands in your wallet, net of every fee, or the entire transaction reverts atomically: nothing is traded, and only the network fee is paid.'],
 ];
 
 const AGENT_POINTS = [
-  ['Checks before signing', 'The skill, the MCP server and the command line check the exact transaction on your own connection to Solana.'],
-  ['Recovers an interrupted order', 'After a restart it settles what was in flight before anything new, and never swaps an order twice.'],
+  ['Sealed Blast Radius', 'A compromised route or malicious contract can never reach past the single approved trade amount. Checked by the verifier on your own RPC before signing, your main balance stays out of reach.'],
+  ['Weaponized-Token Screening', 'Tokens with transfer hooks, unknown extensions or a frozen account are refused before signing; an issuer that can still freeze, mint or move balances is named to your agent first.'],
+  ['Independent Price Enforcement', 'Your client cross-checks market quotes independently and enforces an unbreakable on-chain delivery floor that no server or route can lower.'],
+  ['Prompt-Immune Spend Guardrails', 'Per-trade caps, daily budgets and asset allowlists are enforced from /etc/orientim/policy.json, a file only an administrator can write, completely outside the AI model’s context window.'],
 ];
 
 /**
@@ -54,7 +56,7 @@ export function HomeSections() {
       <section className="hero">
         <div className="container hero-grid">
           <div className="hero-copy">
-            <p className="eyebrow">Isolated swaps for AI agents and bots on Solana</p>
+            <p className="eyebrow">Cryptographic execution isolation for AI agents on Solana</p>
             <h1 className="hero-title">Your trade gets its own wallet. <span className="hero-title-dim">Your wallet never becomes the trade.</span></h1>
             <div className="cta-actions hero-actions">
               <a className="button primary-link" href="/developers#access">Get Instant API Key</a>
@@ -91,8 +93,8 @@ export function HomeSections() {
       <section className="section" id="how">
         <div className="container">
           <div className="section-head">
-            <p className="eyebrow">How protection works</p>
-            <h2>Three steps, checked before anything is signed.</h2>
+            <p className="eyebrow">Containment by design</p>
+            <h2>Absolute separation between your capital and the market.</h2>
           </div>
           <div className="glass-stage">
             <div className="ambient" aria-hidden="true" />
@@ -115,8 +117,8 @@ export function HomeSections() {
         <div className="container">
           <div className="dev-grid">
             <div>
-              <p className="eyebrow eyebrow-cyan">For AI agents and bots</p>
-              <h2>Your agent trades within the limits you set.</h2>
+              <p className="eyebrow eyebrow-cyan">Autonomous capital protection</p>
+              <h2>When an agent hallucinates or gets hijacked, it still can’t spend past your limits.</h2>
               <p className="lead">
                 The skill checks each transaction before signing. For bots using the API directly, run the same verification and
                 keep the signing key and spending policy outside the agent’s control.
@@ -215,7 +217,7 @@ export function HomeSections() {
         <div className="container">
           <div className="cta-band">
             <div>
-              <h2>Give your agent a wallet, not a blank cheque.</h2>
+              <h2>Deploy autonomous agents with hard limits, not a blank cheque.</h2>
               <p>Get a key with your agent’s wallet, download the skill, and let it swap within the limits you set.</p>
             </div>
             <div className="cta-actions">
