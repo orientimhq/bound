@@ -174,8 +174,8 @@ export function HomeSections() {
           <div className="limits-band">
             <div>
               <p className="eyebrow eyebrow-cyan">Limits you set</p>
-              <h3>Rules in a file only you edit.</h3>
-              <p className="lead">Per swap, per day, the tokens it may buy and the most slippage it may take. Your agent can’t raise them.</p>
+              <h3>Rules in a file your agent can’t edit.</h3>
+              <p className="lead">Per swap, per day, the tokens it may buy and the most slippage it may take. Kept in /etc/orientim/policy.json, writable only by an administrator, your agent can’t raise them.</p>
               <ul className="policy-chips">
                 <li><span>✓</span> At most 50 USDC a swap</li>
                 <li><span>✓</span> At most 200 USDC a day</li>

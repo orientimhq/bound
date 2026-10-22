@@ -183,10 +183,26 @@ describe('prepare', () => {
     const deps = { ...w.deps, totalPerMinute: 1 };
     const first = await agentPrepare(post('prepare-total', swapBody(w.W.address)), deps);
     expect(first.status).toBe(200);
-    const second = await agentPrepare(post('prepare-total', swapBody(w.W.address)), deps);
+    const second = await agentPrepare(post('prepare-total', swapBody(w.W.address), OTHER_KEY), deps);
     expect(second.status).toBe(503);
     expect(((await second.json()) as { error: { code: string } }).error.code).toBe('busy');
     expect(Number(second.headers.get('retry-after'))).toBeGreaterThan(0);
+  });
+
+  it('a malformed prepare takes nothing from the total, and no key takes more than a quarter of it', async () => {
+    const w = await world();
+    // Keys of their own, so that no other test's prepares count in their shares.
+    const [one, two] = ['ori_test_key_for_the_share_test_0003', 'ori_test_key_for_the_share_test_0004'];
+    const keys = new Map([...w.deps.keys, [sha(one), 'share-one'], [sha(two), 'share-two']]);
+    // The total is the one count every test shares; this one stays under it.
+    const deps = { ...w.deps, keys, perMinute: 1_000, totalPerMinute: 8 };
+    for (let i = 0; i < 20; i++) expect((await agentPrepare(post('prepare-share', {}, one), deps)).status).toBe(400);
+    for (let i = 0; i < 2; i++) expect((await agentPrepare(post('prepare-share', swapBody(w.W.address), one), deps)).status).toBe(200);
+    const over = await agentPrepare(post('prepare-share', swapBody(w.W.address), one), deps);
+    expect(over.status).toBe(429);
+    expect(Number(over.headers.get('retry-after'))).toBeGreaterThan(0);
+    // Another key still has the rest.
+    expect((await agentPrepare(post('prepare-share', swapBody(w.W.address), two), deps)).status).toBe(200);
   });
 
   it('prepare counts the client address over all its keys', async () => {

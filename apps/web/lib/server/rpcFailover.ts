@@ -39,7 +39,7 @@ export const FAILOVER_TIMES: FailoverTimes = { totalMs: 25_000, attemptMs: 15_00
 
 /**
  * How long a send the main RPC may have taken stays "possibly broadcast" here: past a blockhash's
- * life (150 blocks, a minute or so), with room to spare.
+ * life (150 blocks, about 30 seconds at 200 ms blocks), with room to spare.
  */
 const MAIN_MAY_HAVE_MS = 180_000;
 const MAIN_MAY_HAVE_MAX = 10_000;

@@ -166,13 +166,25 @@ async function authenticate(req: Request, deps: AgentDeps, endpoint: 'prepare' |
       return fail(429, 'rate-limited', 'Too many requests from this address over all its keys. Wait Retry-After seconds and try again.', {}, { 'retry-after': String(waitIp) });
     }
   }
-  if (endpoint === 'prepare' && deps.totalPerMinute) {
-    const waitAll = await limit('agent-all:prepare', deps.totalPerMinute, 60_000, shared);
-    if (waitAll !== null) {
-      return fail(503, 'busy', 'Orientim is at its capacity for new swaps right now. Nothing was built or signed. Wait Retry-After seconds and try again.', {}, { 'retry-after': String(waitAll) });
-    }
-  }
   return auth;
+}
+
+/**
+ * Counts a well-formed prepare against what all keys share (`totalPerMinute`); a malformed one is
+ * refused before it takes any. No one key takes more than a quarter of it, so a few keys cannot fill it.
+ */
+async function admitPrepare(key: string, deps: AgentDeps): Promise<Response | null> {
+  if (!deps.totalPerMinute) return null;
+  const shared = deps.shared?.kind === 'redis' ? deps.shared : null;
+  const waitShare = await limit(`agent-all-share:${key}`, Math.max(1, Math.floor(deps.totalPerMinute / 4)), 60_000, shared);
+  if (waitShare !== null) {
+    return fail(429, 'rate-limited', 'This API key has its share of what all keys prepare a minute. Wait Retry-After seconds and try again.', {}, { 'retry-after': String(waitShare) });
+  }
+  const waitAll = await limit('agent-all:prepare', deps.totalPerMinute, 60_000, shared);
+  if (waitAll !== null) {
+    return fail(503, 'busy', 'Orientim is at its capacity for new swaps right now. Nothing was built or signed. Wait Retry-After seconds and try again.', {}, { 'retry-after': String(waitAll) });
+  }
+  return null;
 }
 
 async function readJson(req: Request, limit = MAX_BODY_BYTES): Promise<Record<string, unknown> | null> {
@@ -414,6 +426,8 @@ export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Respo
   if (minOut === undefined && !firstRound) {
     return fail(400, 'bad-request', 'minOut is required and must be a positive integer in base units, as a string. Get a price independently before preparing.');
   }
+  const busy = await admitPrepare(key, deps);
+  if (busy) return busy;
   // The terms a session holds the rounds to (see `SessionTerms`).
   const terms: SessionTerms = {
     slip: typeof slippageBps === 'number' ? slippageBps : null,
