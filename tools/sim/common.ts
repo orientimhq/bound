@@ -269,7 +269,7 @@ export type OfflineWorld = {
 export async function offlineWorld(keyCount = 1): Promise<OfflineWorld> {
   const { generateKeyPairSigner } = await import('@solana/kit');
   const fakes = await import('../../packages/jupiter/test/fakes.ts');
-  const { ataOf } = await import('@orientimhq/swap/core');
+  const { ataOf } = await import('@orientim/builder');
   const wallet = await generateKeyPairSigner();
   const accounts = new Map<string, import('../../packages/jupiter/test/fakes.ts').Account>([
     [fakes.USDC, fakes.mint(6)], [SOL, fakes.mint(9)],

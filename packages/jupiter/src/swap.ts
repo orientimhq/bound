@@ -4,7 +4,8 @@ import {
   SOLANA_ERROR__TRANSACTION__TOO_MANY_ACCOUNT_ADDRESSES,
 } from '@solana/kit';
 import type { Address, FullySignedTransaction, Instruction, KeyPairSigner, Transaction } from '@solana/kit';
-import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, LEGACY_SIZE_LIMIT, MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_ORIENTIM_LAMPORTS, LAMPORTS_PER_SIGNATURE, MAX_ROUTE_KEPT_LAMPORTS, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, tokenAmountOf, V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, WSOL_MINT, USDC_MINT, USDT_MINT, ataOf, PUMP_CURVE_PROGRAM as CURVE_PROGRAM, PUMP_AMM_PROGRAM, FEE_TOKENS } from '@orientimhq/swap/core';
+import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS, ATA_PROGRAM, LEGACY_SIZE_LIMIT, MAX_COMPUTE_UNITS, TOKEN_2022_ACCOUNT_SIZE, TOKEN_2022_PROGRAM, TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS, LAMPORTS_PER_SIGNATURE, MAX_ROUTE_KEPT_LAMPORTS, MAX_TAKER_RENT_LAMPORTS, TOKEN_ACCOUNT_SIZE, TOKEN_PROGRAM, V1_MAX_ACCOUNTS, V1_SIZE_LIMIT, WSOL_MINT, USDC_MINT, USDT_MINT, PUMP_CURVE_PROGRAM as CURVE_PROGRAM, PUMP_AMM_PROGRAM, FEE_TOKENS } from '@orientimhq/swap/core';
+import { ataOf, tokenAmountOf } from '@orientim/builder';
 import { bondingCurveOf, buildPolicy, compileProtectedSwap, tokenAccountSizeFor, withTakerRent, variantOf, withMinOut, eventAuthorityOf, routeAccountOf, withRouteRefund, feeSideFor, minimumForReceived, minimumReceived, outputFeeFor } from '@orientim/builder';
 import type { AccountState, OrientimConfig, IntermediateAta, Policy, TxVersion, Violation } from '@orientimhq/swap/core';
 import type { Lifetime, RouteRefund } from '@orientim/builder';
@@ -752,7 +753,7 @@ export async function prepareProtectedSwap(deps: {
   // pre-2026 value is shown, which is an upper bound.
   const rentFor = (size: number) => rpc.getMinimumBalanceForRentExemption(BigInt(size)).send()
     .then(BigInt)
-    .catch(() => TOKEN_ACCOUNT_RENT_UPPER_ORIENTIM_LAMPORTS);
+    .catch(() => TOKEN_ACCOUNT_RENT_UPPER_BOUND_LAMPORTS);
   // A fee in SOL goes to the treasury wallet itself, so it is read whenever there is a treasury: SOL
   // on either side pays there (see below), and so does a pair no token of which can carry the fee.
   // A fee on a USDC or USDT output goes to the treasury's account for it.

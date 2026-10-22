@@ -45,7 +45,8 @@ import {
   address, getAddressDecoder, getCompiledTransactionMessageDecoder, getCompiledTransactionMessageEncoder, getTransactionDecoder, getTransactionEncoder,
 } from '@solana/kit';
 import type { Address, Rpc, SolanaRpcApi } from '@solana/kit';
-import { ataOf, JUPITER_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { JUPITER_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { ataOf } from '@orientim/builder';
 import { jupiterDestination, jupiterRouteArgs } from '@orientimhq/swap/verifier';
 import { createJupiterClient, heliusPriorityFee, localCurveRoutes, MIN_FEE } from '@orientim/jupiter';
 import { createRetryingRpc } from '@orientimhq/swap/solana';

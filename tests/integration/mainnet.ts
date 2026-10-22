@@ -25,7 +25,8 @@ import { getSetComputeUnitLimitInstruction, getSetComputeUnitPriceInstruction } 
 import { AuthorityType, getCloseAccountInstruction, getSetAuthorityInstruction, getTransferInstruction } from '@solana-program/token';
 import { getTransferSolInstruction } from '@solana-program/system';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { ataOf, JUPITER_PROGRAM, TOKEN_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientimhq/swap/core';
+import { JUPITER_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { ataOf, tokenAmountOf } from '@orientim/builder';
 import { buildPolicy, protectedInstructions } from '@orientim/builder';
 import { verify } from '@orientimhq/swap/verifier';
 import type { TxVersion } from '@orientimhq/swap/core';

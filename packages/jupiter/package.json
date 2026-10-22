@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@orientimhq/swap": "2.1.0",
+    "@orientimhq/swap": "3.0.0",
     "@orientim/builder": "0.1.0"
   }
 }

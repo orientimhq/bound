@@ -1,6 +1,7 @@
 import { address, getAddressDecoder, getAddressEncoder, getProgramDerivedAddress } from '@solana/kit';
 import type { Address } from '@solana/kit';
-import { ATA_PROGRAM, JUPITER_PROGRAM, PUMP_CURVE_PROGRAM, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT, ataOf } from '@orientimhq/swap/core';
+import { ATA_PROGRAM, JUPITER_PROGRAM, PUMP_CURVE_PROGRAM, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { ataOf } from '@orientim/builder';
 import { bondingCurveOf, eventAuthorityOf, routeAccountOf } from '@orientim/builder';
 import { fetchAccounts } from '@orientimhq/swap/solana';
 import type { AccountState } from '@orientimhq/swap/core';

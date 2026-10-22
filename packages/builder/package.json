@@ -7,7 +7,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@orientimhq/swap": "2.1.0",
+    "@orientimhq/swap": "3.0.0",
     "@solana-program/compute-budget": "^0.18.1",
     "@solana-program/system": "^0.14.1",
     "@solana-program/token": "^0.16.1",

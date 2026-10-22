@@ -19,7 +19,8 @@ import {
   AuthorityType, getApproveInstruction, getSetAuthorityInstruction, getTransferCheckedInstruction,
 } from '@solana-program/token';
 import { getSetComputeUnitPriceInstruction } from '@solana-program/compute-budget';
-import { ataOf, JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { JUPITER_PROGRAM, SYSTEM_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { ataOf } from '@orientim/builder';
 import { BONK, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, USDC } from '../../../packages/jupiter/test/fakes.ts';
 import { priceImpactOf } from '@orientim/jupiter';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';
@@ -1962,7 +1963,8 @@ describe('an agent that is misled cannot loosen its own protection', () => {
     const low = await runCli('prepare', { intent: { ...intent, minOut: '1' } }, deps);
     expect(low.code).toBe(1);
     expect(low.output.error).toMatchObject({ code: 'floor-too-low', minOut: '1' });
-    expect((await runCli('prepare', { intent: { ...intent, maxBelowBps: 9_999 } }, deps)).code).toBe(1);
+    // A floor further below the market than any owner may allow is refused as input: exit 2.
+    expect((await runCli('prepare', { intent: { ...intent, maxBelowBps: 9_999 } }, deps)).code).toBe(2);
   });
 
   it('orientim-verify prepares nothing without an order id', async () => {
@@ -2285,7 +2287,7 @@ describe('the skill holds its own limits and its state against what it is handed
     expect(dry.status).toBe(1);
     expect(dry.stderr).toContain('mint-not-allowed');
     const run = spawnSync(process.execPath, [...example, '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--id', 'k'], {
-      encoding: 'utf8', cwd, env: { ...env, ORIENTIM_STATE_DIR: join(dir, 'state') },
+      encoding: 'utf8', cwd, env: { ...env, ORIENTIM_POLICY: policy, ORIENTIM_STATE_DIR: join(dir, 'state') },
     });
     // A keypair file it cannot use is a configuration error: exit 2.
     expect(run.status).toBe(2);
@@ -2297,7 +2299,9 @@ describe('the skill holds its own limits and its state against what it is handed
     const dir = mkdtempSync(join(tmpdir(), 'orientim-cmd-slip-'));
     const policy = join(dir, 'policy.json');
     writeFileSync(policy, JSON.stringify({ maxAmountIn: { [USDC]: '1000000' }, maxSlippageBps: 100 }));
-    const env = { ...process.env, ORIENTIM_API_URL: 'http://127.0.0.1:1', ORIENTIM_API_KEY: 'k', SOLANA_RPC_URL: 'http://127.0.0.1:1', JUPITER_API_KEY: 'j', ORIENTIM_STATE_DIR: join(dir, 'state') };
+    const open = join(dir, 'open-policy.json');
+    writeFileSync(open, JSON.stringify({ maxAmountIn: { [USDC]: '1000000' } }));
+    const env = { ...process.env, ORIENTIM_API_URL: 'http://127.0.0.1:1', ORIENTIM_API_KEY: 'k', SOLANA_RPC_URL: 'http://127.0.0.1:1', JUPITER_API_KEY: 'j', ORIENTIM_STATE_DIR: join(dir, 'state'), ORIENTIM_POLICY: open };
     const example = [BIN, 'swap'];
     const cwd = join(import.meta.dirname, '../../..');
     const dry = (slippage: string, extra: Record<string, string> = {}) => spawnSync(process.execPath, [...example, '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--owner', WSOL_MINT, '--dry-run', '--slippage-bps', slippage], {
@@ -2359,7 +2363,7 @@ describe('the skill holds its own limits and its state against what it is handed
       // sent and unknown are not final; no order database; restart and recovery from the quickstart.
       'Only a swap confirmed on chain is done', 'Orientim keeps no order database', 'Make restarts safe', 'On every start, for a direct API client',
     ]) expect(page, said).toContain(said);
-    for (const said of ['up to 1%', 'Neither `sent` nor `unknown` is a final answer', 'keeps no order database', 'On every start', '110 seconds and 48 asks', 'BudgetSpentError']) expect(reference, said).toContain(said);
+    for (const said of ['more than 1% below', 'Repeat until the answer is the prepared swap', 'ORIENTIM_OWN_ROUTES=0', 'Only the chain says whether the swap happened', 'Before preparing again for the same swap', 'On restart or an unknown result']) expect(reference, said).toContain(said);
     // Every error the skill can be answered with is in the reference, so a client can decide on it.
     for (const code of Object.keys(ERROR_MEANINGS)) expect(reference, code).toContain(`\`${code}\``);
   });
@@ -2393,7 +2397,7 @@ describe('the skill holds its own limits and its state against what it is handed
       tokens: { input: { name: said }, output: honest.tokens.output },
       route: ['Kipseli', said],
     };
-    expect(preparedData(injected as unknown as Prepared)).toEqual({ transaction: 'AQ==', costs: { keptSolLamports: '5000' } });
+    expect(preparedData(injected as unknown as Prepared)).toEqual({ transaction: 'AQ==', costs: { keptSolLamports: '5000' }, route: ['Kipseli'] });
     expect(JSON.stringify(preparedData({ ...honest, route: [said.slice(0, 30)] } as unknown as Prepared))).not.toContain('SYSTEM');
   });
 
@@ -3185,7 +3189,7 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
     let calls = 0;
     const silent = (async () => { calls++; const e = new Error('The operation was aborted due to timeout'); e.name = 'TimeoutError'; throw e; }) as unknown as typeof fetch;
     await expect(fetchRoutes([requestFor(E)], swapOf(E), { apiKey: 'silent-key', fetchImpl: silent, budget: { asks: 48, until: performance.now() + 60_000 } }))
-      .rejects.toThrow(/did not answer in time \(busy\)/);
+      .rejects.toThrow(/did not answer in time, or answered something unreadable \(busy\)/);
     expect(calls).toBe(4);
     calls = 0;
     const slowOnce = (async (url: string) => {
@@ -3247,7 +3251,10 @@ describe("the agent's own Jupiter key: routes fetched here, never sent to Orient
 describe('one request, one swap; a yes and a lock that stay their own (14 October 2026 review)', () => {
   const example = [BIN, 'swap'];
   const cwd = join(import.meta.dirname, '../../..');
-  const env = { ...process.env, ORIENTIM_API_URL: 'http://127.0.0.1:1', ORIENTIM_API_KEY: 'k', SOLANA_RPC_URL: 'http://127.0.0.1:1', JUPITER_API_KEY: 'j' };
+  // A swap needs the owner's policy; this one allows the swaps below.
+  const policy = join(mkdtempSync(join(tmpdir(), 'orientim-r14-owner-')), 'policy.json');
+  writeFileSync(policy, JSON.stringify({ maxAmountIn: { [USDC]: '1000000' } }));
+  const env = { ...process.env, ORIENTIM_API_URL: 'http://127.0.0.1:1', ORIENTIM_API_KEY: 'k', SOLANA_RPC_URL: 'http://127.0.0.1:1', JUPITER_API_KEY: 'j', ORIENTIM_POLICY: policy };
   const dry = (stateDir: string) => spawnSync(process.execPath, [...example, '--in', USDC, '--out', WSOL_MINT, '--amount', '1000000', '--owner', WSOL_MINT, '--dry-run'], {
     encoding: 'utf8', cwd, env: { ...env, ORIENTIM_STATE_DIR: stateDir },
   });

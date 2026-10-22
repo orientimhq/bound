@@ -93,7 +93,7 @@ describe('the local curve route through the whole pipeline', () => {
     const W = (await generateKeyPairSigner()).address;
     // The wallet holds the tokens it sells.
     const { tokenAccount } = await import('./fakes.ts');
-    const { ataOf } = await import('@orientimhq/swap/core');
+    const { ataOf } = await import('@orientim/builder');
     accounts.set(await ataOf(W, address(sell.mint), TOKEN_2022_PROGRAM), tokenAccount(W, address(sell.mint), { amount: BigInt(sell.params.amount) }));
     accounts.get(await ataOf(W, address(sell.mint), TOKEN_2022_PROGRAM))!.owner = TOKEN_2022_PROGRAM;
     const rpc = fakeRpc(accounts, { takerRent: 1_346_200n });

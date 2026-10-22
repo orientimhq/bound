@@ -22,7 +22,8 @@ import {
   address, generateKeyPairSigner, getBase58Decoder, getCompiledTransactionMessageDecoder, getTransactionDecoder, signBytes,
 } from '@solana/kit';
 import type { Rpc, SolanaRpcApi } from '@solana/kit';
-import { ataOf, JUPITER_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { JUPITER_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { ataOf } from '@orientim/builder';
 import { jupiterRouteArgs } from '@orientimhq/swap/verifier';
 import { BONK, DEX, fakeJupiter, fakeRpc, fundedAccounts, mint, POOL, tokenAccount, USDC } from '../../../packages/jupiter/test/fakes.ts';
 import type { Account } from '../../../packages/jupiter/test/fakes.ts';

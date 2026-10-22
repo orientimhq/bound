@@ -26,7 +26,7 @@ import {
   setTransactionMessageLifetimeUsingBlockhash,
 } from '@solana/kit';
 import type { Address, Instruction } from '@solana/kit';
-import { ataOf } from '@orientimhq/swap/core';
+import { ataOf } from '@orientim/builder';
 import { createRetryingRpc } from '@orientimhq/swap/solana';
 import { createJupiterClient, toKitInstruction, withFloorAtLeast } from '@orientim/jupiter';
 import { jupiterDestination, jupiterFloor, jupiterRouteArgs } from '@orientimhq/swap/verifier';

@@ -7,9 +7,8 @@ import {
   address, decompileTransactionMessage, generateKeyPairSigner, getCompiledTransactionMessageDecoder,
 } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
-import {
-  ataOf, bondingCurveOf, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT,
-} from '@orientimhq/swap/core';
+import { JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { ataOf, bondingCurveOf } from '@orientim/builder';
 import { OrientimError, DEFAULT_SETTINGS, LEFT_UNDER_KEY_MESSAGE, MIN_FEE, prepareProtectedSwap, revertedOnPrice, withFloorAtLeast } from '../src/swap.ts';
 import type { SwapSettings } from '../src/swap.ts';
 import { jupiterFloor, jupiterRouteArgs } from '@orientimhq/swap/verifier';

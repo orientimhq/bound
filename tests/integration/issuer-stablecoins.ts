@@ -20,9 +20,8 @@
 import { address, getBase64EncodedWireTransaction } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import {
-  ataOf, JUPITER_PROGRAM, TOKEN_2022_PROGRAM, tokenAccountSizeFor, tokenAmountOf, WSOL_MINT,
-} from '@orientimhq/swap/core';
+import { JUPITER_PROGRAM, TOKEN_2022_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { ataOf, tokenAccountSizeFor, tokenAmountOf } from '@orientim/builder';
 import { createEphemeral, createRetryingRpc, fetchAccounts } from '@orientimhq/swap/solana';
 import { unsupportedExtension } from '@orientimhq/swap/verifier';
 import { OrientimError, createJupiterClient, DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';

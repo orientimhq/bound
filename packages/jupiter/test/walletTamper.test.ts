@@ -11,7 +11,8 @@ import {
   getTransactionDecoder, getTransactionEncoder, partiallySignTransaction,
 } from '@solana/kit';
 import type { Address, KeyPairSigner, Transaction } from '@solana/kit';
-import { ataOf, JUPITER_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { JUPITER_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { ataOf } from '@orientim/builder';
 import { LIGHTHOUSE_PROGRAM } from '@orientim/certificate';
 import { sendAndConfirm } from '@orientimhq/swap/solana';
 import { countersignProtectedSwap, DEFAULT_SETTINGS, OrientimError, prepareProtectedSwap } from '../src/swap.ts';

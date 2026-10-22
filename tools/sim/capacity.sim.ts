@@ -32,7 +32,7 @@
 import { expect, it } from 'vitest';
 import { address, createKeyPairSignerFromBytes } from '@solana/kit';
 import type { KeyPairSigner, Rpc, SolanaRpcApi } from '@solana/kit';
-import { ataOf } from '@orientimhq/swap/core';
+import { ataOf } from '@orientim/builder';
 import { prepareChecked, signAsWallet } from '@orientimhq/swap';
 import {
   agentRpc, balanceMoved, buildVerdict, codeOf, counts, esc, injected, JUP, JUPITER_API_KEY, ms, newTally, OFFLINE, offlineWorld, orientim, percentile, publicWallets,

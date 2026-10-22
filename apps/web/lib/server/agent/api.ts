@@ -4,7 +4,8 @@ import {
   SOLANA_ERROR__JSON_RPC__SERVER_ERROR_MIN_CONTEXT_SLOT_NOT_REACHED, verifySignature,
 } from '@solana/kit';
 import type { Address, Transaction } from '@solana/kit';
-import { JUPITER_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientimhq/swap/core';
+import { JUPITER_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { tokenAmountOf } from '@orientim/builder';
 import { TOKEN_2022_PROGRAM } from '@orientimhq/swap/core';
 import { MAX_CHOSEN_SLIPPAGE_BPS } from '@orientimhq/swap/core';
 import type { AccountState, TxVersion } from '@orientimhq/swap/core';

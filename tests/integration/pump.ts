@@ -27,7 +27,8 @@
 import { address, getAddressDecoder, getBase64EncodedWireTransaction } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { ataOf, JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, tokenAmountOf, WSOL_MINT } from '@orientimhq/swap/core';
+import { JUPITER_PROGRAM, MAX_TAKER_RENT_LAMPORTS, SYSTEM_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
+import { ataOf, tokenAmountOf } from '@orientim/builder';
 import { createEphemeral, createRetryingRpc, fetchAccounts, fetchMints } from '@orientimhq/swap/solana';
 import { OrientimError, createJupiterClient, DEFAULT_SETTINGS, prepareProtectedSwap } from '@orientim/jupiter';
 
