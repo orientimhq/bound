@@ -21,6 +21,11 @@ const AGENT_POINTS = [
  */
 const GET_IT: { id: string; label: string; line: string; note: ReactNode; docs: string }[] = [
   {
+    id: 'agent-kit', label: 'Solana Agent Kit', line: 'npx -y @orientimhq/swap mcp',
+    note: <>Its tools beside your kit&apos;s: <a href="/developers/vercel-ai-sdk">Vercel AI SDK</a>, <a href="/developers/langchain">LangChain</a></>,
+    docs: '/developers/vercel-ai-sdk',
+  },
+  {
     id: 'skill', label: 'Coding Agents (Skill)', line: 'cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skills/',
     note: <>After <code>npm i @orientimhq/swap</code></>,
     docs: '/developers#skill',
@@ -40,8 +45,8 @@ const GET_IT: { id: string; label: string; line: string; note: ReactNode; docs: 
 /** How an agent starts: the key, the skill, the first swap (the developer page has each in full). */
 const START_STEPS = [
   ['Get an API key', 'Sign Orientim’s message with your agent’s wallet. The key comes at once and lasts 90 days; signing moves nothing. The MCP server gets one itself.'],
-  ['Install the package', 'One npm package, @orientimhq/swap: instructions for your agent, the MCP server, a command line for bots, and the verifier that checks every swap.'],
-  ['Ask for a swap', 'Tell your agent: “swap 5 USDC to SOL with Orientim”. It checks the transaction on its own RPC, then signs.'],
+  ['Install the package', 'One npm package, @orientimhq/swap: instructions for your agent, the MCP server, a command line for bots, and the verifier that checks every trade.'],
+  ['Ask for a trade', 'Tell your agent: “swap 5 USDC to SOL with Orientim”. It checks the transaction on its own RPC, then signs.'],
 ];
 
 const THREATS: [string, string, string, string][] = [
@@ -56,7 +61,7 @@ export function HomeSections() {
       <section className="hero">
         <div className="container hero-grid">
           <div className="hero-copy">
-            <p className="eyebrow">Cryptographic execution isolation for AI agents on Solana</p>
+            <p className="eyebrow">Zero-trust trade execution for AI agents on Solana</p>
             <h1 className="hero-title">Your trade gets its own wallet. <span className="hero-title-dim">Your wallet never becomes the trade.</span></h1>
             <div className="cta-actions hero-actions">
               <a className="button primary-link" href="/developers#access">Get Instant API Key</a>
@@ -152,7 +157,7 @@ export function HomeSections() {
             <p className="eyebrow">What it protects against</p>
             <h2>What your agent can’t be tricked into.</h2>
             <p className="lead">
-              The attacks that can empty a trading agent, and what happens when the swap goes through Orientim. The market itself
+              The attacks that can empty a trading agent, and what happens when the trade goes through Orientim. The market itself
               is the one thing no check controls; its <a href="/terms#risks">risks</a> are set out in the terms.
             </p>
           </div>
@@ -179,7 +184,7 @@ export function HomeSections() {
               <h3>Rules in a file your agent can’t edit.</h3>
               <p className="lead">Per swap, per day, the tokens it may buy and the most slippage it may take. Kept in /etc/orientim/policy.json, writable only by an administrator, your agent can’t raise them.</p>
               <ul className="policy-chips">
-                <li><span>✓</span> At most 50 USDC a swap</li>
+                <li><span>✓</span> At most 50 USDC a trade</li>
                 <li><span>✓</span> At most 200 USDC a day</li>
                 <li><span>✓</span> Buys only SOL</li>
                 <li><span>✓</span> Never more than 3% slippage</li>
@@ -200,7 +205,7 @@ export function HomeSections() {
 }`}{'\n\n'}<span className="dim">{`# the agent is told to swap 500 USDC`}</span>{'\n'}<span className="ok">{`✓ your policy holds it to 50 USDC a swap`}</span>{'\n'}<span className="dim">{`# the agent is told to buy a token someone named`}</span>{'\n'}<span className="ok">{`✓ your policy allows only the tokens you chose`}</span>{'\n'}<span className="dim">{`# the agent is told to set slippage to 15%`}</span>{'\n'}<span className="ok">{`✓ your policy caps slippage at 3%`}</span></pre>
             </div>
           </div>
-          <p className="not-covered"><b>Your part:</b> keep the signing key in a separate signer with its own limits. The protection covers every swap through Orientim; an agent that can read its own key, transfers made outside Orientim, a key stolen from your machine and the value of the token you buy are outside it.</p>
+          <p className="not-covered"><b>Your part:</b> keep the signing key in a separate signer with its own limits. The protection covers every trade through Orientim; an agent that can read its own key, transfers made outside Orientim, a key stolen from your machine and the value of the token you buy are outside it.</p>
         </div>
       </section>
 
@@ -218,7 +223,7 @@ export function HomeSections() {
           <div className="cta-band">
             <div>
               <h2>Deploy autonomous agents with hard limits, not a blank cheque.</h2>
-              <p>Get a key with your agent’s wallet, download the skill, and let it swap within the limits you set.</p>
+              <p>Get a key with your agent’s wallet, download the skill, and let it trade within the limits you set.</p>
             </div>
             <div className="cta-actions">
               <a className="button primary-link" href="/developers#access">Get an API key</a>

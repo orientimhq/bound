@@ -71,7 +71,7 @@ export function SiteFooter() {
       <div className="container footer-grid">
         <div className="footer-brand">
           <Logo />
-          <p>Protected swaps on Solana, for AI agents and bots. Orientim never holds your funds and never asks for your seed phrase.</p>
+          <p>Zero-trust trading on Solana, for AI agents and bots. Orientim never holds your funds and never asks for your seed phrase.</p>
         </div>
         {FOOTER.map(([title, links]) => (
           <div key={title} className="footer-col">

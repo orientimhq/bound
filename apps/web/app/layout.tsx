@@ -9,8 +9,8 @@ const display = Bricolage_Grotesque({ subsets: ['latin'], variable: '--font-bric
 const mono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mono', display: 'swap' });
 
 // One title and one description, the same in search results and in shared links (OG and X).
-const TITLE = 'Orientim — Protected swaps on Solana';
-const DESCRIPTION = 'Execution isolation for Solana AI agents and trading bots: DEX routes never reach your wallet, every swap is verified before signing, and it settles at your minimum or reverts.';
+const TITLE = 'Orientim — Zero-trust trading for AI agents on Solana';
+const DESCRIPTION = 'Zero-trust trade execution for Solana AI agents and trading bots: DEX routes never reach your wallet, every trade is verified before signing, and it settles at your minimum or reverts.';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://orientim.com'),

@@ -1,7 +1,7 @@
 import { ImageResponse } from 'next/og';
 
 export const OG_SIZE = { width: 1200, height: 630 };
-export const OG_ALT = 'Orientim: protected swaps on Solana, for AI agents and bots. Deploy autonomous agents with hard limits, not a blank cheque.';
+export const OG_ALT = 'Orientim: zero-trust trading on Solana, for AI agents and bots. Deploy autonomous agents with hard limits, not a blank cheque.';
 
 /** One block of the mark, in the image's own units. */
 function Block({ x, y, s, color, opacity = 1 }: { x: number; y: number; s: number; color: string; opacity?: number }) {
@@ -38,7 +38,7 @@ export function ogCard() {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
           <div style={{ fontSize: 68, fontWeight: 700, lineHeight: 1.05, letterSpacing: -2.2, maxWidth: 960 }}>
-            Protected swaps on Solana, for AI agents and bots.
+            Zero-trust trading on Solana, for AI agents and bots.
           </div>
           <div style={{ fontSize: 32, color: '#98a8a2' }}>Deploy autonomous agents with hard limits, not a blank cheque.</div>
         </div>
