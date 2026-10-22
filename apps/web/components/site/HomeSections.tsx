@@ -47,7 +47,7 @@ const START_STEPS = [
 const THREATS: [string, string, string, string][] = [
   ['prompt', 'A message tells your agent to “swap everything” or “set slippage to 15%”.', 'With your policy file set, the skill stops at your limits: per swap, per day, the tokens you allow and the slippage you set.', 'Blocked before signing'],
   ['server', 'The swap server itself is hacked.', 'Orientim holds none of your keys. With the skill or verifier, your wallet signs only the transaction you asked for; a changed one never gets a signature.', 'Blocked before signing'],
-  ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: a swap that would fill below your tolerance (0.5% by default) reverts, and only the network fee is paid.', 'Reverted on chain'],
+  ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: a swap that would fill beyond your slippage (0.5% by default) reverts, and only the network fee is paid.', 'Reverted on chain'],
 ];
 
 export function HomeSections() {

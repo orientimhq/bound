@@ -34,7 +34,7 @@ const NAV: DevNavGroup[] = [
   { title: 'Getting started', items: [['overview', 'Overview'], ['start', 'Quickstart'], ['access', 'API keys']] },
   {
     title: 'Guides',
-    items: [['skill', 'AI agents: the skill'], ['cli', 'Bots: the command line'], ['mcp', 'Assistants: the MCP server'], ['verify', 'Verify before you sign'], ['recovery', 'Results']],
+    items: [['skill', 'AI agents: the skill'], ['cli', 'Bots: the command line'], ['mcp', 'Assistants: the MCP server'], ['verify', 'Pre-sign verification'], ['recovery', 'Results']],
   },
   { title: 'API reference', items: [['api', 'Authentication'], ['prepare', 'Prepare'], ['finalize', 'Finalize'], ['keys', 'Key endpoints'], ['errors', 'Errors'], ['limits', 'Rate limits']] },
   { title: 'Reference', items: [['fees', 'Fees and limits'], ['supported', 'Tokens and wallets'], ['downloads', 'Downloads']] },
@@ -209,7 +209,7 @@ export default async function Page() {
                     <tr><td><a href="#skill">Agent skill</a></td><td>Coding agents such as Claude Code.</td></tr>
                     <tr><td><a href="#cli">Command line</a></td><td>Bots in Python, Rust, Go or any language.</td></tr>
                     <tr><td><a href="#mcp">MCP server</a></td><td>Claude Desktop, Cursor and other assistants.</td></tr>
-                    <tr><td><a href="#api">API</a></td><td>Your own client. It must run <a href="#verify">the check</a> before signing and keep its own <a href="#recovery">records</a>.</td></tr>
+                    <tr><td><a href="#api">API</a></td><td>Your own client. It must run <a href="#verify">pre-sign verification</a> before signing and keep its own <a href="#recovery">records</a>.</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -465,9 +465,9 @@ cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skill
             </section>
 
             <section id="verify">
-              <h2>Verify before you sign</h2>
+              <h2>Pre-sign verification</h2>
               <p>
-                With the check, even a compromised server cannot make your wallet sign more than you approved, or below your own
+                With pre-sign verification (R1–R7), even a compromised server cannot make your wallet sign more than you approved, or below your own
                 floor. <strong>Without it, you trust Orientim&apos;s server with your wallet.</strong>
               </p>
               <p>

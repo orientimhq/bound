@@ -51,32 +51,19 @@ export default async function Page() {
       lead="A typical swap acts with the wallet's authority for the whole transaction. Orientim builds each swap so that the swap program never gets it: only the amount your agent approves is placed within its reach, under a one-time key that exists for this one transaction."
     >
       <nav className="sub-nav" aria-label="On this page">
-        <a href="#how">How it is checked</a>
+        <a href="#enforces">What it enforces</a>
         <a href="#rules">The 7 rules</a>
         <a href="#supported">Supported tokens</a>
         <a href="#fees">Fees ({feeText})</a>
       </nav>
 
-      <section id="how">
-        <h2>What happens when your agent swaps</h2>
-        <ol>
-          <li>Your agent asks Orientim for a swap. Orientim finds a route across Solana&apos;s markets, builds one transaction around it and checks it against its rules.</li>
-          <li>
-            With the skill, the command line or the MCP server, the exact transaction is checked again on your own connection to Solana before signing.
-            A direct API client must run the same independent check before handing bytes to its signer.
-          </li>
-          <li>Your agent&apos;s wallet signs first. Orientim then adds the one-time key&apos;s signature and sends it.</li>
-          <li>The swap runs. If less than your agent&apos;s minimum would arrive, the whole transaction is cancelled.</li>
-        </ol>
-      </section>
-
-      <section>
+      <section id="enforces">
         <h2>What every protected swap enforces</h2>
         <ul>
           <li>The swap can spend only the amount your agent approves, plus a market&apos;s one-time account deposit when one is stated first.</li>
           <li>The wallet&apos;s other tokens, its NFTs and the rest of its SOL are never given to the swap program.</li>
           <li>No permission over your wallet is granted, and none outlives the transaction.</li>
-          <li>The wallet receives at least the minimum, or nothing happens and only the network fee is paid.</li>
+          <li>The wallet receives at least the minimum, or the transaction reverts atomically and only the network fee is paid.</li>
           <li>Orientim never holds your funds and never asks for your seed phrase.</li>
         </ul>
         <p>

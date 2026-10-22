@@ -132,7 +132,7 @@ export function CapsuleFlow() {
         <rect x="0" y="0" width="160" height="100" rx="16" fill={url('cf', 'green')} stroke={url('cf', 'green-edge')} filter={url('cf', 'glow')} />
         <rect x="0" y="0" width="160" height="100" rx="16" fill={url('cf', 'sheen')} />
         <text x="80" y="36" textAnchor="middle" className="svg-label">Minimum</text>
-        <text x="80" y="56" textAnchor="middle" className="svg-text">or nothing happens</text>
+        <text x="80" y="56" textAnchor="middle" className="svg-text">or it reverts</text>
         <path d="M64 74 l10 10 l22 -22" fill="none" stroke="#7ce3b0" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
           <animate attributeName="opacity" values="0;0;1;1;0" keyTimes="0;.55;.62;.9;1" dur={DUR} repeatCount="indefinite" />
         </path>
