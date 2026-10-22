@@ -203,8 +203,8 @@ export function agentDeps(): AgentDeps | null {
     fastRouting: process.env.ORIENTIM_ENABLE_FAST_ROUTING === '1',
     // Routes an agent brings with its own Jupiter key; ORIENTIM_OWN_ROUTES=0 turns them off.
     ownRoutes: process.env.ORIENTIM_OWN_ROUTES !== '0',
-    perMinute: count('ORIENTIM_API_PER_MINUTE', 60),
-    finalizePerMinute: count('ORIENTIM_API_FINALIZE_PER_MINUTE', 30),
+    perMinute: count('ORIENTIM_API_PER_MINUTE', 20),
+    finalizePerMinute: count('ORIENTIM_API_FINALIZE_PER_MINUTE', 15),
     ipPerMinute: count('ORIENTIM_API_IP_PER_MINUTE', 120),
     totalPerMinute: count('ORIENTIM_API_TOTAL_PER_MINUTE', 180),
     minSkillVersion: /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(minSkillVersion) ? minSkillVersion : null,
