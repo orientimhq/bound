@@ -2356,12 +2356,10 @@ describe('the skill holds its own limits and its state against what it is handed
     const page = readFileSync(join(import.meta.dirname, '../app/developers/page.tsx'), 'utf8');
     const reference = readFileSync(join(import.meta.dirname, '../../../AGENT-API.md'), 'utf8');
     for (const said of [
-      // The fee, by its side, and the check of the client's own routes.
-      'On the input: that share of <code>amountIn</code>', 'that share of the enforced minimum', 'within 1%',
-      // ownRoutes moves the Jupiter requests; the page names it, the reference holds its rounds and budget.
-      'id="own-routes"', 'ORIENTIM_OWN_ROUTES', 'routes-needed',
+      // The fee, shown before signing; the check before signing, with a minimum of the client's own.
+      'inside the transaction and shown before you sign', 'checkPrepared(prepared, intent, yourRpc)', 'never from Orientim',
       // sent and unknown are not final; no order database; restart and recovery from the quickstart.
-      'Only a swap confirmed on chain is done', 'Orientim keeps no order database', 'Make restarts safe', 'On every start, for a direct API client',
+      'Only a swap confirmed on chain is done', 'Orientim keeps no order database', 'Make restarts safe', 'run <code>recover</code> on every start',
     ]) expect(page, said).toContain(said);
     for (const said of ['more than 1% below', 'Repeat until the answer is the prepared swap', 'ORIENTIM_OWN_ROUTES=0', 'Only the chain says whether the swap happened', 'Before preparing again for the same swap', 'On restart or an unknown result']) expect(reference, said).toContain(said);
     // Every error the skill can be answered with is in the reference, so a client can decide on it.
