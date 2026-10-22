@@ -93,7 +93,7 @@ const KEPT_UNTIL_EXPIRY = ['orientim:out:', 'orientim:e:'];
  * The same state in this instance's memory, at most `max` keys: the soonest to expire go first,
  * except the holds (KEPT_UNTIL_EXPIRY), and a store full of those fails as Redis down does.
  */
-export function memoryShared(max = 50_000, now: () => number = Date.now): Shared {
+export function memoryShared(max = 500_000, now: () => number = Date.now): Shared {
   const kept = new Map<string, { value: string; until: number }>();
   const live = (key: string) => {
     const k = kept.get(key);
