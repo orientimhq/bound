@@ -386,7 +386,11 @@ export async function protectedSwap(
   const swapIndex = compiled.instructions.findIndex(
     i => compiled.staticAccounts[i.programAddressIndex] === w.attackerProgram,
   );
-  return { policy, transaction, swapIndex, verdict: await verify(transaction, policy, snapshot) };
+  // The verifier accepts only Jupiter's own program, so it refuses this one for that alone. T6 asks
+  // what the chain allows a hostile program that gets past that rule, so the verdict is every other.
+  const verdict = await verify(transaction, policy, snapshot);
+  const violations = verdict.violations.filter(v => !(v.rule === 'R2' && v.detail === `external program ${w.attackerProgram} is not Jupiter`));
+  return { policy, transaction, swapIndex, verdict: { ...verdict, ok: violations.length === 0, violations } };
 }
 
 // ---------------------------------------------------------------- what must never change
