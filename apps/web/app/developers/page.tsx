@@ -34,7 +34,7 @@ const NAV: DevNavGroup[] = [
   { title: 'Getting started', items: [['overview', 'Overview'], ['start', 'Quickstart'], ['access', 'API keys']] },
   {
     title: 'Guides',
-    items: [['agent-kit', 'Solana Agent Kit'], ['skill', 'AI agents: the skill'], ['cli', 'Bots: the command line'], ['mcp', 'Assistants: the MCP server'], ['how', 'How a protected swap works'], ['verify', 'Verify before you sign'], ['own-routes', 'Your own Jupiter key'], ['recovery', 'Results and recovery']],
+    items: [['skill', 'AI agents: the skill'], ['cli', 'Bots: the command line'], ['mcp', 'Assistants: the MCP server'], ['how', 'How a protected swap works'], ['verify', 'Verify before you sign'], ['own-routes', 'Your own Jupiter key'], ['recovery', 'Results and recovery']],
   },
   { title: 'API reference', items: [['api', 'Authentication'], ['prepare', 'Prepare'], ['finalize', 'Finalize'], ['keys', 'Key endpoints'], ['errors', 'Errors'], ['limits', 'Rate limits']] },
   { title: 'Reference', items: [['fees', 'Fees and limits'], ['supported', 'Tokens and wallets'], ['downloads', 'Downloads']] },
@@ -101,27 +101,6 @@ const EXIT_CODES: [string, string][] = [
   ['4', 'Orientim refused: error.code is one of the Errors below.'],
   ['5', 'This order id already swapped, or may still land. It never swaps twice.'],
 ];
-
-/** The Agent Kit plugin, made with the owner's limits. */
-const KIT_SETUP = <pre tabIndex={0}><code>{`import { SolanaAgentKit, KeypairWallet } from 'solana-agent-kit';
-import { orientimPlugin } from '@orientimhq/solana-agent-kit';
-
-const agent = new SolanaAgentKit(new KeypairWallet(keypair, RPC_URL), RPC_URL, {}).use(
-  orientimPlugin({
-    apiKey: process.env.ORIENTIM_API_KEY!,       // this wallet's key (API keys, above)
-    jupiterApiKey: process.env.JUPITER_API_KEY,  // your own: the routes are fetched with it
-    policy: {
-      maxAmountIn: { EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: '25000000' },  // at most 25 USDC a swap
-      allowedOutputMints: ['So11111111111111111111111111111111111111112'],       // and only into SOL
-    },
-  }),
-);`}</code></pre>;
-
-/** Only this action for the model, never every action the kit has. */
-const KIT_TOOLS = <pre tabIndex={0}><code>{`import { createVercelAITools } from 'solana-agent-kit';   // or createLangchainTools, createOpenAITools
-import { ACTION_NAME } from '@orientimhq/solana-agent-kit';
-
-const tools = createVercelAITools(agent, agent.actions.filter(a => a.name === ACTION_NAME));`}</code></pre>;
 
 /** The skill in your own code: the owner's limits, one swap per wallet, and recovery first. */
 const OWN_CODE = <pre tabIndex={0}><code>{`import { createKeyPairSignerFromBytes, createSolanaRpc } from '@solana/kit';
@@ -234,7 +213,6 @@ export default async function Page() {
                 <table>
                   <thead><tr><th>Use</th><th>For</th></tr></thead>
                   <tbody>
-                    <tr><td><a href="#agent-kit">Solana Agent Kit</a></td><td>Agents built on Solana Agent Kit.</td></tr>
                     <tr><td><a href="#skill">Agent skill</a></td><td>Coding agents such as Claude Code.</td></tr>
                     <tr><td><a href="#cli">Command line</a></td><td>Bots in Python, Rust, Go or any language.</td></tr>
                     <tr><td><a href="#mcp">MCP server</a></td><td>Claude Desktop, Cursor and other assistants.</td></tr>
@@ -338,35 +316,6 @@ echo '{"message": "...", "challenge": "...", "signature": "<base58>"}' | npx ori
                   },
                 ]}
               />
-            </section>
-
-            <section id="agent-kit" className="way">
-              <h2>Solana Agent Kit</h2>
-              <p className="way-lead">
-                Adds one action, <code>ORIENTIM_PROTECTED_SWAP</code>, to <a href="https://github.com/sendaifun/solana-agent-kit">the kit</a>. It uses the kit&apos;s wallet and RPC.
-              </p>
-              <KeyAccess
-                label="Set up Solana Agent Kit"
-                ways={[
-                  {
-                    id: 'kit-install',
-                    label: 'Install',
-                    content: (
-                      <>
-                        <pre tabIndex={0}><code>{`npm install --save-exact @orientimhq/solana-agent-kit @orientimhq/swap@${SKILL_VERSION}`}</code></pre>
-                        <p className="hint">Not on npm yet: build it from <a href={`${SKILL_SOURCE}/tree/main/integrations/solana-agent-kit`}>its source</a>.</p>
-                      </>
-                    ),
-                  },
-                  { id: 'kit-add', label: 'Add to the kit', content: KIT_SETUP },
-                  { id: 'kit-use', label: 'Use', content: KIT_TOOLS },
-                ]}
-              />
-              <ul className="way-notes">
-                <li><code>amount</code> is in whole tokens, as text (<code>&quot;0.5&quot;</code>).</li>
-                <li>A <code>policy</code> is required. The same <code>orderId</code> never swaps twice.</li>
-                <li>Slippage is capped at 3% unless the policy raises it. <code>signOnly</code> kits are not supported.</li>
-              </ul>
             </section>
 
             <section id="skill" className="way">
