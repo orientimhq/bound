@@ -2,7 +2,9 @@
 # Orientim on one Fly machine (fly.toml). The same build as CI and release.yml: npm ci without install
 # scripts, then `next build` with the public settings compiled in, so its digest can be compared.
 
-FROM node:24-bookworm-slim AS build
+# The base image by its digest, so that a build takes the image tested, not whatever the tag names that day.
+# To move to a newer one: `docker buildx imagetools inspect node:24-bookworm-slim` gives its digest.
+FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
@@ -24,7 +26,7 @@ RUN test -n "$ORIENTIM_BUILD_ID" || { echo 'ORIENTIM_BUILD_ID is required: fly d
 RUN test -n "$NEXT_PUBLIC_ORIENTIM_TREASURY" || { echo 'NEXT_PUBLIC_ORIENTIM_TREASURY is required ([build.args] in fly.toml).'; exit 1; }
 RUN npm run build && node tools/build-digest.ts --write
 
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
 # Cloudflare Tunnel (docs/FLY.md): the machine reaches Cloudflare itself and needs no public address.
 # From Cloudflare's signed package repository.
 RUN apt-get update \
