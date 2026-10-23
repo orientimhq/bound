@@ -28,7 +28,7 @@ kill_timeout = "30s"
   ORIENTIM_CLIENT_IP_HEADER = "cf-connecting-ip"
   ORIENTIM_PUBLIC_ORIGIN = "https://orientim.com"
   ORIENTIM_TERMS_DIR = "/data"
-  # Swaps on an active Pump.fun curve built from the chain, without asking Jupiter (docs/FLY.md).
+  # Routes on an active Pump.fun curve built from the chain; the market price still from Jupiter (docs/FLY.md).
   ORIENTIM_LOCAL_CURVE = "1"
   # The Jupiter plan's requests a minute: 60 Free (unset), 600 Developer, 3000 Launch (jupiterGate.ts).
   # ORIENTIM_JUPITER_PER_MINUTE = "600"

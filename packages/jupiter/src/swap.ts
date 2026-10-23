@@ -981,12 +981,15 @@ export async function prepareProtectedSwap(deps: {
   // reason, instead of reading as "no route fits, try another token".
   const buildOrNull = async (
     maxAccounts: number, excludeDexes?: readonly string[], slippageBps = buildBase.slippageBps,
-    mode: 'standard' | 'fast' = req.routingMode ?? 'standard', client: JupiterClient = jupiter,
+    mode: 'standard' | 'fast' = req.routingMode ?? 'standard', client: JupiterClient = jupiter, market = false,
   ) => {
     const at = performance.now();
     jupiterBuildCalls++;
+    // The market's price is never a curve route built here: it would be the same numbers as the
+    // route it is compared with, and a route below the market could never stop at `costs-more`.
+    const { pumpCurve: _curve, ...unbuilt } = buildBase;
     try {
-      return await client.build({ ...buildBase, maxAccounts, excludeDexes, slippageBps, ...(mode === 'fast' ? { mode } : {}) });
+      return await client.build({ ...(market ? unbuilt : buildBase), maxAccounts, excludeDexes, slippageBps, ...(mode === 'fast' ? { mode } : {}) });
     } catch (e) {
       // A route the agent has not brought yet: the API asks the agent for it. One that cannot be
       // checked: the API builds the swap with Orientim's key.
@@ -1028,7 +1031,7 @@ export async function prepareProtectedSwap(deps: {
       if (i > 0) await new Promise(r => setTimeout(r, 700));
       // The baseline must remain standard even when the protected route uses fast mode:
       // otherwise a worse fast quote could make the protected-route price check look good.
-      const r = await buildOrNull(maxAccounts, undefined, buildBase.slippageBps, 'standard', reference ?? jupiter);
+      const r = await buildOrNull(maxAccounts, undefined, buildBase.slippageBps, 'standard', reference ?? jupiter, true);
       if (r) return r;
     }
     return null;

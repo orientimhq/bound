@@ -15,7 +15,8 @@ import type { ApiAccount, BuildParams, BuildResponse, JupiterClient } from './cl
  * A token still on its curve trades in one place only, so Jupiter's answer for it is always the same
  * single `route_v2` step through the curve, computed from the curve's reserves and Pump's fees. This
  * builds that answer itself, byte for byte as Jupiter does (tools/canary.ts compares the two on every
- * run), and saves the round trip to Jupiter on the swaps where the price moves fastest.
+ * run). The market price the route is compared with (the pipeline's unrestricted baseline) is never
+ * built here: it is asked of Jupiter, which may find the token elsewhere too.
  *
  * Nothing is trusted more for being built here: the answer goes through `checkBuildResponse` and then
  * through the same pipeline as Jupiter's, the verifier and the final simulation included. Anything this
