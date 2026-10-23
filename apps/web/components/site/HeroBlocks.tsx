@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * The wallet as a group of blocks beside the headline, on the grid behind the home page. Once, when
+ * The wallet as a chain of blocks beside the headline, on the grid behind the home page. Once, when
  * the page opens, one block (the amount) lights, leaves the group and steps along the grid into the
- * agent's terminal; the rest of the wallet stays where it is. After that, one block of the grid lights
+ * agent's terminal, its links to the chain opening behind it; the rest of the wallet stays where it is. After that, one block of the grid lights
  * softly every 10 to 15 seconds, only in the hero's empty space and only while the hero is on
  * screen. Nothing moves for people who ask their system for less motion; phones get the grid alone.
  */
@@ -56,6 +56,18 @@ function placeWallet(root: HTMLElement): Wallet | null {
   const moveCol = col0 + cols - 1;
   const steps = Math.max(2, Math.ceil((endX - (moveCol + 1) * CELL) / CELL) + 1);
   return { col0, row0, cols, rows, steps, moveCol, moveRow: row0 + Math.floor(rows / 2) };
+}
+
+/** The links of the chain: one to the right of each block and one below it, inside the wallet. */
+function links(w: Wallet): [number, number, 'h' | 'v'][] {
+  const out: [number, number, 'h' | 'v'][] = [];
+  for (let row = w.row0; row < w.row0 + w.rows; row++) {
+    for (let col = w.col0; col < w.col0 + w.cols; col++) {
+      if (col + 1 < w.col0 + w.cols) out.push([col, row, 'h']);
+      if (row + 1 < w.row0 + w.rows) out.push([col, row, 'v']);
+    }
+  }
+  return out;
 }
 
 export function HeroBlocks() {
@@ -185,6 +197,12 @@ export function HeroBlocks() {
             const col = wallet.col0 + (i % wallet.cols), row = wallet.row0 + Math.floor(i / wallet.cols);
             const moving = col === wallet.moveCol && row === wallet.moveRow;
             return <div key={`${col}:${row}`} className={`hb-tile${moving && away ? ' away' : ''}`} style={at(col, row)} />;
+          })}
+          {links(wallet).map(([col, row, dir]) => {
+            const open = away && ((dir === 'h' && col + 1 === wallet.moveCol && row === wallet.moveRow)
+              || (dir === 'v' && col === wallet.moveCol && (row === wallet.moveRow || row + 1 === wallet.moveRow)));
+            const x = col * CELL + (dir === 'h' ? 40 : 23), y = row * CELL + (dir === 'h' ? 23 : 42);
+            return <div key={`${dir}${col}:${row}`} className={`hb-link ${dir}${open ? ' open' : ''}`} style={{ transform: `translate(${x}px, ${y}px)` }} />;
           })}
           <div className={`hb-slot${away ? ' on' : ''}`} style={at(wallet.moveCol, wallet.moveRow)} />
           <div className="hb-move" style={at(wallet.moveCol, wallet.moveRow)}>
