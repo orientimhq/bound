@@ -64,7 +64,9 @@ Notice keeps them up to 5 years after the wallet's last key expires.
 ## Pausing, revoking and rotating
 
 The kill switch `ORIENTIM_DISABLED=1` (or `true`) refuses prepare, finalize's first send, and new API
-keys (`/api/v1/keys` and its challenge), each with `503 paused`. **On Vercel
+keys (`/api/v1/keys` and its challenge), each with `503 paused`. So does a file named `paused` in
+`ORIENTIM_STATE_DIR`, read on every request: on Fly, `fly ssh console -C "touch /data/paused"` pauses in
+a second with no restart, and `rm /data/paused` resumes (a `fly secrets set` restarts the machine). **On Vercel
 an environment change reaches only new deployments**, so flipping it in the dashboard does nothing
 until a redeploy. The runbook:
 

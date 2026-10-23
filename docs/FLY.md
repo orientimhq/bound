@@ -61,7 +61,11 @@ volume daily; `fly ssh console` and `ls /data/terms-acceptances` to read it.
 
 `fly deploy --build-arg ORIENTIM_BUILD_ID=$(git rev-parse HEAD)`. The machine restarts once: swaps
 prepared in the seconds before are prepared again. `fly releases` lists earlier images;
-`fly deploy --image <image>` returns to one. `ORIENTIM_DISABLED=1` (`fly secrets set`) pauses swaps.
+`fly deploy --image <image>` returns to one.
+
+To pause swaps at once, with no restart: `fly ssh console -C "touch /data/paused"`; to resume:
+`fly ssh console -C "rm /data/paused"`. `ORIENTIM_DISABLED=1` pauses too, but `fly secrets set`
+restarts the machine.
 
 ## Pump.fun curve routes built from the chain
 

@@ -206,6 +206,29 @@ describe('the public status and the settings behind it', () => {
   });
 });
 
+describe('the pause', () => {
+  it('a file named paused in ORIENTIM_STATE_DIR pauses at once, with no restart, and removing it resumes', async () => {
+    const { serverConfig, publicStatus } = await import('../lib/server/config.ts');
+    const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-state-'));
+    process.env.ORIENTIM_STATE_DIR = dir;
+    try {
+      expect(serverConfig().disabled).toBe(false);
+      writeFileSync(join(dir, 'paused'), '');
+      expect(serverConfig().disabled).toBe(true);
+      expect(publicStatus().enabled).toBe(false);
+      rmSync(join(dir, 'paused'));
+      expect(serverConfig().disabled).toBe(false);
+      process.env.ORIENTIM_DISABLED = 'yes';
+      expect(serverConfig().disabled).toBe(true);
+    } finally {
+      delete process.env.ORIENTIM_STATE_DIR;
+    }
+  });
+});
+
 describe('the package the site points agents to', () => {
   it('is the version installed and pinned here, so the site names only what it was tested with', async () => {
     const { SKILL_VERSION, SKILL_EXTENSION } = await import('../lib/server/skill.ts');

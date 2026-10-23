@@ -1,6 +1,19 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS } from '@orientimhq/swap/core';
 import { maxNetworkFeeSetting } from '../settings';
+import { stateDir } from './env';
 import { SKILL_VERSION } from './skill';
+
+/**
+ * A pause that needs no restart: a file named `paused` in ORIENTIM_STATE_DIR, read on every request.
+ * On Fly a secret is set by restarting the machine; `fly ssh console -C "touch /data/paused"` pauses at
+ * once, and `rm /data/paused` resumes.
+ */
+const pausedByFile = () => {
+  const dir = stateDir();
+  return !!dir && existsSync(join(dir, 'paused'));
+};
 
 /**
  * Server-only settings. Secrets (RPC URLs, API keys) never reach the browser.
@@ -45,8 +58,8 @@ export function serverConfig() {
     // A second provider, asked only when the first is down or rate-limited (rpcFailover.ts).
     rpcFallbackUrl: process.env.RPC_URL_FALLBACK || null,
     jupiterApiKey: process.env.JUPITER_API_KEY || null,
-    // 1, true, yes or on pauses; a pause must not depend on spelling it one way.
-    disabled: /^(1|true|yes|on)$/i.test(process.env.ORIENTIM_DISABLED?.trim() ?? ''),
+    // 1, true, yes or on pauses; a pause must not depend on spelling it one way. Or the file (above).
+    disabled: /^(1|true|yes|on)$/i.test(process.env.ORIENTIM_DISABLED?.trim() ?? '') || pausedByFile(),
     excludeDexes: (process.env.ORIENTIM_EXCLUDE_DEXES ?? 'HumidiFi').split(',').map(s => s.trim()).filter(Boolean),
     // Clamped to the verifier's absolute ceiling; the verifier enforces it anyway.
     maxNetworkFeeLamports: maxFee < ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS ? maxFee : ABSOLUTE_MAX_NETWORK_FEE_LAMPORTS,
