@@ -39,7 +39,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build
-        run: docker build --build-arg ORIENTIM_BUILD_ID=$GITHUB_SHA -t orientim .
+        # The public settings fly.toml passes ([build.args]); the build refuses an image without a treasury.
+        run: docker build --build-arg ORIENTIM_BUILD_ID=$GITHUB_SHA --build-arg NEXT_PUBLIC_ORIENTIM_TREASURY=ARzSA3sZGhf5t4UnYrmB3TWyZ5m3Wo1nA9zWBcoiTqLE --build-arg NEXT_PUBLIC_ORIENTIM_FEE_BPS=25 -t orientim .
       - name: Start and check
         run: |
           secret=ci-origin-secret-0123456789abcdef
