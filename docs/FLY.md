@@ -86,6 +86,18 @@ restarts the machine. Faster still, from Cloudflare: the disabled rule of step 5
 
 `fly logs` shows what the machine is writing now; Fly keeps logs for a few days only.
 
+## When holds.json cannot be read
+
+A `holds.json` the process cannot read (a disk error, a hand edit) is never taken as empty: that could
+sign a second swap into an account still held. Prepare, finalize and `/api/health` answer 500,
+`fly logs` names `/data/holds.json`, and nothing is signed. The machine stays up (`/api/live`), so:
+
+1. `fly ssh console -C "ls -l --time-style=+%FT%T%z /data/holds.json"` and `date`: when it was last written.
+2. Wait until 10 minutes have passed since then. A hold lasts 10 minutes from its swap, longer than any
+   blockhash, and nothing writes the file while it cannot be read: every hold in it has expired.
+3. `fly ssh console -C "mv /data/holds.json /data/holds.json.bad"`. The next request starts with no
+   holds, with no restart. The `.bad` file is kept to look at.
+
 ## Pump.fun curves without Jupiter
 
 `ORIENTIM_LOCAL_CURVE=1` (in `fly.toml`): a swap on an active Pump.fun bonding curve, SOL in or out, is
