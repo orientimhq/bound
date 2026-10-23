@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { address, getAddressEncoder, getProgramDerivedAddress } from '@solana/kit';
 import type { Address } from '@solana/kit';
 import { PUMP_CURVE_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
@@ -237,7 +237,7 @@ describe('the local Pump.fun curve route', () => {
     });
   }
 
-  it('leaves the swap to Jupiter when the RPC fails, and says it once', async () => {
+  it('leaves the swap to Jupiter when the RPC fails: tells the operator every time, and the log once', async () => {
     const { accounts, params } = await setUp(buy);
     const { jupiter, asked } = standIn();
     const told: string[] = [];
@@ -245,6 +245,15 @@ describe('the local Pump.fun curve route', () => {
     await client.build(params);
     await client.build(params);
     expect(asked).toHaveLength(2);
-    expect(told).toHaveLength(1);
+    expect(told).toHaveLength(2);
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const quiet = withLocalCurveRoutes(jupiter, fakeRpc(accounts, { fail: true }).rpc);
+      await quiet.build(params);
+      await quiet.build(params);
+      expect(warned).toHaveBeenCalledTimes(1);
+    } finally {
+      warned.mockRestore();
+    }
   });
 });

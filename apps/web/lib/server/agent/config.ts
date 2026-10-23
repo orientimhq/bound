@@ -7,12 +7,14 @@ import { sharedMachineGuard } from '../oneMachine';
 import { redisFromEnv, sharedRequired, sharedState } from '../shared';
 import { withSharedFee, withSharedReads } from '../sharedReads';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
+import { WSOL_MINT } from '@orientimhq/swap/core';
 import { serverConfig } from '../config';
 import { BOOT_ID, isProduction, singleInstance } from '../env';
 import { feeTiersSetting, treasurySetting } from '../../settings';
 import { DEFAULT_KEYS_PER_HOUR, type AccessDeps } from './access';
 import type { AgentDeps } from './api';
 import { blobRecorder, fileRecorder } from './termsRecord';
+import { logEvent, maskedReason } from './events';
 
 /** The lower fee for a large swap, as the build checked it; one fee at every size if it cannot be read. */
 function tiers() {
@@ -176,7 +178,14 @@ export function agentDeps(): AgentDeps | null {
         // Never past the plan's limit: a request waits for room, each client in turn (jupiterGate.ts).
         fetchImpl: sharedJupiterGate().wrap((...a) => fetch(...a)),
       }),
-      curveRoutes: localCurve ? localCurveRoutes() : undefined,
+      // Each curve route built here, and each one left to Jupiter that was not expected to be, in the
+      // operator's counts (events.ts): a change in Pump's program or Jupiter's shows as fallbacks.
+      curveRoutes: localCurve
+        ? localCurveRoutes({
+          onLocal: r => logEvent('curve_local', { side: r.inputMint === WSOL_MINT ? 'buy' : 'sell' }),
+          onFallback: reason => logEvent('curve_fallback', { reason: maskedReason(reason, 120) }),
+        })
+        : undefined,
     };
   }
   const count = (name: string, fallback: number) => {

@@ -140,7 +140,7 @@ export type LocalCurveOptions = {
   now?: () => number;
   /** Picks which buyback recipient a trade pays: Pump accepts any of the eight. */
   random?: () => number;
-  /** Told why a curve swap was left to Jupiter when that was not expected. */
+  /** Told why a curve swap was left to Jupiter when that was not expected, every time. */
   onFallback?: (reason: string) => void;
   /** Told of each route built here. */
   onLocal?: (r: BuildResponse) => void;
@@ -165,10 +165,12 @@ export function localCurveRoutes(opts: LocalCurveOptions = {}): (jupiter: Jupite
   const random = opts.random ?? Math.random;
   let shared: Shared | null = null;
   const said = new Set<string>();
+  // Told every time, so that the operator can count them; without `onFallback`, the log says each reason once.
   const fallback = (reason: string) => {
-    if (!said.has(reason)) {
+    if (opts.onFallback) opts.onFallback(reason);
+    else if (!said.has(reason)) {
       said.add(reason);
-      (opts.onFallback ?? (r => console.warn(`Pump.fun curve route left to Jupiter: ${r}`)))(reason);
+      console.warn(`Pump.fun curve route left to Jupiter: ${reason}`);
     }
   };
 
