@@ -106,6 +106,11 @@ export type AgentDeps = {
    * it, and one from an earlier start is refused, since what that start noted in memory is gone.
    */
   boot?: string;
+  /**
+   * With one instance on Fly: is this machine the only one started (oneMachine.ts)? While it is not,
+   * finalize signs nothing.
+   */
+  alone?: () => boolean;
 };
 
 /** Is `version` (major.minor.patch) older than `minimum`? A version that is not one is not judged. */
@@ -875,6 +880,9 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     // Prepared before this process started (one instance): one message per E and the output accounts
     // held were noted in a memory that is gone, so nothing new is signed for it. A transaction already
     // on chain is answered above, the same bytes again.
+    if (deps.alone && !deps.alone()) {
+      return refuse(503, 'unavailable', 'More than one Orientim machine is running, and one swap in flight per output account holds only on one, so this request signed and sent nothing. The operator has to scale back to one; retrying will not help until then.');
+    }
     if (ticket.boot !== deps.boot) {
       return refuse(409, 'server-restarted', 'Orientim restarted after this swap was prepared, and signs only swaps prepared since. Prepare it again; this request signed and sent nothing.');
     }

@@ -3,6 +3,7 @@ import { createJupiterClient, heliusPriorityFee, localCurveRoutes, MIN_FEE } fro
 import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
 import { createServerRpc, mainPassedOver } from '../rpcFailover';
 import { sharedJupiterGate } from '../jupiterGate';
+import { sharedMachineGuard } from '../oneMachine';
 import { redisFromEnv, sharedRequired, sharedState } from '../shared';
 import { withSharedFee, withSharedReads } from '../sharedReads';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
@@ -183,6 +184,7 @@ export function agentDeps(): AgentDeps | null {
     return Number.isInteger(n) && n > 0 ? n : fallback;
   };
   const minSkillVersion = process.env.ORIENTIM_MIN_SKILL_VERSION?.trim() ?? '';
+  const guard = singleInstance() ? sharedMachineGuard() : null;
   return {
     rpc: clients.rpc,
     jupiter: clients.jupiter,
@@ -215,6 +217,8 @@ export function agentDeps(): AgentDeps | null {
     sharedRequired: sharedRequired(),
     // With one instance, tickets and sessions carry this start's id; one from an earlier start is refused.
     ...(singleInstance() ? { boot: BOOT_ID } : {}),
+    // On Fly, one instance signs only while Fly's DNS sees one machine of the app (oneMachine.ts).
+    ...(singleInstance() && guard ? { alone: guard.alone } : {}),
   };
 }
 

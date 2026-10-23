@@ -583,6 +583,23 @@ describe('finalize', () => {
     expect(w.sent).toHaveLength(2);
   });
 
+  it('while more than one machine is running, finalize signs nothing', async () => {
+    const w = await world();
+    let alone = false;
+    const deps = { ...w.deps, boot: 'start-one-aaaa', shared: memoryShared(), alone: () => alone };
+    const p = await prepared({ ...w, deps });
+    const signed = await signAsWallet(w.W, p.transaction);
+    const res = await finalize({ ...w, deps }, p.ticket, signed);
+    expect(res.status).toBe(503);
+    const { error } = await res.json();
+    expect(error.code).toBe('unavailable');
+    expect(error.message).toContain('More than one Orientim machine');
+    expect(w.sent).toHaveLength(0);
+    alone = true;
+    expect((await finalize({ ...w, deps }, p.ticket, signed)).status).toBe(200);
+    expect(w.sent).toHaveLength(1);
+  });
+
   it('a holds file that cannot be read stops the start instead of forgetting what it held', async () => {
     const { mkdtempSync, writeFileSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');

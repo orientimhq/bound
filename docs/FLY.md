@@ -14,7 +14,9 @@ already sent are written to the volume (`ORIENTIM_STATE_DIR=/data`, `holds.json`
 next start: a swap prepared after a restart into the same account waits (409 `output-in-flight`) until
 the one sent before lands or expires. Never run two machines in this mode:
 `fly.toml` keeps one, updated in place (`strategy = "rolling"`), so the old process stops before the
-new one starts.
+new one starts. Should a second one start anyway (`fly scale count 2`, a clone, another region), each
+sees it in Fly's private DNS (`orientim.internal`, asked every 15 seconds), logs it, and finalize signs
+nothing until one is left.
 
 ## First deploy
 
