@@ -3,6 +3,8 @@
  * (`.github/workflows/monitor.yml`), which fails, so GitHub tells its owner, when:
  *
  *   - `/api/health` does not answer 200 with `ok` three times, 20 seconds apart (an outage, not a blip);
+ *   - `/api/health` says, three times, that a service refuses the deployment's key (`refused`: a wrong key,
+ *     a plan unpaid or out of credits), even while the backup RPC keeps swaps going;
  *   - the deployment says it was built from a commit that is not on `main`, or whose CI failed;
  *   - the version of @orientimhq/swap it names is not on npm with the release workflow's provenance.
  *
@@ -18,7 +20,7 @@
 import { createHash } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 
-type Health = { ok?: boolean; paused?: boolean; agentApi?: string; sharedState?: string; rpc?: { ok: boolean; ms: number }; rpcFallback?: { ok: boolean; ms: number } | null; jupiter?: { ok: boolean; ms: number }; agents?: { rpc: { ok: boolean; ms: number }; build: { ok: boolean; ms: number } } | null };
+type Health = { ok?: boolean; paused?: boolean; refused?: string[]; agentApi?: string; sharedState?: string; rpc?: { ok: boolean; ms: number }; rpcFallback?: { ok: boolean; ms: number } | null; jupiter?: { ok: boolean; ms: number }; agents?: { rpc: { ok: boolean; ms: number }; build: { ok: boolean; ms: number } } | null };
 type Status = { enabled?: boolean; build?: string | null; skillVersion?: string };
 
 function arg(name: string, fallback?: string): string | undefined {
@@ -87,7 +89,8 @@ for (let i = 0; i < tries; i++) {
   const res = await get(`${site}/api/health`);
   health = json<Health>(res?.text);
   healthMs = res?.ms ?? 0;
-  if (res?.status === 200 && health?.ok === true) break;
+  // A refusal is asked again too: one 429 in a busy second is not an empty plan.
+  if (res?.status === 200 && health?.ok === true && !health.refused?.length) break;
   if (i < tries - 1) await sleep(pauseMs);
 }
 if (health?.ok !== true) {
@@ -99,6 +102,7 @@ if (health?.paused) notices.push('the kill switch is on: swaps are paused (the o
 if (health && health.rpcFallback === null) notices.push('no backup RPC (RPC_URL_FALLBACK): swaps stop whenever the main RPC does');
 if (health?.rpcFallback && !health.rpcFallback.ok) notices.push('the backup RPC (RPC_URL_FALLBACK) does not answer');
 if (health && health.agentApi !== 'on') failures.push(`the agent API is ${health.agentApi ?? 'unknown'}`);
+if (health?.refused?.length) failures.push(`refused by ${health.refused.join(', ')}: the key or the plan (401/403 a wrong key, 402 unpaid, 429 out of credits or over the rate)`);
 if (health?.sharedState === 'missing') failures.push('production has no Redis (UPSTASH_REDIS_REST_URL / KV_REST_API_URL): finalize refuses every swap');
 
 // 2. Status: the commit it was built from, and the skill it serves.

@@ -120,7 +120,9 @@ is compromised, the key can take the fees it holds and nothing else. Then:
   agent API is on (`agentApi`), and that Jupiter builds a small swap with `JUPITER_API_KEY`. An agent API left
   off by the settings (a missing secret or keys, a fee above 30 bps) is `agentApi: "off"` and 503;
   production without Redis is `sharedState: "missing"` and 503 (`redis` or `memory` otherwise); a
-  pause by the kill switch is `paused: true` and stays 200. `/api/status` also names the commit the
+  pause by the kill switch is `paused: true` and stays 200. `refused` names a service that refuses the
+  deployment's key (`rpc 429`: a wrong key 401/403, a plan unpaid 402, out of credits or over the rate
+  429), even while the backup RPC keeps swaps going. `/api/status` also names the commit the
   deployment was built from (`build`) and the skill it serves (`skillVersion`).
 
 ## Watching production
@@ -131,7 +133,7 @@ mail and in the notifications: make sure that account receives them.
 
 | Workflow | Every | Fails when | Off with the repository variable |
 | --- | --- | --- | --- |
-| `monitor.yml` (`tools/monitor.ts`) | 2 hours | `/api/health` is not ok three times 20 s apart; the agent API is off; production has no Redis; production runs a commit not on `main`, or one whose CI failed; the version of `@orientimhq/swap` it names is not on npm with the release workflow's provenance. A pause and a deploy stuck behind `main` are said as warnings. | `ORIENTIM_MONITOR=0` |
+| `monitor.yml` (`tools/monitor.ts`) | 2 hours | `/api/health` is not ok three times 20 s apart; the agent API is off; production has no Redis; a service refuses the key or the plan three times (`refused`); production runs a commit not on `main`, or one whose CI failed; the version of `@orientimhq/swap` it names is not on npm with the release workflow's provenance. A pause and a deploy stuck behind `main` are said as warnings. | `ORIENTIM_MONITOR=0` |
 | `canary.yml` (`tools/canary.ts`) | 12 hours | A swap no longer builds on mainnet state (Jupiter's format, a Pump.fun or token program changed), a fee is not taken where it should be, or a promised market could not be proven. | `ORIENTIM_CANARY=0` |
 | `live-check.yml` (`tools/check-live.ts`) | 6 hours | Production runs a tagged release and serves other bytes than its digest. Untagged commits are said and pass. | `ORIENTIM_LIVE_CHECK=0` |
 

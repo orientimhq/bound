@@ -85,6 +85,16 @@ describe('health', () => {
     }
   });
 
+  it('a key the service refuses (401, 402, 403, 429) is named, even while the backup carries the swaps', async () => {
+    const answer = (status: number) => () => new Response('no', { status });
+    expect((await checkHealth(hosts(height, height, tokens))).refused).toEqual([]);
+    expect(await checkHealth(hosts(answer(429), height, tokens))).toMatchObject({ ok: true, refused: ['rpc 429'], rpc: { ok: false, status: 429 } });
+    expect(await checkHealth(hosts(height, answer(401), tokens))).toMatchObject({ ok: true, refused: ['rpcFallback 401'] });
+    expect(await checkHealth(hosts(height, height, answer(402)))).toMatchObject({ ok: false, refused: ['jupiter 402', 'agents.build 402'] });
+    // An outage of theirs is down, not a refusal of the key.
+    expect(await checkHealth(hosts(answer(503), down, tokens))).toMatchObject({ ok: false, refused: [], rpc: { status: 503 } });
+  });
+
   it('paused by the kill switch is said, not counted as down; no URL or key in the answer', async () => {
     process.env.ORIENTIM_DISABLED = '1';
     const h = await checkHealth(hosts(height, height, tokens));

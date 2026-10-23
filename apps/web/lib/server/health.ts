@@ -3,7 +3,8 @@ import { agentEndpoints } from './agent/config';
 import { sharedJupiterGate } from './jupiterGate';
 import { redisFromEnv, sharedRequired } from './shared';
 
-export type Check = { ok: boolean; ms: number };
+/** `status`: the HTTP status, when the service answered with an error. */
+export type Check = { ok: boolean; ms: number; status?: number };
 export type Health = {
   ok: boolean;
   /** The kill switch is on: swaps are paused on purpose, which is not an outage. */
@@ -30,7 +31,16 @@ export type Health = {
    * without Redis (and without ORIENTIM_TEST_MODE=1): finalize refuses every swap, so it is down.
    */
   sharedState: 'redis' | 'memory' | 'missing';
+  /**
+   * The services that refuse this deployment's key, such as `rpc 429`: a key that is wrong (401, 403),
+   * a plan unpaid or out of credits (402, 429). The operator's to fix, whether or not swaps still go
+   * through (the backup RPC can carry them for a while), so a monitor alarms on any.
+   */
+  refused: string[];
 };
+
+/** The answers that mean the key or the plan, not an outage of the service. */
+const PLAN_REFUSALS = new Set([401, 402, 403, 429]);
 
 /** A small swap Jupiter is asked to build: 0.01 SOL to USDC, for a public wallet. Nothing is signed. */
 const BUILD_CHECK = new URLSearchParams({
@@ -44,7 +54,8 @@ async function timed(request: () => Promise<Response>, answered: (r: Response) =
   const started = Date.now();
   try {
     const res = await request();
-    return { ok: res.ok && (await answered(res)), ms: Date.now() - started };
+    if (!res.ok) return { ok: false, ms: Date.now() - started, status: res.status };
+    return { ok: await answered(res), ms: Date.now() - started };
   } catch {
     return { ok: false, ms: Date.now() - started };
   }
@@ -85,7 +96,11 @@ export async function checkHealth(fetchImpl: typeof fetch = (...a) => fetch(...a
   const agentsUp = !!agents && (agents.rpc.ok || rpcFallback?.ok === true) && agents.build.ok;
   const sharedState = redisFromEnv() ? 'redis' : sharedRequired() ? 'missing' : 'memory';
   const ok = rpcUp && jupiter.ok && agentsUp && sharedState !== 'missing';
-  return { ok, paused: disabled, rpc, rpcFallback, jupiter, agents, agentApi: agents ? 'on' : 'off', sharedState };
+  const checks: [string, Check | null | undefined][] = [
+    ['rpc', rpc], ['rpcFallback', rpcFallback], ['jupiter', jupiter], ['agents.rpc', agents?.rpc === rpc ? null : agents?.rpc], ['agents.build', agents?.build],
+  ];
+  const refused = checks.flatMap(([name, c]) => (c?.status && PLAN_REFUSALS.has(c.status) ? [`${name} ${c.status}`] : []));
+  return { ok, paused: disabled, rpc, rpcFallback, jupiter, agents, agentApi: agents ? 'on' : 'off', sharedState, refused };
 }
 
 /** The agent API's own RPC and a swap built with its own Jupiter key; null while the API is off. */
