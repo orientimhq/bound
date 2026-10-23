@@ -17,7 +17,11 @@ ARG ORIENTIM_BUILD_ID
 ARG NEXT_PUBLIC_ORIENTIM_TREASURY
 ARG NEXT_PUBLIC_ORIENTIM_FEE_BPS=25
 ARG NEXT_PUBLIC_ORIENTIM_ENABLE_V1=
+# The lower fee for large swaps (docs/FLY.md): off while empty.
+ARG NEXT_PUBLIC_ORIENTIM_FEE_TIER_BPS=
+ARG NEXT_PUBLIC_ORIENTIM_FEE_TIER_SOL=
 RUN test -n "$ORIENTIM_BUILD_ID" || { echo 'ORIENTIM_BUILD_ID is required: fly deploy --build-arg ORIENTIM_BUILD_ID=$(git rev-parse HEAD)'; exit 1; }
+RUN test -n "$NEXT_PUBLIC_ORIENTIM_TREASURY" || { echo 'NEXT_PUBLIC_ORIENTIM_TREASURY is required ([build.args] in fly.toml).'; exit 1; }
 RUN npm run build && node tools/build-digest.ts --write
 
 FROM node:24-bookworm-slim
