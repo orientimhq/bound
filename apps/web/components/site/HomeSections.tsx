@@ -12,7 +12,7 @@ const AGENT_POINTS = [
   ['Sealed Blast Radius', 'A compromised route or malicious contract can never reach past the single approved trade amount. Checked by the verifier on your own RPC before signing, your main balance stays out of reach.'],
   ['Weaponized-Token Screening', 'Tokens with transfer hooks, unknown extensions or a frozen account are refused before signing; an issuer that can still freeze, mint or move balances is named to your agent first.'],
   ['Independent Price Enforcement', 'Your client cross-checks market quotes independently and enforces an unbreakable on-chain delivery floor that no server or route can lower.'],
-  ['Prompt-Immune Spend Guardrails', 'Per-trade caps, daily budgets and asset allowlists are enforced from /etc/orientim/policy.json, a file only an administrator can write, completely outside the AI model’s context window.'],
+  ['Prompt-Immune Spend Guardrails', 'Per-trade caps, daily budgets and asset allowlists are enforced from /etc/orientim/policy.json, a file you keep where the agent cannot write (owned by root), completely outside the AI model’s context window.'],
 ];
 
 /**
@@ -60,7 +60,7 @@ const LIMIT_GROUPS = [
 ];
 
 const THREATS: [string, string, string, string][] = [
-  ['prompt', 'A message tells your agent to “swap everything” or “set slippage to 15%”.', 'With your policy file set, the skill stops at your limits: per swap, per day, the tokens you allow and the slippage you set.', 'Blocked before signing'],
+  ['prompt', 'A message tells your agent to “swap everything” or “set slippage to 15%”.', 'With your policy file set, the skill stops at your limits: per trade, per day, the tokens you allow and the slippage you set.', 'Blocked before signing'],
   ['server', 'The swap server itself is hacked.', 'Orientim holds none of your keys. With the skill or verifier, your wallet signs only the transaction you asked for; a changed one never gets a signature.', 'Blocked before signing'],
   ['sandwich', 'A bot sandwiches the trade.', 'The minimum is enforced on chain: a swap that would fill beyond your slippage (0.5% by default) reverts, and only the network fee is paid.', 'Reverted on chain'],
 ];
@@ -221,7 +221,7 @@ export function HomeSections() {
               <p className="eyebrow eyebrow-cyan">Limits you set</p>
               <h2>Your rules, enforced before every signature.</h2>
               <p className="lead">
-                Six controls in one file your agent cannot edit. Every trade is checked against them on your own machine before the
+                Six controls in one file you keep out of your agent’s reach. Every trade is checked against them on your own machine before the
                 wallet is asked to sign. A trade that breaks one is never signed.
               </p>
               <div className="lim-groups">

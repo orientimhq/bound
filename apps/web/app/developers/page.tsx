@@ -590,8 +590,8 @@ POST /api/v1/keys
             <section id="limits">
               <h2>Rate limits</h2>
               <ul>
-                <li>Per API key: 20 prepare and 15 finalize a minute.</li>
-                <li>Per IP address: 120 requests a minute.</li>
+                <li>Per wallet: 20 prepare and 15 finalize a minute, whatever the number of its keys.</li>
+                <li>Per IP address: 120 prepare a minute.</li>
                 <li>Keys: 30 challenges and 30 keys an hour per IP, 3 keys a day per wallet.</li>
                 <li>A <code>429</code> carries <code>Retry-After</code>.</li>
                 <li><code>GET /api/health</code> needs no key: 200 when swaps can go through, else 503.</li>

@@ -45,7 +45,7 @@ on a preview without it the message names the deployment's own `VERCEL_URL` (key
 address, not on a branch alias). In
 production the agent API also stays off without a treasury or with `ORIENTIM_API_FEE_BPS=0`, unless
 `ORIENTIM_TEST_MODE=1` says that is meant. A key lasts 90 days. From one IP address Orientim answers 30 key
-challenges and issues 10 keys an hour; one wallet gets 5 keys a day (a window of 24 hours), and at
+challenges and issues 30 keys an hour; one wallet gets 3 keys a day (a window of 24 hours), and at
 most 300 are issued an hour to everyone together (`ORIENTIM_KEY_MAX_PER_HOUR`). These counts are kept
 in Redis, for every instance together (below, "Limits across instances"). The wallet must hold 0.01
 SOL (`ORIENTIM_KEY_MIN_LAMPORTS`). IPv6 addresses are counted per /64. A key is revoked by its wallet: `ORIENTIM_API_REVOKED` lists
@@ -154,8 +154,8 @@ What to watch: a share of `prepare` answering `busy` or `unavailable` above a fe
 or a provider), `internal` at all, `ms` far above its usual (Jupiter or the RPC slowing), and
 `routes_not_used` from one key again and again (an agent bringing routes it should not).
 
-**Limits across instances.** Every limit the app keeps (20 prepare and 15 finalize a minute per key, 120 prepare per address, 180 prepare in all with at most a quarter of it for one key, and the key
-limits: 30 challenges and 10 keys an hour per IP, 5 keys a wallet a day, 300 keys an hour) is counted
+**Limits across instances.** Every limit the app keeps (20 prepare and 15 finalize a minute per key, per wallet for a self-serve key, 120 prepare per address, 180 prepare in all with at most a quarter of it for one key, and the key
+limits: 30 challenges and 30 keys an hour per IP, 3 keys a wallet a day, 300 keys an hour) is counted
 in Redis, in a fixed window that every instance shares; each instance also keeps its own count, which
 refuses a client already over the limit without asking Redis. While Redis does not answer, and on a
 deployment without it, each instance's own count decides: it bounds one instance, not the deployment,
