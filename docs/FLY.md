@@ -1,7 +1,8 @@
 # Orientim on Fly.io, behind Cloudflare
 
 One machine (`performance-1x`, 4 GB, `iad`), no Redis, Cloudflare's free plan in front for DNS, TLS,
-DDoS protection and rate limits. The image is `Dockerfile`; the machine is `fly.toml`.
+DDoS protection and rate limits. The machine reaches Cloudflare through a Cloudflare Tunnel and has no
+public address of its own. The image is `Dockerfile`; the machine is `fly.toml`.
 
 ## How it holds without Redis
 
@@ -25,47 +26,65 @@ fly apps create orientim
 fly volumes create orientim_data --region iad --size 1
 fly secrets set RPC_URL=... RPC_URL_FALLBACK=... JUPITER_API_KEY=... \
   ORIENTIM_API_SECRET=... ORIENTIM_API_KEYS=... ORIENTIM_KEY_SECRET=... \
-  ORIENTIM_ORIGIN_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))")
-fly deploy --build-arg ORIENTIM_BUILD_ID=$(git rev-parse HEAD)
+  ORIENTIM_ORIGIN_SECRET=$(node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))") \
+  TUNNEL_TOKEN=...
+tools/fly-deploy.sh
 fly scale count 1
 ```
 
 The secrets are the ones Vercel holds today, with the same values (a new `ORIENTIM_API_SECRET` would
-end the tickets in flight; a new `ORIENTIM_KEY_SECRET` would end every self-serve key). Keep the
-`ORIENTIM_ORIGIN_SECRET` value for Cloudflare below. Check: `fly status` shows one machine, and
-`https://orientim.fly.dev/api/live` answers `{"ok":true}` while every other path there answers 404.
+end the tickets in flight; a new `ORIENTIM_KEY_SECRET` would end every self-serve key). `JUPITER_API_KEY`
+is the Developer plan's key: `fly.toml` paces Jupiter to that plan's 600 requests a minute
+(`ORIENTIM_JUPITER_PER_MINUTE`), and a Free key would answer 429 past 60. `TUNNEL_TOKEN` comes from
+Cloudflare below. Keep the `ORIENTIM_ORIGIN_SECRET` value for Cloudflare too. Check: `fly status` shows
+one machine, and `fly logs` shows the tunnel connected.
 
 ## Cloudflare (free plan)
 
-1. DNS: `orientim.com` and `www` as CNAME to `orientim.fly.dev`, proxied (orange cloud).
-   On Fly: `fly certs add orientim.com` and `fly certs add www.orientim.com`.
-2. SSL/TLS: Full (strict).
+1. Zero Trust, Networks, Tunnels: create a tunnel (cloudflared) named `orientim`, and copy its token into
+   `fly secrets set TUNNEL_TOKEN=...`. The machine runs `cloudflared` beside Orientim and restarts it if
+   it exits (`tools/fly-start.sh`).
+2. In the tunnel, Public hostnames: `orientim.com` and `www.orientim.com`, service `http://localhost:8080`.
+   Cloudflare writes the DNS records itself; no certificate is needed on Fly.
 3. Rules, Transform Rules, Modify Request Header: for all incoming requests, set static
-   `x-orientim-origin` to the `ORIENTIM_ORIGIN_SECRET` value. Without it, Fly answers 404.
+   `x-orientim-origin` to the `ORIENTIM_ORIGIN_SECRET` value. Without it, Orientim answers 404.
    The secret is required: in production on one machine, without it (or with one under 32
    characters) every request, `/api/live` included, is answered 503, so the deploy fails its check.
 4. Security, WAF, Rate limiting rules (the free plan's one rule): path starts with `/api/`, 300 requests
    per 10 seconds per IP, block for 10 seconds. The app keeps its own limits per key and per address.
-5. Leave caching on its defaults: every API answer says `no-store`.
+5. Security, WAF, Custom rules: a rule that blocks URI path starting with `/api/v1/`, saved **disabled**.
+   Turning it on stops every swap and key request within seconds, with nothing on Fly touched.
+6. Leave caching on its defaults: every API answer says `no-store`.
+7. Once `https://orientim.com` answers through the tunnel, take the machine's public addresses away:
+   `fly ips list`, then `fly ips release <address>` for each. `orientim.fly.dev` then answers nothing,
+   and every request goes through Cloudflare's rules and limits. Fly's health check reaches the machine
+   from inside Fly and keeps working.
 
 `ORIENTIM_CLIENT_IP_HEADER=cf-connecting-ip` (in `fly.toml`): the rate limits count Cloudflare's client
-address, which a request cannot set, since one without the origin header never gets in.
+address, which a request cannot set, since one without the origin header never gets in. Through the
+tunnel, `[http_service.concurrency]` no longer applies (it is Fly's proxy that counts); the app's own
+limits, per key, per address and in all, are what bound the load.
 
 ## The Terms record
 
 Each acceptance is a file on the volume (`ORIENTIM_TERMS_DIR=/data`):
 `/data/terms-acceptances/<day>/<wallet>-<time>-<random>.json`, never overwritten. Fly snapshots the
-volume daily; `fly ssh console` and `ls /data/terms-acceptances` to read it.
+volume daily and keeps the snapshots 5 days; `fly ssh console` and `ls /data/terms-acceptances` to read
+it. `df -i /data` shows the files left: each acceptance takes one.
 
 ## A deploy, and going back
 
-`fly deploy --build-arg ORIENTIM_BUILD_ID=$(git rev-parse HEAD)`. The machine restarts once: swaps
-prepared in the seconds before are prepared again. `fly releases` lists earlier images;
-`fly deploy --image <image>` returns to one.
+`tools/fly-deploy.sh` builds and deploys the commit checked out, and refuses a tree with changes no
+commit holds (the image's `ORIENTIM_BUILD_ID` names the commit). With one machine, a deploy is an
+outage of about a minute: the old process stops, then the new one starts and passes its check. Swaps
+prepared before are prepared again; meanwhile Cloudflare answers every request with an error. `fly releases` lists earlier
+images; `fly deploy --image <image>` returns to one.
 
 To pause swaps at once, with no restart: `fly ssh console -C "touch /data/paused"`; to resume:
 `fly ssh console -C "rm /data/paused"`. `ORIENTIM_DISABLED=1` pauses too, but `fly secrets set`
-restarts the machine.
+restarts the machine. Faster still, from Cloudflare: the disabled rule of step 5.
+
+`fly logs` shows what the machine is writing now; Fly keeps logs for a few days only.
 
 ## Pump.fun curve routes built from the chain
 
@@ -75,9 +94,10 @@ RPC read, the same `route_v2` instruction Jupiter would give. The market price i
 (`costs-more`) still comes from Jupiter, which may find the token elsewhere too. It goes through the
 same checks as Jupiter's answer, the verifier and the final simulation included. Anything it
 does not know to build exactly as Jupiter does (a cashback coin, a curve's own creator fee, a second fee
-tier, a classic SPL mint, fast mode, a narrower account budget) and every error goes to Jupiter, and the
-log says why once. The canary compares the two routes on new curves, buys and sells, on every run: a
-difference fails it. Unset, every route comes from Jupiter.
+tier, a classic SPL mint, fast mode, a narrower account budget) and every error goes to Jupiter. Each
+route built here is an `orientim.curve_local` event, and each unexpected fallback an
+`orientim.curve_fallback` event with its reason. The canary compares the two routes on new curves, buys
+and sells, on every run: a difference fails it. Unset, every route comes from Jupiter.
 
 ## The lower fee for large swaps
 

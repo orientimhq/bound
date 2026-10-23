@@ -25,6 +25,15 @@ RUN test -n "$NEXT_PUBLIC_ORIENTIM_TREASURY" || { echo 'NEXT_PUBLIC_ORIENTIM_TRE
 RUN npm run build && node tools/build-digest.ts --write
 
 FROM node:24-bookworm-slim
+# Cloudflare Tunnel (docs/FLY.md): the machine reaches Cloudflare itself and needs no public address.
+# From Cloudflare's signed package repository.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl \
+  && curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg -o /usr/share/keyrings/cloudflare-main.gpg \
+  && echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared bookworm main' > /etc/apt/sources.list.d/cloudflared.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends cloudflared \
+  && apt-get purge -y curl && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=8080
 ARG ORIENTIM_BUILD_ID
 ENV ORIENTIM_BUILD_ID=$ORIENTIM_BUILD_ID
