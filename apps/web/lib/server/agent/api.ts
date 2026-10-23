@@ -555,8 +555,7 @@ async function prepareFor(req: Request, deps: AgentDeps, auth: { id: string; wal
     }));
     // From an agent's own routes, or Orientim's client; Orientim's fee in SOL is always priced by its
     // own, and with an agent's routes a fee on the output is held to its own price (`reference`).
-    // A curve route built here asks neither Jupiter nor the agent (curveRoutes); the market price it is
-    // compared with does.
+    // A curve route built here asks neither Jupiter nor the agent (curveRoutes).
     const curve = (client: JupiterClient) => (deps.curveRoutes ? deps.curveRoutes(client, deadline.rpc) : client);
     const build = (jupiter: JupiterClient, reference?: JupiterClient) => deadline.within(prepareProtectedSwap(
       {

@@ -31,7 +31,7 @@ kill_timeout = "30s"
   ORIENTIM_TERMS_DIR = "/data"
   # The output accounts held for swaps in flight, kept across a restart (shared.ts); without it finalize signs nothing.
   ORIENTIM_STATE_DIR = "/data"
-  # Routes on an active Pump.fun curve built from the chain; the market price still from Jupiter (docs/FLY.md).
+  # Swaps on an active Pump.fun curve built from the chain, without asking Jupiter (docs/FLY.md).
   ORIENTIM_LOCAL_CURVE = "1"
   # The Jupiter plan's requests a minute: 60 Free (unset), 600 Developer, 3000 Launch (jupiterGate.ts).
   # Developer: JUPITER_API_KEY must be that plan's key, or Jupiter answers 429 past 60.

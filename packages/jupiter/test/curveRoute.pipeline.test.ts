@@ -1,8 +1,7 @@
 /**
  * The local Pump.fun curve route through the whole pipeline: prepare, compile, the verifier, the
  * simulation and the certificate, on a fake chain holding a real curve, Pump's real global account and
- * fee config, and a Token-2022 mint, as captured on mainnet. Jupiter is asked for no route, only for
- * the market's price the route is compared with.
+ * fee config, and a Token-2022 mint, as captured on mainnet. Jupiter is asked for no route.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -44,20 +43,11 @@ async function chain(c: { mint: string; curve: string }) {
   ]);
 }
 
-/**
- * Jupiter, standing by: asked for no route, only for the market's price (the unrestricted baseline,
- * which never carries the curve) and its DEX labels. Its price is the curve's own, times `better`.
- */
-function standIn(rpc: Parameters<typeof withLocalCurveRoutes>[1], curve: Address, better = 1) {
+/** Jupiter, standing by: asked for no route, only for its DEX labels. */
+function standIn() {
   const asked: BuildParams[] = [];
-  const market = withLocalCurveRoutes({ build: async () => { throw new Error('unreachable'); }, searchTokens: async () => [], programLabels: async () => ({}) }, rpc);
   const jupiter: JupiterClient = {
-    build: async p => {
-      asked.push(p);
-      if (p.pumpCurve) throw new Error('Jupiter was asked for a route');
-      const r = await market.build({ ...p, pumpCurve: curve });
-      return { ...r, outAmount: String((BigInt(r.outAmount) * BigInt(Math.round(better * 10_000))) / 10_000n) };
-    },
+    build: async p => { asked.push(p); throw new Error('Jupiter was asked for a route'); },
     searchTokens: async () => [],
     programLabels: async () => ({}),
   };
@@ -73,7 +63,7 @@ describe('the local curve route through the whole pipeline', () => {
     it(`a buy is built, verified, simulated and certified without asking Jupiter (v${version})`, async () => {
       const accounts = await chain(buy);
       const rpc = fakeRpc(accounts, { takerRent: 1_346_200n });
-      const { jupiter, asked } = standIn(rpc, await bondingCurveOf(address(buy.mint)));
+      const { jupiter, asked } = standIn();
       const local: string[] = [];
       const W = (await generateKeyPairSigner()).address;
       const prepared = await prepareProtectedSwap(
@@ -83,8 +73,7 @@ describe('the local curve route through the whole pipeline', () => {
           inputDecimals: 9, outputDecimals: 6, version,
         },
       );
-      expect(asked.filter(p => p.pumpCurve)).toEqual([]);
-    expect(asked.length).toBeGreaterThan(0);
+      expect(asked).toEqual([]);
       expect(local.length).toBeGreaterThan(0);
       expect(prepared.quote.route).toEqual(['Pump.fun']);
       // The curve's tolerance, enforced by Orientim on the quote the route was built at: the route's
@@ -108,7 +97,7 @@ describe('the local curve route through the whole pipeline', () => {
     accounts.set(await ataOf(W, address(sell.mint), TOKEN_2022_PROGRAM), tokenAccount(W, address(sell.mint), { amount: BigInt(sell.params.amount) }));
     accounts.get(await ataOf(W, address(sell.mint), TOKEN_2022_PROGRAM))!.owner = TOKEN_2022_PROGRAM;
     const rpc = fakeRpc(accounts, { takerRent: 1_346_200n });
-    const { jupiter, asked } = standIn(rpc, await bondingCurveOf(address(sell.mint)));
+    const { jupiter, asked } = standIn();
     const prepared = await prepareProtectedSwap(
       { rpc, jupiter: withLocalCurveRoutes(jupiter, rpc, { onFallback: r => { throw new Error(r); } }), settings: { ...DEFAULT_SETTINGS, treasury: null, jupiterProgram: JUPITER_PROGRAM } },
       {
@@ -116,25 +105,7 @@ describe('the local curve route through the whole pipeline', () => {
         inputDecimals: 6, outputDecimals: 9, version: 1,
       },
     );
-    expect(asked.filter(p => p.pumpCurve)).toEqual([]);
-    expect(asked.length).toBeGreaterThan(0);
+    expect(asked).toEqual([]);
     expect(prepared.quote.route).toEqual(['Pump.fun']);
-  });
-
-  it('a curve route well below the market Jupiter quotes stops at costs-more', async () => {
-    const accounts = await chain(buy);
-    const rpc = fakeRpc(accounts, { takerRent: 1_346_200n });
-    // Liquidity elsewhere: Jupiter's unrestricted price is 3% above the curve's.
-    const { jupiter, asked } = standIn(rpc, await bondingCurveOf(address(buy.mint)), 1.03);
-    const W = (await generateKeyPairSigner()).address;
-    const prepared = prepareProtectedSwap(
-      { rpc, jupiter: withLocalCurveRoutes(jupiter, rpc, { onFallback: r => { throw new Error(r); } }), settings: { ...DEFAULT_SETTINGS, treasury: null, jupiterProgram: JUPITER_PROGRAM } },
-      {
-        owner: W, ephemeral: await generateKeyPairSigner(), inputMint: WSOL_MINT, outputMint: address(buy.mint), amountIn: 50_000_000n,
-        inputDecimals: 9, outputDecimals: 6, version: 1,
-      },
-    );
-    await expect(prepared).rejects.toMatchObject({ code: 'costs-more' });
-    expect(asked.filter(p => p.pumpCurve)).toEqual([]);
   });
 });

@@ -86,13 +86,13 @@ restarts the machine. Faster still, from Cloudflare: the disabled rule of step 5
 
 `fly logs` shows what the machine is writing now; Fly keeps logs for a few days only.
 
-## Pump.fun curve routes built from the chain
+## Pump.fun curves without Jupiter
 
 `ORIENTIM_LOCAL_CURVE=1` (in `fly.toml`): a swap on an active Pump.fun bonding curve, SOL in or out, is
 built from the chain (the curve, Pump's fee config and global account, Jupiter's lookup table) in one
-RPC read, the same `route_v2` instruction Jupiter would give. The market price it is compared with
-(`costs-more`) still comes from Jupiter, which may find the token elsewhere too. It goes through the
-same checks as Jupiter's answer, the verifier and the final simulation included. Anything it
+RPC read, the same `route_v2` instruction Jupiter would give, without the round trip to Jupiter. It goes
+through the same checks as Jupiter's answer, the verifier and the final simulation included. Whether a
+pool elsewhere pays more is the agent's check: its own minimum comes from its own Jupiter quote. Anything it
 does not know to build exactly as Jupiter does (a cashback coin, a curve's own creator fee, a second fee
 tier, a classic SPL mint, fast mode, a narrower account budget) and every error goes to Jupiter. Each
 route built here is an `orientim.curve_local` event, and each unexpected fallback an
