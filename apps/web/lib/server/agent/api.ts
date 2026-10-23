@@ -178,7 +178,9 @@ async function authenticate(req: Request, deps: AgentDeps, endpoint: 'prepare' |
 
 /**
  * Counts a well-formed prepare against what all keys share (`totalPerMinute`); a malformed one is
- * refused before it takes any. No one key takes more than a quarter of it, so a few keys cannot fill it.
+ * refused before it takes any. A key's own limit (`perMinute`, 20) is the first bound; should it be set
+ * higher, no one key takes more than a quarter of the total. What keeps many cheap keys from filling
+ * it is the per-address limit and PREPARES_AT_ONCE: each self-serve key holds at most two prepares at a time.
  */
 async function admitPrepare(key: string, deps: AgentDeps): Promise<Response | null> {
   if (!deps.totalPerMinute) return null;
@@ -368,12 +370,32 @@ const issuerPowers = (s: AccountState) => {
   return { freezeAuthority: m.freezeAuthority, mintAuthority: m.mintAuthority, permanentDelegate: s.owner === TOKEN_2022_PROGRAM && hasPermanentDelegate(s.data) };
 };
 
+/**
+ * The prepares a self-serve key may have running at once: its wallet swaps one at a time, and an agent
+ * may ask again before its first answer. Past it, the key's requests are refused at once, so that a few
+ * cheap keys cannot hold the RPC, Jupiter's plan and the CPU for everyone with prepares that run 45
+ * seconds. A key issued by hand (ORIENTIM_API_KEYS) may serve many wallets, and is not held to it.
+ */
+export const PREPARES_AT_ONCE = 2;
+const preparing = new Map<string, number>();
+
 export async function agentPrepare(req: Request, deps: AgentDeps): Promise<Response> {
   if (deps.disabled) return fail(503, 'paused', 'Protected swaps are paused. Nothing was built.');
   const auth = await authenticate(req, deps, 'prepare');
   if (auth instanceof Response) return auth;
-  // The Jupiter requests this swap makes wait in this key's own turn (jupiterGate.ts).
-  return jupiterLane.run(auth.id, () => prepareFor(req, deps, auth));
+  const running = preparing.get(auth.id) ?? 0;
+  if (auth.wallet && running >= PREPARES_AT_ONCE) {
+    return fail(429, 'rate-limited', `This API key already has ${PREPARES_AT_ONCE} prepares running. Wait for one to answer, then try again. Nothing was built.`, {}, { 'retry-after': '1' });
+  }
+  preparing.set(auth.id, running + 1);
+  try {
+    // The Jupiter requests this swap makes wait in this key's own turn (jupiterGate.ts).
+    return await jupiterLane.run(auth.id, () => prepareFor(req, deps, auth));
+  } finally {
+    const left = (preparing.get(auth.id) ?? 1) - 1;
+    if (left > 0) preparing.set(auth.id, left);
+    else preparing.delete(auth.id);
+  }
 }
 
 async function prepareFor(req: Request, deps: AgentDeps, auth: { id: string; wallet: string | null }): Promise<Response> {

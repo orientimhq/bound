@@ -216,6 +216,26 @@ describe('prepare', () => {
     expect((await agentPrepare(post('prepare-share', swapBody(w.W.address), two), deps)).status).toBe(200);
   });
 
+  it('a self-serve key has at most two prepares running at once; the third is refused at once, and the next goes once one answers', async () => {
+    let open!: () => void;
+    const held = new Promise<void>(r => { open = r; });
+    const inner = fakeJupiter();
+    const w = await world({ jupiter: { ...inner, build: async p => { await held; return inner.build(p); } } });
+    const deps = { ...w.deps, keySecrets: [secret(9)] };
+    w.accounts.set(w.W.address, { owner: SYSTEM_PROGRAM, data: new Uint8Array(0) });
+    const { key } = await issueKey(secret(9), w.W.address, Math.floor(Date.now() / 1000));
+    const running = [0, 1].map(() => agentPrepare(post('prepare-at-once', swapBody(w.W.address), key), deps));
+    // A key issued by hand may serve many wallets: it is not held to two.
+    const manual = [0, 1, 2].map(() => agentPrepare(post('prepare-at-once', swapBody(w.W.address)), deps));
+    await new Promise(r => setTimeout(r, 50));
+    const third = await agentPrepare(post('prepare-at-once', swapBody(w.W.address), key), deps);
+    expect(third.status).toBe(429);
+    expect((await third.json()).error.code).toBe('rate-limited');
+    open();
+    for (const r of await Promise.all([...running, ...manual])) expect(r.status).toBe(200);
+    expect((await agentPrepare(post('prepare-at-once', swapBody(w.W.address), key), deps)).status).toBe(200);
+  });
+
   it('prepare counts the client address over all its keys', async () => {
     const w = await world();
     const deps = { ...w.deps, ipPerMinute: 1 };

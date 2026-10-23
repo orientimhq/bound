@@ -285,7 +285,7 @@ export async function offlineWorld(keyCount = 1): Promise<OfflineWorld> {
   const deps: AgentDeps = {
     rpc, jupiter, secrets: [randomBytes(32)], keys: new Map(),
     feeBps: 25n, treasury: address(ORIENTIM_TREASURY), excludeDexes: [], maxNetworkFeeLamports: 200_000n,
-    disabled: process.env.ORIENTIM_DISABLED === '1', v1: true, perMinute: Number(process.env.ORIENTIM_API_PER_MINUTE) || 60, ownRoutes: true,
+    disabled: process.env.ORIENTIM_DISABLED === '1', v1: true, perMinute: Number(process.env.ORIENTIM_API_PER_MINUTE) || 20, ownRoutes: true,
   };
   const target = orientim(keyCount, () => ({ ...deps, disabled: /^(1|true|yes|on)$/i.test(process.env.ORIENTIM_DISABLED?.trim() ?? '') }));
   deps.keys = new Map(target.keys.map((k, i) => [createHash('sha256').update(k).digest('hex'), `sim${i}`]));

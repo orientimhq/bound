@@ -33,10 +33,10 @@ function tiers() {
  *   ORIENTIM_API_SECRET_PREVIOUS  optional, the one before it, while its tickets live (to their last valid block height)
  *   ORIENTIM_API_KEYS             id:sha256-of-key, comma-separated; only the hashes are stored
  *   ORIENTIM_API_FEE_BPS          optional, the fee for API swaps; NEXT_PUBLIC_ORIENTIM_FEE_BPS otherwise
- *   ORIENTIM_API_PER_MINUTE       optional, prepare requests per minute per key (60)
- *   ORIENTIM_API_FINALIZE_PER_MINUTE  optional, finalize requests per minute per key (30)
+ *   ORIENTIM_API_PER_MINUTE       optional, prepare requests per minute per key (20); a self-serve key at most 2 at once (api.ts)
+ *   ORIENTIM_API_FINALIZE_PER_MINUTE  optional, finalize requests per minute per key (15)
  *   ORIENTIM_API_IP_PER_MINUTE    optional, prepare requests per minute per client address, over all its keys (120)
- *   ORIENTIM_API_TOTAL_PER_MINUTE optional, prepare requests per minute over all keys, sized to the Jupiter and RPC plans (180: what Helius Developer's 50 requests a second carry)
+ *   ORIENTIM_API_TOTAL_PER_MINUTE optional, prepare requests per minute over all keys, sized to the Jupiter and RPC plans (140: what Helius Developer's 50 requests a second carry, with room for health checks and retries)
  *   ORIENTIM_MIN_SKILL_VERSION    optional, the oldest skill prepare serves; older copies are asked to update
  *   ORIENTIM_KEY_SECRET           optional, 32 random bytes, base64: turns on self-serve keys (agent/keys.ts)
  *   ORIENTIM_KEY_SECRET_PREVIOUS  optional, the one before it, whose keys still open while it rotates out
@@ -208,7 +208,7 @@ export function agentDeps(): AgentDeps | null {
     perMinute: count('ORIENTIM_API_PER_MINUTE', 20),
     finalizePerMinute: count('ORIENTIM_API_FINALIZE_PER_MINUTE', 15),
     ipPerMinute: count('ORIENTIM_API_IP_PER_MINUTE', 120),
-    totalPerMinute: count('ORIENTIM_API_TOTAL_PER_MINUTE', 180),
+    totalPerMinute: count('ORIENTIM_API_TOTAL_PER_MINUTE', 140),
     minSkillVersion: /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(minSkillVersion) ? minSkillVersion : null,
     // The smallest swap, about $1, so that no swap costs more to build than it brings.
     minFee: MIN_FEE,
