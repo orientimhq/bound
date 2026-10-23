@@ -141,10 +141,21 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
   }
   // Counted only for funded wallets that signed, so nobody spends another wallet's or everyone's
   // issuance; and only once the key is issued and its acceptance recorded, so that a record that
-  // fails spends nothing either. Checked here, counted below: requests that arrive together can each
-  // pass before any of them is counted, a burst of funded wallets that each signed, all counted after
-  // it; never a way past the limit once they are.
-  const perWallet = `keys-wallet:${accepted.wallet}`;
+  // fails spends nothing either. Checked, issued and counted one request at a time (`oneAtATime`), so
+  // that requests arriving together cannot each pass before any is counted.
+  return oneAtATime(() => issueCounted(req, deps, body as Record<string, unknown>, accepted.wallet));
+}
+
+/** Key issuance runs one request at a time from the limits' check to their count: on one instance, the limits hold exactly. */
+let issuing: Promise<unknown> = Promise.resolve();
+function oneAtATime<T>(f: () => Promise<T>): Promise<T> {
+  const run = issuing.then(f, f);
+  issuing = run.catch(() => undefined);
+  return run;
+}
+
+async function issueCounted(req: Request, deps: AccessDeps, body: Record<string, unknown>, wallet: string): Promise<Response> {
+  const perWallet = `keys-wallet:${wallet}`;
   const waitPerWallet = await limitReached(perWallet, WALLET_KEYS_PER_DAY, 86_400_000);
   if (waitPerWallet !== null) {
     return fail(429, 'rate-limited', 'Too many keys issued to this wallet today. Use the key you have, or wait Retry-After seconds.', { 'retry-after': String(waitPerWallet) });
@@ -158,11 +169,11 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
     return fail(429, 'rate-limited', 'Orientim is issuing too many keys right now. Wait Retry-After seconds and try again.', { 'retry-after': String(waitAll) });
   }
   const now = seconds(deps);
-  const issued = await issueKey(deps.keySecrets[0], accepted.wallet, now);
+  const issued = await issueKey(deps.keySecrets[0], wallet, now);
   if (deps.recordAcceptance) {
     try {
       await deps.recordAcceptance({
-        wallet: accepted.wallet, terms: 'https://orientim.com/terms', termsUpdated: LEGAL.lastUpdated,
+        wallet: wallet, terms: 'https://orientim.com/terms', termsUpdated: LEGAL.lastUpdated,
         message: body.message as string, signature: body.signature as string,
         acceptedAt: new Date(now * 1000).toISOString(), keyExpiresAt: issued.expiresAt,
         skill: req.headers.get('x-orientim-skill')?.slice(0, 40) || null,
@@ -173,5 +184,5 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
   }
   // Issued and recorded: now it counts.
   await Promise.all([limit(perWallet, WALLET_KEYS_PER_DAY, 86_400_000), limit(all, maxAll, 3_600_000)]);
-  return json(200, { key: issued.key, wallet: accepted.wallet, expiresAt: issued.expiresAt });
+  return json(200, { key: issued.key, wallet: wallet, expiresAt: issued.expiresAt });
 }

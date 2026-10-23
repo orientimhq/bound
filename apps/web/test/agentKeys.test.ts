@@ -187,6 +187,25 @@ describe('the endpoints', () => {
     }
   });
 
+  it('requests that arrive together never pass the hourly cap: checked, issued and counted one at a time', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // Ahead of every window the other tests opened.
+      vi.setSystemTime(Date.now() + 9 * 86_400_000);
+      const d: AccessDeps = { ...deps(20_000_000n), maxKeysPerHour: 5, recordAcceptance: async () => { await new Promise(r => setImmediate(r)); } };
+      const asks = await Promise.all(Array.from({ length: 40 }, async () => {
+        const W = await generateKeyPairSigner();
+        const c = await newChallenge(secret(5), { domain: 'orientim.com', uri: 'u', wallet: W.address, now: NOW });
+        return new Request('https://orientim.com/api/v1/keys', { method: 'POST', headers: from(), body: JSON.stringify({ ...c, signature: await sign(W, c.message) }) });
+      }));
+      const answers = await Promise.all(asks.map(r => keyIssue(r, d)));
+      expect(answers.filter(a => a.status === 200)).toHaveLength(5);
+      expect(answers.filter(a => a.status === 429)).toHaveLength(35);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('issue nothing while protected swaps are paused', async () => {
     const W = await generateKeyPairSigner();
     const paused = { ...deps(20_000_000n), disabled: true };
