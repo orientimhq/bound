@@ -523,7 +523,7 @@ describe('finalize', () => {
     expect(res.status).toBe(503);
     const { error } = await res.json();
     expect(error.code).toBe('unavailable');
-    expect(error.message).toContain('Redis is not configured');
+    expect(error.message).toContain('ORIENTIM_STATE_DIR');
     expect(error.message).toContain('signed and sent nothing');
     expect(error.signedTransaction).toBeUndefined();
     expect(w.sent).toHaveLength(0);
@@ -554,6 +554,47 @@ describe('finalize', () => {
     const again = await prepared(after);
     expect((await finalize(after, again.ticket, await signAsWallet(w.W, again.transaction))).status).toBe(200);
     expect(w.sent).toHaveLength(1);
+  });
+  it('with one instance keeping its holds on disk, a swap sent before a restart still holds its output account', async () => {
+    const { mkdtempSync, readFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const file = join(mkdtempSync(join(tmpdir(), 'orientim-holds-')), 'holds.json');
+    const w = await world();
+    const before = { ...w, deps: { ...w.deps, boot: 'start-one-aaaa', shared: memoryShared(500_000, Date.now, file) } };
+    const first = await prepared(before);
+    const firstSigned = await signAsWallet(w.W, first.transaction);
+    expect((await finalize(before, first.ticket, firstSigned)).status).toBe(200);
+    expect(w.sent).toHaveLength(1);
+    expect(readFileSync(file, 'utf8')).toContain(signatureOf(firstSigned));
+    // Restarted while it has not landed: the hold is read back from the disk.
+    const after = { ...w, deps: { ...w.deps, boot: 'start-two-bbbb', shared: memoryShared(500_000, Date.now, file) } };
+    const second = await prepared(after);
+    const res = await finalize(after, second.ticket, await signAsWallet(w.W, second.transaction));
+    expect(res.status).toBe(409);
+    const { error } = await res.json();
+    expect(error.code).toBe('output-in-flight');
+    expect(error.inFlight).toBe(signatureOf(firstSigned));
+    expect(w.sent).toHaveLength(1);
+    // Once the first lands, the next swap into the account is prepared on the new balance and sent.
+    w.statuses.set(signatureOf(firstSigned), { confirmationStatus: 'confirmed', err: null });
+    const third = await prepared(after);
+    expect((await finalize(after, third.ticket, await signAsWallet(w.W, third.transaction))).status).toBe(200);
+    expect(w.sent).toHaveLength(2);
+  });
+
+  it('a holds file that cannot be read stops the start instead of forgetting what it held', async () => {
+    const { mkdtempSync, writeFileSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const file = join(mkdtempSync(join(tmpdir(), 'orientim-holds-')), 'holds.json');
+    writeFileSync(file, '[["orientim:out:x", "half');
+    expect(() => memoryShared(500_000, Date.now, file)).toThrow();
+    writeFileSync(file, JSON.stringify([['orientim:rl:x', 'v', Date.now() + 60_000]]));
+    expect(() => memoryShared(500_000, Date.now, file)).toThrow(/not a hold/);
+    // Expired holds are not read back.
+    writeFileSync(file, JSON.stringify([['orientim:out:x', 'm:s:1', Date.now() - 1]]));
+    expect(await memoryShared(500_000, Date.now, file).get('orientim:out:x')).toBeNull();
   });
 });
 
@@ -828,13 +869,19 @@ describe('API keys from the environment', () => {
     try {
       expect(agentDeps()).toMatchObject({ sharedRequired: true });
       expect(agentDeps()?.boot).toBeUndefined();
+      // One instance keeps its holds across a restart only on a disk of its own: without one, nothing is signed.
       process.env.ORIENTIM_SINGLE_INSTANCE = '1';
+      expect(agentDeps()).toMatchObject({ sharedRequired: true, boot: BOOT_ID });
+      const { mkdtempSync } = await import('node:fs');
+      const { tmpdir } = await import('node:os');
+      const { join } = await import('node:path');
+      process.env.ORIENTIM_STATE_DIR = mkdtempSync(join(tmpdir(), 'orientim-state-'));
       expect(agentDeps()).toMatchObject({ sharedRequired: false, boot: BOOT_ID });
       // Production without a treasury still turns the API off, wherever it runs.
       delete process.env.NEXT_PUBLIC_ORIENTIM_TREASURY;
       expect(agentDeps()).toBeNull();
     } finally {
-      for (const k of ['ORIENTIM_API_SECRET', 'ORIENTIM_API_KEYS', 'ORIENTIM_ENV', 'NEXT_PUBLIC_ORIENTIM_TREASURY', 'ORIENTIM_SINGLE_INSTANCE']) delete process.env[k];
+      for (const k of ['ORIENTIM_API_SECRET', 'ORIENTIM_API_KEYS', 'ORIENTIM_ENV', 'NEXT_PUBLIC_ORIENTIM_TREASURY', 'ORIENTIM_SINGLE_INSTANCE', 'ORIENTIM_STATE_DIR']) delete process.env[k];
       vi.restoreAllMocks();
     }
   });

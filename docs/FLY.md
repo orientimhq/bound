@@ -9,7 +9,10 @@ DDoS protection and rate limits. The image is `Dockerfile`; the machine is `fly.
 share (one message per one-time key, one swap in flight per output account, the rate limits). Each
 ticket and session carries the id of the process start that sealed it. After a restart or a deploy,
 finalize refuses a ticket from before with 409 `server-restarted` and signs nothing: the agent prepares
-again. A transaction already on chain is still answered as sent. Never run two machines in this mode:
+again. A transaction already on chain is still answered as sent. The output accounts held for swaps
+already sent are written to the volume (`ORIENTIM_STATE_DIR=/data`, `holds.json`) and read back at the
+next start: a swap prepared after a restart into the same account waits (409 `output-in-flight`) until
+the one sent before lands or expires. Never run two machines in this mode:
 `fly.toml` keeps one, updated in place (`strategy = "rolling"`), so the old process stops before the
 new one starts.
 

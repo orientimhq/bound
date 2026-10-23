@@ -881,7 +881,7 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     const shared = deps.shared ?? localShared;
     // Held per instance, one message per E and one swap per output account would not hold: nothing is signed.
     if (deps.sharedRequired && shared.kind !== 'redis') {
-      return refuse(503, 'unavailable', 'This deployment has no state its instances share (Redis is not configured), so Orientim signs no swap here and this request signed and sent nothing. The operator has to connect it; retrying will not help until then.');
+      return refuse(503, 'unavailable', 'This deployment keeps no state that holds across its instances and restarts (Redis, or ORIENTIM_STATE_DIR with one instance), so Orientim signs no swap here and this request signed and sent nothing. The operator has to set it up; retrying will not help until then.');
     }
     // The minimum-output check is the output account's balance at prepare plus the minimum. If the
     // balance moved since (another swap into this token, a transfer), the check could count those

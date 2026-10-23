@@ -5,13 +5,18 @@
  *
  *   ORIENTIM_ENV=production        the public deployment (Vercel's own production counts too)
  *   ORIENTIM_SINGLE_INSTANCE=1     one process serves every request (one Fly machine): its memory is
- *                                  the state every request shares, and nothing it held survives a restart
+ *                                  the state every request shares
+ *   ORIENTIM_STATE_DIR=/data       with one instance, a disk that outlives the process: the output
+ *                                  accounts held for swaps in flight are kept there across a restart
+ *                                  (shared.ts); without it, production finalize signs nothing
  */
 import { randomBytes } from 'node:crypto';
 
 export const isProduction = () => process.env.ORIENTIM_ENV === 'production' || process.env.VERCEL_ENV === 'production';
 
 export const singleInstance = () => process.env.ORIENTIM_SINGLE_INSTANCE === '1';
+
+export const stateDir = () => process.env.ORIENTIM_STATE_DIR?.trim() || undefined;
 
 /**
  * This process's own id, new at every start. With one instance, a ticket or a session carries it,

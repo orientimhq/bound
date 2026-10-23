@@ -1,5 +1,7 @@
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Redis } from '@upstash/redis';
-import { isProduction, singleInstance } from './env';
+import { isProduction, singleInstance, stateDir } from './env';
 
 /**
  * State every instance of the deployment sees at once: Redis (Upstash, over REST), when the
@@ -90,11 +92,57 @@ export function redisShared(url: string, token: string): Shared {
 const KEPT_UNTIL_EXPIRY = ['orientim:out:', 'orientim:e:'];
 
 /**
- * The same state in this instance's memory, at most `max` keys: the soonest to expire go first,
- * except the holds (KEPT_UNTIL_EXPIRY), and a store full of those fails as Redis down does.
+ * The output accounts held for a swap in flight. With `file`, they are written there before a claim
+ * answers and read back at the next start: a transaction sent before a restart can still land until
+ * its blockhash expires, and a swap prepared after it into the same account must wait for it. The
+ * one-time keys' messages need not be: a ticket from an earlier start is refused (BOOT_ID).
  */
-export function memoryShared(max = 500_000, now: () => number = Date.now): Shared {
-  const kept = new Map<string, { value: string; until: number }>();
+const KEPT_ACROSS_RESTARTS = 'orientim:out:';
+
+/** The holds `memoryShared` writes to `file`, still live at `now`. A file that cannot be read stops the start. */
+function readHolds(file: string, now: number): [string, { value: string; until: number }][] {
+  let text: string;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw e;
+  }
+  const rows = JSON.parse(text) as unknown;
+  if (!Array.isArray(rows)) throw new Error(`${file} is not a list of holds.`);
+  return rows.flatMap(r => {
+    const [k, value, until] = Array.isArray(r) ? r : [];
+    if (typeof k !== 'string' || !k.startsWith(KEPT_ACROSS_RESTARTS) || typeof value !== 'string' || typeof until !== 'number') {
+      throw new Error(`${file} holds an entry that is not a hold.`);
+    }
+    return until > now ? [[k, { value, until }] as [string, { value: string; until: number }]] : [];
+  });
+}
+
+/**
+ * The same state in this instance's memory, at most `max` keys: the soonest to expire go first,
+ * except the holds (KEPT_UNTIL_EXPIRY), and a store full of those fails as Redis down does. With
+ * `file`, the output accounts held survive a restart (KEPT_ACROSS_RESTARTS); a hold that cannot be
+ * written fails as Redis down does, so nothing is signed on it.
+ */
+export function memoryShared(max = 500_000, now: () => number = Date.now, file?: string): Shared {
+  const kept = new Map<string, { value: string; until: number }>(file ? readHolds(file, now()) : []);
+  // The keys `file` keeps, so that writing it never walks the whole store.
+  const held = new Set(kept.keys());
+  const save = (key: string) => {
+    if (!file || !key.startsWith(KEPT_ACROSS_RESTARTS)) return;
+    held.add(key);
+    const t = now();
+    const rows: [string, string, number][] = [];
+    for (const k of held) {
+      const v = kept.get(k);
+      if (v && v.until > t) rows.push([k, v.value, v.until]);
+      else held.delete(k);
+    }
+    // Whole or not at all: a start reads the last file written, never half of one.
+    writeFileSync(`${file}.tmp`, JSON.stringify(rows));
+    renameSync(`${file}.tmp`, file);
+  };
   const live = (key: string) => {
     const k = kept.get(key);
     if (!k) return null;
@@ -124,15 +172,31 @@ export function memoryShared(max = 500_000, now: () => number = Date.now): Share
       const had = live(key);
       if (had) return had.value;
       put(key, value, ms);
+      try {
+        save(key);
+      } catch (e) {
+        kept.delete(key);
+        throw e;
+      }
       return null;
     },
     async replace(key, was, value, ms) {
-      if (live(key)?.value !== was) return false;
+      const had = live(key);
+      if (had?.value !== was) return false;
       put(key, value, ms);
+      try {
+        save(key);
+      } catch (e) {
+        kept.set(key, had);
+        throw e;
+      }
       return true;
     },
     async drop(key, was) {
-      if (live(key)?.value === was) kept.delete(key);
+      if (live(key)?.value === was) {
+        kept.delete(key);
+        save(key);
+      }
     },
     async get(key) {
       return live(key)?.value ?? null;
@@ -166,7 +230,7 @@ export function redisFromEnv(): Shared | null {
   if (fromEnv?.for !== identity) {
     fromEnv = { for: identity, shared: url && token ? redisShared(url, token) : null };
     if (!fromEnv.shared && sharedRequired()) {
-      console.error('No Redis (UPSTASH_REDIS_REST_URL / KV_REST_API_URL): finalize refuses every swap, since one message per one-time key and one swap in flight per output account would hold per instance only. Connect Upstash Redis, or set ORIENTIM_TEST_MODE=1 if that is meant.');
+      console.error('No Redis (UPSTASH_REDIS_REST_URL / KV_REST_API_URL): finalize refuses every swap, since one message per one-time key and one swap in flight per output account would hold per instance only. Connect Upstash Redis; with one instance set ORIENTIM_STATE_DIR to a disk of its own; or set ORIENTIM_TEST_MODE=1 if that is meant.');
     } else if (!fromEnv.shared && isProduction() && !singleInstance()) {
       console.warn('No Redis (UPSTASH_REDIS_REST_URL / KV_REST_API_URL), in test mode: one message per one-time key, one swap in flight per output account, the rate limits and the RPC failover hold per instance only.');
     }
@@ -177,12 +241,21 @@ export function redisFromEnv(): Shared | null {
 /**
  * Must finalize have Redis to sign? In production, yes: serverless instances share no memory, so
  * without it two instances could each sign a swap into one output account, or another message with
- * one E. Not with one instance (ORIENTIM_SINGLE_INSTANCE=1), whose memory every request shares and
- * whose tickets from an earlier start are refused (env.ts, BOOT_ID). Nor with ORIENTIM_TEST_MODE=1.
+ * one E. Not with one instance (ORIENTIM_SINGLE_INSTANCE=1) that keeps its holds on a disk of its own
+ * (ORIENTIM_STATE_DIR): its memory every request shares, its tickets from an earlier start are refused
+ * (env.ts, BOOT_ID), and the output accounts it held outlive a restart. Nor with ORIENTIM_TEST_MODE=1.
  */
-export const sharedRequired = () => isProduction() && process.env.ORIENTIM_TEST_MODE !== '1' && !singleInstance();
+export const sharedRequired = () => isProduction() && process.env.ORIENTIM_TEST_MODE !== '1' && !(singleInstance() && stateDir());
+
+/** Where one instance keeps the output accounts it holds across a restart (ORIENTIM_STATE_DIR). */
+export function holdsFile(): string | undefined {
+  const dir = stateDir();
+  if (!dir) return undefined;
+  mkdirSync(dir, { recursive: true });
+  return join(dir, 'holds.json');
+}
 
 /** Redis when the deployment has it, else this instance's memory. */
 export function sharedState(): Shared {
-  return redisFromEnv() ?? (local ??= memoryShared());
+  return redisFromEnv() ?? (local ??= memoryShared(500_000, Date.now, singleInstance() ? holdsFile() : undefined));
 }
