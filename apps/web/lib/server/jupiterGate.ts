@@ -21,9 +21,11 @@ const SECOND_MS = 1_000;
 /**
  * The longest a request may wait for room: the client's own timeout for a Jupiter request
  * (agent/config.ts). Past as many waiting as the plan serves in that time, a new request is refused at
- * once as busy rather than left to time out.
+ * once as busy rather than left to time out, unless it can take the place of a client's with more waiting.
  */
 const MAX_WAIT_MS = 15_000;
+
+const busy = () => new JupiterError('Jupiter 429: too many requests waiting for room in the plan', 429);
 
 type Job = { go: () => void; stop: (reason: unknown) => void; signal?: AbortSignal; off?: () => void };
 
@@ -99,7 +101,18 @@ export function createJupiterGate(perMinute: number, now: () => number = Date.no
 
   const enter = (lane: string, signal?: AbortSignal) => new Promise<void>((go, stop) => {
     if (signal?.aborted) return stop(signal.reason);
-    if (count >= maxWaiting) return stop(new JupiterError('Jupiter 429: too many requests waiting for room in the plan', 429));
+    if (count >= maxWaiting) {
+      // Full: a client with fewer waiting takes the place of the newest request of the one with the
+      // most, so that a few clients keeping the line full cannot shut every other one out.
+      let longest: Job[] | undefined;
+      for (const jobs of lanes.values()) if (!longest || jobs.length > longest.length) longest = jobs;
+      if (!longest || longest.length <= (lanes.get(lane)?.length ?? 0) + 1) return stop(busy());
+      const out = longest.pop()!;
+      if (!longest.length) for (const [l, jobs] of lanes) if (jobs === longest) lanes.delete(l);
+      count--;
+      out.off?.();
+      out.stop(busy());
+    }
     const job: Job = { go, stop, signal };
     if (signal) {
       const abort = () => {

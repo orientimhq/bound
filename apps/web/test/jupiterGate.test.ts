@@ -124,6 +124,30 @@ describe('the Jupiter gate', () => {
     expect(out).toHaveLength(160);
   });
 
+  it('a full line still takes a new client: the client with the most waiting gives up its newest place', async () => {
+    const { out, fetchImpl } = recorder();
+    const gate = createJupiterGate(60);
+    const f = gate.wrap(fetchImpl);
+    // One a second: a0 goes now, and three clients keep the line full with five each.
+    const flood = ['a', 'b', 'c'].flatMap(k => Array.from({ length: k === 'a' ? 6 : 5 }, (_, i) => jupiterLane.run(k, () => f(`${k}${i}`))));
+    const outcomes = flood.map(p => p.then(() => 'sent', (e: { status?: number }) => e.status));
+    await settle();
+    expect(gate.waiting()).toBe(15);
+    // A client already holding as many as any other is refused at the door, as before.
+    await expect(jupiterLane.run('a', () => f('a-more'))).rejects.toMatchObject({ status: 429 });
+    // A new client is let in, in place of the newest request of a client with the most waiting.
+    const fresh = jupiterLane.run('d', () => f('d0'));
+    await settle();
+    expect(gate.waiting()).toBe(15);
+    expect(await outcomes[5]).toBe(429);
+    // And it is served in the clients' turn, not behind the whole line.
+    await vi.advanceTimersByTimeAsync(3_000);
+    await fresh;
+    expect(out.map(o => o.url)).toEqual(['a0', 'b0', 'c0', 'd0']);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect((await Promise.all(outcomes)).filter(o => o === 429)).toHaveLength(1);
+  });
+
   it('reads the plan from ORIENTIM_JUPITER_PER_MINUTE, and the Free plan without it', () => {
     expect(jupiterPerMinute()).toBe(60);
     process.env.ORIENTIM_JUPITER_PER_MINUTE = '600';
