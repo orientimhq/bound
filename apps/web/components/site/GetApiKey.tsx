@@ -81,7 +81,7 @@ export function GetApiKey({ skill }: { skill: SkillDownload }) {
         </div>
         <p className="hint">
           It works for {issued.wallet.slice(0, 4)}…{issued.wallet.slice(-4)} only, until {new Date(issued.expiresAt).toLocaleDateString()}.
-          Keep it: a wallet gets at most 5 keys a day, and each one works until it expires.
+          Keep it: a wallet gets at most 3 keys a day, and each one works until it expires.
         </p>
         <p className="key-next-title">Next</p>
         <ol className="key-next">

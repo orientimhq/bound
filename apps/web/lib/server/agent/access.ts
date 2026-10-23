@@ -47,7 +47,9 @@ export type AccessDeps = {
 };
 
 export const DEFAULT_KEYS_PER_HOUR = 300;
-const WALLET_KEYS_PER_DAY = 5;
+const WALLET_KEYS_PER_DAY = 3;
+/** Keys issued to one address an hour: enough for an operator setting up its agents' wallets from one server. */
+const KEYS_PER_ADDRESS_PER_HOUR = 30;
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   Response.json(body, { status, headers: { 'cache-control': 'no-store', ...headers } });
@@ -108,7 +110,7 @@ export async function keyIssue(req: Request, deps: AccessDeps): Promise<Response
   const old = outdated(req, deps);
   if (old) return old;
   const bucket = `keys-issue:${clientKey(req)}`;
-  const waitBucket = await limit(bucket, 10, 3_600_000);
+  const waitBucket = await limit(bucket, KEYS_PER_ADDRESS_PER_HOUR, 3_600_000);
   if (waitBucket !== null) {
     return fail(429, 'rate-limited', 'Too many keys requested from this address. Wait Retry-After seconds and try again.', { 'retry-after': String(waitBucket) });
   }

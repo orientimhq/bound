@@ -134,7 +134,7 @@ describe('the endpoints', () => {
     expect((await ask(await sign(other, c.message), deps(20_000_000n))).status).toBe(400);
   });
 
-  it('issue a wallet at most five keys a day, and every wallet together at most the hourly cap', async () => {
+  it('issue a wallet at most three keys a day, and every wallet together at most the hourly cap', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     try {
       // Ahead of every window the other tests opened.
@@ -146,10 +146,10 @@ describe('the endpoints', () => {
         }), d);
       };
       const W = await generateKeyPairSigner();
-      for (let i = 0; i < 5; i++) expect((await issue(W, deps(20_000_000n))).status).toBe(200);
-      const sixth = await issue(W, deps(20_000_000n));
-      expect(sixth.status).toBe(429);
-      expect(sixth.headers.get('retry-after')).toBeTruthy();
+      for (let i = 0; i < 3; i++) expect((await issue(W, deps(20_000_000n))).status).toBe(200);
+      const fourth = await issue(W, deps(20_000_000n));
+      expect(fourth.status).toBe(429);
+      expect(fourth.headers.get('retry-after')).toBeTruthy();
       // An empty wallet spends nothing of the hourly cap.
       vi.setSystemTime(Date.now() + 2 * 3_600_000);
       const capped = { ...deps(20_000_000n), maxKeysPerHour: 2 };
@@ -178,10 +178,10 @@ describe('the endpoints', () => {
       };
       for (let i = 0; i < 5; i++) expect((await issue()).status).toBe(503);
       failing = false;
-      for (let i = 0; i < 5; i++) expect((await issue()).status).toBe(200);
-      const sixth = await issue();
-      expect(sixth.status).toBe(429);
-      expect(Number(sixth.headers.get('retry-after'))).toBeGreaterThan(80_000);
+      for (let i = 0; i < 3; i++) expect((await issue()).status).toBe(200);
+      const fourth = await issue();
+      expect(fourth.status).toBe(429);
+      expect(Number(fourth.headers.get('retry-after'))).toBeGreaterThan(80_000);
     } finally {
       vi.useRealTimers();
     }
