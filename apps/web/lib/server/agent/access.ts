@@ -173,7 +173,7 @@ async function issueCounted(req: Request, deps: AccessDeps, body: Record<string,
   if (deps.recordAcceptance) {
     try {
       await deps.recordAcceptance({
-        wallet: wallet, terms: 'https://orientim.com/terms', termsUpdated: LEGAL.lastUpdated,
+        wallet, terms: 'https://orientim.com/terms', termsUpdated: LEGAL.lastUpdated,
         message: body.message as string, signature: body.signature as string,
         acceptedAt: new Date(now * 1000).toISOString(), keyExpiresAt: issued.expiresAt,
         skill: req.headers.get('x-orientim-skill')?.slice(0, 40) || null,
@@ -184,5 +184,5 @@ async function issueCounted(req: Request, deps: AccessDeps, body: Record<string,
   }
   // Issued and recorded: now it counts.
   await Promise.all([limit(perWallet, WALLET_KEYS_PER_DAY, 86_400_000), limit(all, maxAll, 3_600_000)]);
-  return json(200, { key: issued.key, wallet: wallet, expiresAt: issued.expiresAt });
+  return json(200, { key: issued.key, wallet, expiresAt: issued.expiresAt });
 }
