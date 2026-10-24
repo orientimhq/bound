@@ -99,6 +99,19 @@ a.ghost { display: inline-flex; align-items: center; }
   background: radial-gradient(closest-side, rgba(76, 189, 133, .20), transparent); filter: blur(24px); }
 .hero-app .terminal { box-shadow: 0 24px 64px rgba(0, 0, 0, .45), 0 0 48px rgba(76, 189, 133, .08); }
 .hero-actions { margin-top: 28px; }
+.hero-lead { margin: 22px 0 0; max-width: 54ch; color: var(--muted); font-size: 17px; line-height: 1.55; }
+.hero-lead b { color: var(--text); font-weight: 600; }
+/* The owner's limits, as checks that light up one after another. */
+.hero-rules { list-style: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 0; padding: 0; max-width: 560px; }
+.hero-rules li { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 999px; font-size: 13.5px; font-weight: 500;
+  border: 1px solid var(--ok-line); background: var(--ok-bg); opacity: 0; animation: rule-in .5s ease-out forwards; }
+.hero-rules svg { width: 14px; height: 14px; flex: none; fill: none; stroke: var(--mint); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.hero-rules .hero-rules-more { border-color: transparent; background: none; padding-left: 4px; animation-delay: .8s; }
+.hero-rules-more a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.hero-rules-more a:hover { color: var(--accent-hover); }
+@keyframes rule-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .hero-rules li { opacity: 1; animation: none; } }
+@media (max-width: 640px) { .hero-lead { font-size: 15.5px; } .hero-rules li { font-size: 12.5px; padding: 6px 10px; } }
 .cta-note { margin: 14px 0 0; color: var(--faint); font-size: 14px; }
 
 /* ---- home: a chain of blocks behind the page, strongest behind the hero; the wallet and its one

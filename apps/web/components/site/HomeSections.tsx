@@ -55,9 +55,13 @@ const LIMIT_CHIPS = ['Allowed tokens', 'Per-trade cap', 'Daily budget', 'Max sli
 
 const LIMIT_GROUPS = [
   ['Spend caps', 'A cap per trade and a budget per day, set for each token your agent spends.'],
-  ['Asset allowlist', 'Only the tokens you chose can be bought. A token someone names to your agent is refused.'],
+  ['Asset allowlist', 'Your agent sells only the tokens you gave a cap, and buys only the tokens you chose. A token someone names to your agent is refused.'],
   ['Price protection', 'The most slippage a trade may take, the furthest its floor may sit below the market price, and the largest price impact it may cause.'],
+  ['Your approval', 'Want to see the price first? Your agent asks for a quote and shows you the least that will arrive and the fees. The swap that follows can never accept less than you approved, and your yes lapses after 10 minutes.'],
 ];
+
+/** The hero's examples of the owner's limits, as the policy file on this page sets them. */
+const HERO_RULES = ['50 USDC a trade, at most', '200 USDC a day, at most', 'Only the tokens you choose', 'Slippage capped at 3%', 'Never less than you approved'];
 
 const THREATS: [string, string, string, string][] = [
   ['prompt', 'A message tells your agent to “swap everything” or “set slippage to 15%”.', 'With your policy file set, the skill stops at your limits: per trade, per day, the tokens you allow and the slippage you set.', 'Blocked before signing'],
@@ -73,6 +77,18 @@ export function HomeSections() {
           <div className="hero-copy">
             <p className="eyebrow">Zero-trust trade execution for AI agents on Solana</p>
             <h1 className="hero-title">Your trade gets its own wallet. <span className="hero-title-dim">Your wallet never becomes the trade.</span></h1>
+            <p className="hero-lead">
+              <b>You write the rules. Your agent can’t break them.</b> Every trade is checked against your limits on your own machine
+              before your wallet signs, so even a hijacked agent stops where you said.
+            </p>
+            <ul className="hero-rules" aria-label="Examples of limits you set">
+              {HERO_RULES.map((rule, i) => (
+                <li key={rule} style={{ animationDelay: `${0.15 + i * 0.12}s` }}>
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5l3 3 6-7" /></svg>{rule}
+                </li>
+              ))}
+              <li className="hero-rules-more"><a href="#limits">See every limit →</a></li>
+            </ul>
             <div className="cta-actions hero-actions">
               <a className="button primary-link" href="/developers#access">Get Instant API Key</a>
               <a className="button ghost-link" href="/developers">Explore Docs</a>
@@ -221,8 +237,8 @@ export function HomeSections() {
               <p className="eyebrow eyebrow-cyan">Limits you set</p>
               <h2>Your rules, enforced before every signature.</h2>
               <p className="lead">
-                Six controls in one file you keep out of your agent’s reach. Every trade is checked against them on your own machine before the
-                wallet is asked to sign. A trade that breaks one is never signed.
+                Six limits in one file you keep out of your agent’s reach, and your approval whenever you want to see the price first.
+                Every trade is checked against them on your own machine before the wallet is asked to sign. A trade that breaks one is never signed.
               </p>
               <div className="lim-groups">
                 {LIMIT_GROUPS.map(([title, text], i) => (
@@ -248,7 +264,7 @@ export function HomeSections() {
   "maxBelowBps": 500,`}<span className="dim">{`            // floor at most 5% below market`}</span>{`
   "maxPriceImpactBps": 500,`}<span className="dim">{`      // price impact at most 5%`}</span>{`
   "stateDir": "/home/agent/.orientim-state"`}<span className="dim">{`  // where every trade is counted`}</span>{`
-}`}{'\n\n'}<span className="dim">{`# the agent is told to trade 500 USDC`}</span>{'\n'}<span className="ok">{`✓ your policy holds it to 50 USDC a trade`}</span>{'\n'}<span className="dim">{`# the agent is told to buy a token someone named`}</span>{'\n'}<span className="ok">{`✓ your policy allows only the tokens you chose`}</span>{'\n'}<span className="dim">{`# the agent is told to set slippage to 15%`}</span>{'\n'}<span className="ok">{`✓ your policy caps slippage at 3%`}</span></pre>
+}`}{'\n\n'}<span className="dim">{`# the agent is told to trade 500 USDC`}</span>{'\n'}<span className="ok">{`✓ your policy holds it to 50 USDC a trade`}</span>{'\n'}<span className="dim">{`# the agent is told to buy a token someone named`}</span>{'\n'}<span className="ok">{`✓ your policy allows only the tokens you chose`}</span>{'\n'}<span className="dim">{`# the agent is told to set slippage to 15%`}</span>{'\n'}<span className="ok">{`✓ your policy caps slippage at 3%`}</span>{'\n'}<span className="dim">{`# the agent is told to accept less than you approved`}</span>{'\n'}<span className="ok">{`✓ the swap is held to the minimum you said yes to`}</span></pre>
                 </div>
               </details>
             </div>

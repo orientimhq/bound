@@ -34,7 +34,7 @@ const NAV: DevNavGroup[] = [
   { title: 'Getting started', items: [['overview', 'Overview'], ['start', 'Quickstart'], ['access', 'API keys']] },
   {
     title: 'Guides',
-    items: [['skill', 'AI agents: the skill'], ['cli', 'Bots: the command line'], ['mcp', 'Assistants: the MCP server'], ['verify', 'Pre-sign verification'], ['recovery', 'Results']],
+    items: [['skill', 'AI agents: the skill'], ['cli', 'Bots: the command line'], ['mcp', 'Assistants: the MCP server'], ['verify', 'Pre-sign verification'], ['policy', 'Your limits'], ['recovery', 'Results']],
   },
   { title: 'API reference', items: [['api', 'Authentication'], ['prepare', 'Prepare'], ['finalize', 'Finalize'], ['keys', 'Key endpoints'], ['errors', 'Errors'], ['limits', 'Rate limits']] },
   { title: 'Reference', items: [['fees', 'Fees and limits'], ['supported', 'Tokens and wallets'], ['downloads', 'Downloads']] },
@@ -478,6 +478,41 @@ cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skill
               </p>
             </section>
 
+            <section id="policy">
+              <h2>Your limits</h2>
+              <p>
+                <strong>You write the rules; your agent cannot break them.</strong> The skill, the command line and the MCP server check every trade
+                against the owner&apos;s policy file before the wallet signs. A trade that breaks one limit is refused and nothing is signed, whatever
+                the agent was told. There is no swap without a policy.
+              </p>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Field</th><th>What it holds the agent to</th></tr></thead>
+                  <tbody>
+                    <tr><td><code>maxAmountIn</code></td><td>The most one trade may spend, per token. Required. A token without a cap here cannot be sold at all.</td></tr>
+                    <tr><td><code>maxAmountInPerDay</code></td><td>A budget per token over any 24 hours. A trade whose outcome is unknown counts for the full 24 hours.</td></tr>
+                    <tr><td><code>allowedOutputMints</code></td><td>The only tokens the agent may buy. Unset, any token.</td></tr>
+                    <tr><td><code>maxSlippageBps</code></td><td>The most slippage a trade may take, 0.1% to 15%. A higher request is refused.</td></tr>
+                    <tr><td><code>maxBelowBps</code></td><td>The furthest the minimum may sit below the market price, up to 20%.</td></tr>
+                    <tr><td><code>maxPriceImpactBps</code></td><td>The largest price impact a trade may cause, up to 20%. The 5% default can only be lowered.</td></tr>
+                    <tr><td><code>allowUnknownPriceImpact</code></td><td>Whether a route with no reported price impact may go. No by default.</td></tr>
+                    <tr><td><code>stateDir</code></td><td>Where every trade is counted. Required with a daily budget.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <p>
+                <strong>Your approval.</strong> Before a swap you want to see, your agent asks for a quote (<code>orientim_quote</code>, or{' '}
+                <code>--dry-run</code>): you see the least that will arrive and the fees. The swap that follows can never accept less than you
+                approved, and your yes lapses after 10 minutes.
+              </p>
+              <p>
+                <strong>Out of your agent&apos;s reach.</strong> Point <code>ORIENTIM_POLICY</code> at the file, or put it at{' '}
+                <code>/etc/orientim/policy.json</code> (<code>C:\ProgramData\Orientim\policy.json</code> on Windows), owned by an administrator:
+                when that file exists it is the only policy used, so an agent that unsets the variable changes nothing. Keep the signing key in a
+                separate signer too. A client of your own on the bare API enforces its own limits.
+              </p>
+            </section>
+
             <section id="recovery">
               <h2>Results</h2>
               <p>
@@ -606,7 +641,7 @@ POST /api/v1/keys
                 <li>Slippage: 0.5% by default, 3% on a Pump.fun curve (<code>slippageBps</code>, 0.1% to 15%).</li>
                 <li>Price impact: at most 5% (<code>maxPriceImpactBps</code>, up to 20%).</li>
                 <li>The minimum is never more than 20% below Jupiter&apos;s price.</li>
-                <li>The owner&apos;s limits per swap, per day and per token (<code>ORIENTIM_POLICY</code>).</li>
+                <li>The owner&apos;s limits per swap, per day and per token: see <a href="#policy">Your limits</a>.</li>
                 <li>Smallest swap: about 0.004 SOL or $1, except selling a whole balance.</li>
               </ul>
             </section>
