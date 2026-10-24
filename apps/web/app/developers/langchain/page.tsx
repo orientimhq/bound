@@ -25,7 +25,7 @@ const orientim = new MCPAdapter({
       env: {
         SOLANA_RPC_URL: process.env.SOLANA_RPC_URL!,
         ORIENTIM_WALLET_KEYPAIR: '/home/agent/agent-wallet.json',
-        ORIENTIM_POLICY: '/home/agent/orientim-policy.json',
+        ORIENTIM_POLICY: '/etc/orientim/policy.json',
       },
       // Legacy mode lets the server ask you before a swap, through this function.
       mode: 'legacy',

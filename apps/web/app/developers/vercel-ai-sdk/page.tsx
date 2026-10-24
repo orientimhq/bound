@@ -22,7 +22,7 @@ const orientim = await createMCPClient({
     env: {
       SOLANA_RPC_URL: process.env.SOLANA_RPC_URL!,
       ORIENTIM_WALLET_KEYPAIR: '/home/agent/agent-wallet.json',
-      ORIENTIM_POLICY: '/home/agent/orientim-policy.json',
+      ORIENTIM_POLICY: '/etc/orientim/policy.json',
     },
   }),
   // Tells the server it may ask you before a swap.

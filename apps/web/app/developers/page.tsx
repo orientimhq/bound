@@ -246,7 +246,7 @@ gh attestation verify orientimhq-swap-${SKILL_VERSION}.tgz -R orientimhq/orienti
 export ORIENTIM_API_KEY=ori_...
 export SOLANA_RPC_URL=<your own RPC>
 export JUPITER_API_KEY=<your Jupiter key>
-export ORIENTIM_POLICY=/home/agent/orientim-policy.json`}</code></pre>
+export ORIENTIM_POLICY=/etc/orientim/policy.json`}</code></pre>
                 </li>
                 <li>
                   <strong>Set the owner&apos;s limits</strong> in a file the agent cannot edit: 50 USDC a swap, 200 a day, only into SOL. A daily limit needs a <code>stateDir</code>.
@@ -254,7 +254,7 @@ export ORIENTIM_POLICY=/home/agent/orientim-policy.json`}</code></pre>
   "maxAmountIn": { "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": "50000000" },
   "maxAmountInPerDay": { "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": "200000000" },
   "allowedOutputMints": ["So11111111111111111111111111111111111111112"],
-  "stateDir": "/home/agent/.orientim-state"
+  "stateDir": "/var/lib/orientim"
 }`}</code></pre>
                 </li>
                 <li>

@@ -263,7 +263,7 @@ export function HomeSections() {
   "maxSlippageBps": 300,`}<span className="dim">{`         // never more than 3% slippage`}</span>{`
   "maxBelowBps": 500,`}<span className="dim">{`            // floor at most 5% below market`}</span>{`
   "maxPriceImpactBps": 500,`}<span className="dim">{`      // price impact at most 5%`}</span>{`
-  "stateDir": "/home/agent/.orientim-state"`}<span className="dim">{`  // where every trade is counted`}</span>{`
+  "stateDir": "/var/lib/orientim"`}<span className="dim">{`  // every trade counted, out of the agent’s reach`}</span>{`
 }`}{'\n\n'}<span className="dim">{`# the agent is told to trade 500 USDC`}</span>{'\n'}<span className="ok">{`✓ your policy holds it to 50 USDC a trade`}</span>{'\n'}<span className="dim">{`# the agent is told to buy a token someone named`}</span>{'\n'}<span className="ok">{`✓ your policy allows only the tokens you chose`}</span>{'\n'}<span className="dim">{`# the agent is told to set slippage to 15%`}</span>{'\n'}<span className="ok">{`✓ your policy caps slippage at 3%`}</span>{'\n'}<span className="dim">{`# the agent is told to accept less than you approved`}</span>{'\n'}<span className="ok">{`✓ the swap is held to the minimum you said yes to`}</span></pre>
                 </div>
               </details>
