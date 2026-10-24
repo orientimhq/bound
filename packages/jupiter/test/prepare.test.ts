@@ -51,8 +51,11 @@ async function prepare(output: Address, opts: {
   minFee?: SwapSettings['minFee']; leavesOpen?: readonly string[]; chosenSlippageBps?: number;
   noPostBalances?: boolean; takerKeepsAfter?: bigint; rentMoves?: number; rentDeadBand?: boolean;
   priorityFee?: (writable: readonly Address[]) => Promise<bigint | null>;
+  minWalletLamports?: bigint; walletFunded?: boolean;
 } = {}) {
   const { W, accounts } = await setup(output, opts);
+  // The fake chain gives every account it knows 0.002 SOL.
+  if (opts.walletFunded) accounts.set(W, { owner: address('11111111111111111111111111111111'), data: new Uint8Array(0) });
   // The wallet holds the input token, unless a test says otherwise through `chain`.
   if ((opts.input ?? USDC) !== WSOL_MINT) for (const [key, account] of await fundedAccounts(W, opts.input ?? USDC, opts.wIn)) accounts.set(key, account);
   if (opts.inputFeeBps) accounts.set(USDC, feeMint(DECIMALS[USDC], opts.inputFeeBps));
@@ -77,11 +80,21 @@ async function prepare(output: Address, opts: {
       inputDecimals: opts.inputDecimals ?? DECIMALS[opts.input ?? USDC], outputDecimals: DECIMALS[output], version: opts.version ?? 1,
       acceptedMinOut: opts.acceptedMinOut, acceptedMinReceived: opts.acceptedMinReceived, acceptedCostBps: opts.acceptedCostBps, expectCurve: opts.expectCurve,
       ...(opts.routingMode ? { routingMode: opts.routingMode } : {}),
+      ...(opts.minWalletLamports !== undefined ? { minWalletLamports: opts.minWalletLamports } : {}),
     },
   );
 }
 
 const codeOf = async (p: Promise<unknown>) => p.then(() => 'ok', (e: unknown) => (e instanceof OrientimError ? e.code : String(e)));
+
+describe('the compute budget', () => {
+  it('is what the simulation used, plus 30% and 20,000, never more than 1.4M', async () => {
+    // The fake simulation reports 200,000 units.
+    const prepared = await prepare(BONK);
+    expect(prepared.computeUnits).toBe(Math.ceil(200_000 * 1.3) + 20_000);
+    expect(prepared.computeUnits).toBeLessThanOrEqual(1_400_000);
+  });
+});
 
 describe('the amount the user typed is converted with on-chain decimals', () => {
   it('an interface that used metadata decimals (9 for USDC) is refused before anything is built', async () => {
@@ -775,6 +788,21 @@ describe('the reason is named, not blamed on the market', () => {
     const failure = await prepare(BONK, { wIn: { amount: 250_000n }, amountIn: 1_000_000n }).catch((e: OrientimError) => e);
     expect((failure as OrientimError).code).toBe('insufficient-balance');
     expect((failure as OrientimError).message).toContain('holds 0.25 of the input token, less than the 1 this swap needs');
+  });
+
+  it('a SOL sale the wallet can pay only without its network fee is refused before Jupiter is asked', async () => {
+    const asked = { count: 0 };
+    const base = fakeJupiter();
+    const jupiter: JupiterClient = { ...base, build: (q: BuildParams) => { asked.count++; return base.build(q); } };
+    // 0.002 SOL held; 0.0015 to sell and 0.001 kept for the fee is 0.0025.
+    const failure = await prepare(BONK, { input: WSOL_MINT, amountIn: 1_500_000n, minWalletLamports: 1_000_000n, walletFunded: true, jupiter }).catch((e: OrientimError) => e);
+    expect((failure as OrientimError).code).toBe('insufficient-balance');
+    expect((failure as OrientimError).message).toContain('its network fee included');
+    expect(asked.count).toBe(0);
+    // An empty wallet selling a token is refused the same way: it cannot pay the fee.
+    const empty = await prepare(BONK, { minWalletLamports: 1_000_000n }).catch((e: OrientimError) => e);
+    expect((empty as OrientimError).code).toBe('insufficient-balance');
+    expect((empty as OrientimError).message).toContain('its network fee included');
   });
 
   it("a failure in Orientim's own steps before the swap stops at once, without blaming a market", async () => {

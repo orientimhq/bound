@@ -143,6 +143,20 @@ describe('the local Pump.fun curve route', () => {
     });
   }
 
+  it('a mayhem-mode curve is built the same way: the flag changes no account and no amount', async () => {
+    const plain = await setUp(buy);
+    const mayhem = await setUp(buy, d => { d[81] = 1; });
+    const built = async (s: typeof plain) => {
+      const { jupiter, asked } = standIn();
+      const r = await withLocalCurveRoutes(jupiter, fakeRpc(s.accounts).rpc, { random: () => 0, onFallback: x => { throw new Error(x); } }).build(s.params);
+      expect(asked).toEqual([]);
+      return r;
+    };
+    const [a, b] = [await built(plain), await built(mayhem)];
+    expect(b.outAmount).toBe(a.outAmount);
+    expect(digest(b)).toBe(digest(a));
+  });
+
   it('reads only the curve and the mint again within a minute', async () => {
     const { accounts, params } = await setUp(buy);
     const { rpc, reads } = fakeRpc(accounts);
@@ -222,6 +236,9 @@ describe('the local Pump.fun curve route', () => {
     ['a classic SPL mint', (a, mint) => { a.set(mint, { owner: TOKEN_PROGRAM, data: new Uint8Array(82) }); }],
     ['a second fee tier', a => { const d = a.get(FEE_CONFIG)!.data; new DataView(d.buffer).setUint32(65, 2, true); }],
     ['a fee tier from a market cap', a => { const d = a.get(FEE_CONFIG)!.data; d[69] = 1; }],
+    ['an LP fee on the curve', a => { const d = a.get(FEE_CONFIG)!.data; new DataView(d.buffer).setBigUint64(85, 1n, true); }],
+    ['a protocol fee past 10%', a => { const d = a.get(FEE_CONFIG)!.data; new DataView(d.buffer).setBigUint64(93, 1_001n, true); }],
+    ['a creator fee past 10%', a => { const d = a.get(FEE_CONFIG)!.data; new DataView(d.buffer).setBigUint64(101, 1_001n, true); }],
     ['a deactivated lookup table', a => { const d = a.get(CURVE_LOOKUP_TABLE)!.data; new DataView(d.buffer).setBigUint64(4, 5n, true); }],
     ['a missing global account', a => { a.delete(GLOBAL); }],
   ];

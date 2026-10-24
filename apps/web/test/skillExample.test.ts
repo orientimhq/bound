@@ -1167,6 +1167,18 @@ describe('orientim-verify, the command for bots in other languages', () => {
     expect(approvalFor(dir, key)).toBeNull();
   });
 
+  it('a clock set back after an approval drops it, so the owner is asked again instead of it living longer', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orientim-approval-'));
+    const key = { owner: 'W', inputMint: 'A', outputMint: 'B', amountIn: '5' };
+    const now = Date.now();
+    recordApproval(dir, { ...key, minOut: '7', expiresAt: now + APPROVAL_MS });
+    // Within a minute of drift it is still the same approval.
+    expect(keptApproval(dir, key, now - 30_000)?.minOut).toBe('7');
+    // Two minutes back it would outlive its ten minutes: forgotten, on disk too.
+    expect(keptApproval(dir, key, now - 2 * 60_000)).toBeNull();
+    expect(approvalFor(dir, key)).toBeNull();
+  });
+
   it('an approval no dry run could have written is not kept', () => {
     const dir = mkdtempSync(join(tmpdir(), 'orientim-approval-'));
     const key = { owner: 'W', inputMint: 'A', outputMint: 'B', amountIn: '5' };
@@ -2530,6 +2542,16 @@ describe("the owner's ceilings on tolerance, floor and price impact, and the aut
     await expect(swapWith(b, thin, {}, policyFor({ maxPriceImpactBps: 300 }))).rejects.toMatchObject({ impactBps: 400, limitBps: 300 });
     // Within the owner's limits the swap goes through.
     expect((await swapWith(b, b.fetchImpl, { maxBelowBps: 400 }, policyFor({ maxBelowBps: 500, maxSlippageBps: 100, maxPriceImpactBps: 600 }))).outcome).toBe('confirmed');
+  });
+
+  it('a policy file that is not a JSON object stops everything with a configuration error', () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'orientim-badjson-')), 'policy.json');
+    for (const text of ['{ "maxAmountIn": ', 'not json', '', '[]', 'null', '"text"', '42']) {
+      writeFileSync(file, text);
+      expect(() => loadPolicy(file), JSON.stringify(text)).toThrow(/cannot be read as JSON|is not a JSON object/);
+      expect(() => loadPolicy(file)).toThrow('Nothing was prepared');
+    }
+    expect(() => loadPolicy(join(tmpdir(), 'orientim-no-such-dir', 'policy.json'))).toThrow('cannot be read as JSON');
   });
 
   it('the policy file takes the ceilings as whole bps within the hard limits, and nothing else', () => {

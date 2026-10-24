@@ -4,7 +4,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { address } from '@solana/kit';
-import { checkBuildResponse, createJupiterClient, JupiterError, LABELS_MS } from '../src/client.ts';
+import { checkBuildResponse, createJupiterClient, JupiterError, LABELS_MS, serverWaitMs } from '../src/client.ts';
 
 const good = {
   inputMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
@@ -36,6 +36,19 @@ describe('Jupiter /build responses are validated', () => {
     await client.build({ ...params, mode: 'fast' });
     expect(new URL(urls[0]).searchParams.has('mode')).toBe(false);
     expect(new URL(urls[1]).searchParams.get('mode')).toBe('fast');
+  });
+  it('never names a payer, and never lets Jupiter wrap or unwrap SOL', async () => {
+    const urls: string[] = [];
+    const client = createJupiterClient({
+      buildUrl: 'https://jupiter.test/build', tokensUrl: 'https://jupiter.test/tokens', labelsUrl: 'https://jupiter.test/labels',
+      fetchImpl: (async (url: string) => { urls.push(url); return Response.json(good); }) as typeof fetch,
+    });
+    const taker = address('11111111111111111111111111111111');
+    await client.build({ inputMint: address(good.inputMint), outputMint: address(good.outputMint), amount: 1n, taker, slippageBps: 50, maxAccounts: 64 });
+    const q = new URL(urls[0]).searchParams;
+    expect(q.has('payer')).toBe(false);
+    expect(q.get('wrapAndUnwrapSol')).toBe('false');
+    expect(q.get('taker')).toBe(taker);
   });
   it('a well-formed quote passes unchanged', () => {
     expect(checkBuildResponse(good)).toBe(good);
@@ -116,7 +129,7 @@ describe('a Jupiter under load', () => {
     });
     // A token program Jupiter's own service could not find, inside its 500: its index lagging behind a
     // new Pump.fun token, which passes a few seconds later on mainnet.
-    for (const busy of ['{"error":"Oracle price out of date. Pair temporarily unavailable"}', '{"error":"500: Oracle is stale"}', '{"error":"The price was expired"}', '{"error":"500: {\\"error\\":\\"Missing token program for Xpump\\"}"}']) {
+    for (const busy of ['{"error":"Pool has not been updated in a while"}', '{"error":"Quote failed"}', '{"error":"No matching liquidity right now"}', '{"error":"Oracle price out of date. Pair temporarily unavailable"}', '{"error":"500: Oracle is stale"}', '{"error":"The price was expired"}', '{"error":"500: {\\"error\\":\\"Missing token program for Xpump\\"}"}']) {
       const counter = { calls: 0 };
       expect((await answering([busy, 'ok'], counter).build(params)).outAmount).toBe(good.outAmount);
       expect(counter.calls).toBe(2);
@@ -136,6 +149,38 @@ describe('a Jupiter under load', () => {
     expect(asked).toBe(4);
     await expect(client.build(params)).rejects.toMatchObject({ status: 429 });
     expect(counter.calls).toBe(asked);
+  });
+});
+
+describe("Jupiter's own wait", () => {
+  const h = (o: Record<string, string>) => new Headers(o);
+  it('Retry-After in seconds is read first', () => {
+    expect(serverWaitMs(h({ 'retry-after': '2', 'x-ratelimit-reset': '9999999999' }), 0)).toBe(2000);
+  });
+  it('x-ratelimit-reset is the Unix second the window frees, counted from now', () => {
+    expect(serverWaitMs(h({ 'x-ratelimit-reset': '101' }), 100_000)).toBe(1000);
+  });
+  it('a reset already past, a zero, garbage or no header at all ask for no wait', () => {
+    expect(serverWaitMs(h({ 'x-ratelimit-reset': '99' }), 100_000)).toBeNull();
+    expect(serverWaitMs(h({ 'retry-after': '0' }), 0)).toBeNull();
+    expect(serverWaitMs(h({ 'retry-after': 'soon', 'x-ratelimit-reset': 'later' }), 0)).toBeNull();
+    expect(serverWaitMs(h({}), 0)).toBeNull();
+  });
+  it('a 429 that asks for a long wait is waited for at most a few seconds', async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const client = createJupiterClient({
+        buildUrl: 'https://jupiter.test/build', tokensUrl: 'https://jupiter.test/tokens', labelsUrl: 'https://jupiter.test/labels',
+        fetchImpl: (async () => (calls++ === 0 ? new Response('{}', { status: 429, headers: { 'retry-after': '3600' } }) : Response.json(good))) as unknown as typeof fetch,
+      });
+      const done = client.build({ inputMint: address(good.inputMint), outputMint: address(good.outputMint), amount: 1n, taker: address('11111111111111111111111111111111'), slippageBps: 50, maxAccounts: 64 });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect((await done).outAmount).toBe(good.outAmount);
+      expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

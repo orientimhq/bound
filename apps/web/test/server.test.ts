@@ -252,3 +252,69 @@ describe('the package the site points agents to', () => {
       .toBe(readFileSync(join(root, 'node_modules/@orientimhq/swap/skills/orientim-protected-swap/reference/AGENT-API.md'), 'utf8'));
   });
 });
+
+describe('a flood in one limiter never touches another', () => {
+  it('50,000 new keys in one limiter leave a count in another limiter where it was', () => {
+    const agent = `agent:${uniqueIp()}`;
+    for (let i = 0; i < 3; i++) rateLimited(agent, 3);
+    expect(rateLimited(agent, 3)).toBe(true);
+    for (let i = 0; i < 50_001; i++) rateLimited(`floodlimiter:${i}`, 1);
+    // The agent's window is still full: the flood made room only in its own limiter.
+    expect(rateLimited(agent, 3)).toBe(true);
+  });
+
+  it('a full limiter makes room by dropping its oldest window, so a newcomer is still counted', () => {
+    for (let i = 0; i < 50_000; i++) rateLimited(`fulllimiter:${i}`, 1);
+    const newcomer = 'fulllimiter:new';
+    expect(rateLimited(newcomer, 1)).toBe(false);
+    expect(rateLimited(newcomer, 1)).toBe(true);
+  });
+});
+
+describe('another site cannot spend the proxies through its visitors', () => {
+  const req = (site?: string) => new Request('http://orientim.test/', { headers: site ? { 'sec-fetch-site': site } : {} });
+
+  it('only a cross-site browser request is from another site', async () => {
+    const { fromAnotherSite } = await import('../lib/server/rateLimit.ts');
+    expect(fromAnotherSite(req('cross-site'))).toBe(true);
+    expect(fromAnotherSite(req('same-origin'))).toBe(false);
+    expect(fromAnotherSite(req('same-site'))).toBe(false);
+    expect(fromAnotherSite(req('none'))).toBe(false);
+    expect(fromAnotherSite(req())).toBe(false);
+  });
+});
+
+describe('an oversized body is refused while it is read', () => {
+  const read = async (body: BodyInit | null, headers: Record<string, string> = {}, max = 16) => {
+    const { readBodyLimited } = await import('../lib/server/body.ts');
+    return readBodyLimited(new Request('http://orientim.test/', { method: 'POST', body, headers, ...(body instanceof ReadableStream ? { duplex: 'half' } : {}) } as RequestInit), max);
+  };
+  const stream = (chunks: string[]) => {
+    let pulled = 0;
+    const s = new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (pulled < chunks.length) c.enqueue(new TextEncoder().encode(chunks[pulled++]));
+        else c.close();
+      },
+    }, { highWaterMark: 0 });
+    return { s, pulled: () => pulled };
+  };
+
+  it('a body within the limit is read whole, multi-byte characters included', async () => {
+    expect(await read('{"a":"ë"}')).toBe('{"a":"ë"}');
+    expect(await read('x'.repeat(16))).toBe('x'.repeat(16));
+    expect(await read(null)).toBe('');
+  });
+
+  it('a declared length over the limit is refused before a byte is read', async () => {
+    const { s, pulled } = stream(['x']);
+    expect(await read(s, { 'content-length': '17' })).toBeNull();
+    expect(pulled()).toBe(0);
+  });
+
+  it('a stream that lies about its length is cut at the byte that crosses the limit', async () => {
+    const { s, pulled } = stream(['x'.repeat(10), 'x'.repeat(10), 'x'.repeat(10), 'x'.repeat(10)]);
+    expect(await read(s, { 'content-length': '5' })).toBeNull();
+    expect(pulled()).toBeLessThan(4);
+  });
+});
