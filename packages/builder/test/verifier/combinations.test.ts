@@ -15,6 +15,8 @@ import { BONK, JUP, LIFETIME, scenario, USDC } from './fixtures.ts';
 
 const RUNS = Number(process.env.ORIENTIM_FUZZ_RUNS ?? ((import.meta as { env?: { MODE?: string } }).env?.MODE === 'fuzz' ? 20_000 : 120));
 const TIMEOUT = 60_000 + RUNS * 60;
+// The long fuzz runs give each shard its own seed (ORIENTIM_FUZZ_SEED), so a failure can be replayed.
+const SEED = process.env.ORIENTIM_FUZZ_SEED ? Number(process.env.ORIENTIM_FUZZ_SEED) : undefined;
 
 // SOL on either side; USDC on the output (a fee there); two tokens neither of which is SOL or a
 // stablecoin on the output (a fee on the input, or in SOL from the wallet).
@@ -60,7 +62,7 @@ describe('every combination the compiler builds passes the verifier', () => {
         }
         expect(verdict.networkFeeLamports).toBeGreaterThan(0n);
       }),
-      { numRuns: RUNS },
+      { numRuns: RUNS, ...(SEED !== undefined ? { seed: SEED } : {}) },
     );
   }, TIMEOUT);
 });

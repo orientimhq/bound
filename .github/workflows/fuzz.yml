@@ -16,9 +16,9 @@ name: Fuzz
 #   cases of up to four clients swapping at once, each with rules of its own;
 # - one instance (Fly) restarted at any point between prepare and finalize;
 # - the Pump.fun curve route Orientim builds without Jupiter, on any curve, fees and amount.
-# The verifier's own suites (honest transactions, attacks, Token-2022, the tolerance rule, the edges,
-# mutations) build their transactions with @orientim/builder, which is no longer in the public
-# package: they run here again once @orientimhq/swap 3.0.0 is pinned.
+# - the published verifier (@orientimhq/swap, the version package.json pins) against transactions this
+#   repository's builder makes: honest swaps, mutations, the tolerance rule, the edges, Token-2022 and
+#   every pair (packages/builder/test/verifier).
 #
 # By hand only (Actions, Fuzz, Run workflow), before a release: a run is some 1,000 billed minutes,
 # half of a private repository's free month. CI runs the same properties at their normal size on
@@ -386,6 +386,126 @@ jobs:
             file: packages/jupiter/test/curveRoute.property.test.ts
             runs: 50000
             proves: "the Pump.fun curve route built without Jupiter, on any curve, fees, amount and tolerance: left to Jupiter exactly when it could not execute, otherwise read back by the verifier as built"
+          - suite: verifier-honest
+            shard: 1
+            of: 4
+            file: packages/builder/test/verifier/property.test.ts
+            runs: 40000
+            proves: "any honest protected swap, of any pair, size, fee side and hop count, is accepted by the published verifier, and its own compiled bytes read back as built"
+          - suite: verifier-honest
+            shard: 2
+            of: 4
+            file: packages/builder/test/verifier/property.test.ts
+            runs: 40000
+            proves: "any honest protected swap, of any pair, size, fee side and hop count, is accepted by the published verifier, and its own compiled bytes read back as built"
+          - suite: verifier-honest
+            shard: 3
+            of: 4
+            file: packages/builder/test/verifier/property.test.ts
+            runs: 40000
+            proves: "any honest protected swap, of any pair, size, fee side and hop count, is accepted by the published verifier, and its own compiled bytes read back as built"
+          - suite: verifier-honest
+            shard: 4
+            of: 4
+            file: packages/builder/test/verifier/property.test.ts
+            runs: 40000
+            proves: "any honest protected swap, of any pair, size, fee side and hop count, is accepted by the published verifier, and its own compiled bytes read back as built"
+          - suite: verifier-mutation
+            shard: 1
+            of: 4
+            file: packages/builder/test/verifier/mutation.property.test.ts
+            runs: 200000
+            proves: "instructions dropped, repeated, reordered, rewritten or added, and accounts swapped, several at once: nothing that could harm the wallet is accepted"
+          - suite: verifier-mutation
+            shard: 2
+            of: 4
+            file: packages/builder/test/verifier/mutation.property.test.ts
+            runs: 200000
+            proves: "instructions dropped, repeated, reordered, rewritten or added, and accounts swapped, several at once: nothing that could harm the wallet is accepted"
+          - suite: verifier-mutation
+            shard: 3
+            of: 4
+            file: packages/builder/test/verifier/mutation.property.test.ts
+            runs: 200000
+            proves: "instructions dropped, repeated, reordered, rewritten or added, and accounts swapped, several at once: nothing that could harm the wallet is accepted"
+          - suite: verifier-mutation
+            shard: 4
+            of: 4
+            file: packages/builder/test/verifier/mutation.property.test.ts
+            runs: 200000
+            proves: "instructions dropped, repeated, reordered, rewritten or added, and accounts swapped, several at once: nothing that could harm the wallet is accepted"
+          - suite: verifier-slippage
+            shard: 1
+            of: 4
+            file: packages/builder/test/verifier/slippage.property.test.ts
+            runs: 250000
+            proves: "the tolerance rule at any minimum, quote and tolerance: a route whose own floor is below the wallet's minimum is refused"
+          - suite: verifier-slippage
+            shard: 2
+            of: 4
+            file: packages/builder/test/verifier/slippage.property.test.ts
+            runs: 250000
+            proves: "the tolerance rule at any minimum, quote and tolerance: a route whose own floor is below the wallet's minimum is refused"
+          - suite: verifier-slippage
+            shard: 3
+            of: 4
+            file: packages/builder/test/verifier/slippage.property.test.ts
+            runs: 250000
+            proves: "the tolerance rule at any minimum, quote and tolerance: a route whose own floor is below the wallet's minimum is refused"
+          - suite: verifier-slippage
+            shard: 4
+            of: 4
+            file: packages/builder/test/verifier/slippage.property.test.ts
+            runs: 250000
+            proves: "the tolerance rule at any minimum, quote and tolerance: a route whose own floor is below the wallet's minimum is refused"
+          - suite: verifier-extremes
+            shard: 1
+            of: 4
+            file: packages/builder/test/verifier/extremes.property.test.ts
+            runs: 60000
+            proves: "amounts, fees, decimals, balances and lookup tables at their limits: no crash, and the verdict is the rule's"
+          - suite: verifier-extremes
+            shard: 2
+            of: 4
+            file: packages/builder/test/verifier/extremes.property.test.ts
+            runs: 60000
+            proves: "amounts, fees, decimals, balances and lookup tables at their limits: no crash, and the verdict is the rule's"
+          - suite: verifier-extremes
+            shard: 3
+            of: 4
+            file: packages/builder/test/verifier/extremes.property.test.ts
+            runs: 60000
+            proves: "amounts, fees, decimals, balances and lookup tables at their limits: no crash, and the verdict is the rule's"
+          - suite: verifier-extremes
+            shard: 4
+            of: 4
+            file: packages/builder/test/verifier/extremes.property.test.ts
+            runs: 60000
+            proves: "amounts, fees, decimals, balances and lookup tables at their limits: no crash, and the verdict is the rule's"
+          - suite: verifier-token2022
+            shard: 1
+            of: 2
+            file: packages/builder/test/verifier/extensions.test.ts
+            runs: 1000000
+            proves: "any set of Token-2022 extensions, in any order, with gaps, cuts and padding; transfer fee schedules at any epoch"
+          - suite: verifier-token2022
+            shard: 2
+            of: 2
+            file: packages/builder/test/verifier/extensions.test.ts
+            runs: 1000000
+            proves: "any set of Token-2022 extensions, in any order, with gaps, cuts and padding; transfer fee schedules at any epoch"
+          - suite: verifier-combinations
+            shard: 1
+            of: 2
+            file: packages/builder/test/verifier/combinations.test.ts
+            runs: 60000
+            proves: "SOL, stablecoins, Token-2022 and Pump on either side, with every fee side and transaction version: accepted when honest"
+          - suite: verifier-combinations
+            shard: 2
+            of: 2
+            file: packages/builder/test/verifier/combinations.test.ts
+            runs: 60000
+            proves: "SOL, stablecoins, Token-2022 and Pump on either side, with every fee side and transaction version: accepted when honest"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
