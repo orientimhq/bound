@@ -30,3 +30,5 @@ jobs:
         env:
           SITE: ${{ vars.ORIENTIM_SITE_URL || 'https://orientim.com' }}
           GH_TOKEN: ${{ github.token }}
+          # The operator's token for /api/metrics (optional: without it the report leaves them out).
+          ORIENTIM_METRICS_TOKEN: ${{ secrets.ORIENTIM_METRICS_TOKEN }}

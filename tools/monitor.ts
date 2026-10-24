@@ -3,6 +3,8 @@
  * (`.github/workflows/monitor.yml`), which fails, so GitHub tells its owner, when:
  *
  *   - `/api/health` does not answer 200 with `ok` three times, 20 seconds apart (an outage, not a blip);
+ *   - `/api/health` says the deployment is close to using up a plan (`near`: the RPC's credits for the
+ *     month at the last day's rate, or Jupiter's minute full), while swaps still go through;
  *   - `/api/health` says, three times, that a service refuses the deployment's key (`refused`: a wrong key,
  *     a plan unpaid or out of credits), even while the backup RPC keeps swaps going;
  *   - the deployment says it was built from a commit that is not on `main`, or whose CI failed;
@@ -20,7 +22,7 @@
 import { createHash } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 
-type Health = { ok?: boolean; paused?: boolean; refused?: string[]; agentApi?: string; sharedState?: string; rpc?: { ok: boolean; ms: number }; rpcFallback?: { ok: boolean; ms: number } | null; jupiter?: { ok: boolean; ms: number }; agents?: { rpc: { ok: boolean; ms: number }; build: { ok: boolean; ms: number } } | null };
+type Health = { ok?: boolean; paused?: boolean; refused?: string[]; near?: string[]; agentApi?: string; sharedState?: string; rpc?: { ok: boolean; ms: number }; rpcFallback?: { ok: boolean; ms: number } | null; jupiter?: { ok: boolean; ms: number }; agents?: { rpc: { ok: boolean; ms: number }; build: { ok: boolean; ms: number } } | null };
 type Status = { enabled?: boolean; build?: string | null; skillVersion?: string };
 
 function arg(name: string, fallback?: string): string | undefined {
@@ -102,8 +104,39 @@ if (health?.paused) notices.push('the kill switch is on: swaps are paused (the o
 if (health && health.rpcFallback === null) notices.push('no backup RPC (RPC_URL_FALLBACK): swaps stop whenever the main RPC does');
 if (health?.rpcFallback && !health.rpcFallback.ok) notices.push('the backup RPC (RPC_URL_FALLBACK) does not answer');
 if (health && health.agentApi !== 'on') failures.push(`the agent API is ${health.agentApi ?? 'unknown'}`);
+if (health?.near?.length) failures.push(`close to a plan's limit: ${health.near.join(', ')} (a bigger plan, or fewer calls, before swaps are refused)`);
 if (health?.refused?.length) failures.push(`refused by ${health.refused.join(', ')}: the key or the plan (401/403 a wrong key, 402 unpaid, 429 out of credits or over the rate)`);
 if (health?.sharedState === 'missing') failures.push('production has no Redis (UPSTASH_REDIS_REST_URL / KV_REST_API_URL): finalize refuses every swap');
+
+// The server's own measurements (/api/metrics), when the workflow has the operator's token: said in the
+// report, and failed when swaps stop landing, the event loop stalls or the heap nears its limit.
+type Pcts = { count: number; p50: number; p95: number; p99: number };
+type Metrics = {
+  durations?: Record<string, Pcts>; eventLoopMs?: { p99: number; max: number }; heap?: { usedMb: number; limitMb: number };
+  landing?: { landed: number; failed: number; expired: number; rate: number | null }; rpc?: { projectedMonth: number | null; creditsPerMonth: number };
+};
+const metricsToken = process.env.ORIENTIM_METRICS_TOKEN?.trim();
+if (metricsToken) {
+  const res = await get(`${site}/api/metrics`, { authorization: `Bearer ${metricsToken}` });
+  const m = res?.status === 200 ? json<Metrics>(res.text) : null;
+  if (!m) incomplete.push(`/api/metrics did not answer with the token (${res?.status ?? 'no answer'})`);
+  else {
+    const pct = (name: string) => {
+      const d = m.durations?.[name];
+      return d ? `p50 ${Math.round(d.p50)} / p95 ${Math.round(d.p95)} / p99 ${Math.round(d.p99)} ms (${d.count})` : '-';
+    };
+    rows.push(['prepare', pct('prepare')], ['finalize', pct('finalize')], ['send', pct('finalize.send')]);
+    const l = m.landing;
+    rows.push(['landing (last day)', l ? `${l.rate === null ? '-' : `${Math.round(l.rate * 100)}%`} (${l.landed} landed, ${l.failed} failed on chain, ${l.expired} expired)` : '-']);
+    rows.push(['event loop', m.eventLoopMs ? `p99 ${m.eventLoopMs.p99} ms, max ${m.eventLoopMs.max} ms` : '-']);
+    rows.push(['heap', m.heap ? `${m.heap.usedMb} of ${m.heap.limitMb} MB` : '-']);
+    if (typeof m.rpc?.projectedMonth === 'number') rows.push(['rpc credits', `${m.rpc.projectedMonth.toLocaleString('en-US')} a month at the last day's rate, of ${m.rpc.creditsPerMonth.toLocaleString('en-US')}`]);
+    // Twenty decided swaps before a rate means anything.
+    if (l && l.rate !== null && l.landed + l.failed + l.expired >= 20 && l.rate < 0.8) failures.push(`only ${Math.round(l.rate * 100)}% of the swaps sent in the last day landed`);
+    if (m.eventLoopMs && m.eventLoopMs.p99 > 200) failures.push(`the event loop's p99 delay is ${m.eventLoopMs.p99} ms: every request waits that long`);
+    if (m.heap && m.heap.usedMb > 0.85 * m.heap.limitMb) failures.push(`the heap is at ${m.heap.usedMb} of ${m.heap.limitMb} MB`);
+  }
+}
 
 // 2. Status: the commit it was built from, and the skill it serves.
 const status = json<Status>((await get(`${site}/api/status`))?.text);

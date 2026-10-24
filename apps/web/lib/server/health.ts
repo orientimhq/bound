@@ -2,6 +2,7 @@ import { serverConfig } from './config';
 import { agentEndpoints } from './agent/config';
 import { sharedJupiterGate } from './jupiterGate';
 import { redisFromEnv, sharedRequired } from './shared';
+import { nearLimits } from './metrics';
 
 /** `status`: the HTTP status, when the service answered with an error. */
 export type Check = { ok: boolean; ms: number; status?: number };
@@ -37,6 +38,11 @@ export type Health = {
    * through (the backup RPC can carry them for a while), so a monitor alarms on any.
    */
   refused: string[];
+  /**
+   * The plans this instance is close to using up, such as `rpc credits 85% of the month` (metrics.ts):
+   * swaps still go through, but the operator has hours or days, not weeks, so a monitor alarms on any.
+   */
+  near: string[];
 };
 
 /** The answers that mean the key or the plan, not an outage of the service. */
@@ -100,7 +106,7 @@ export async function checkHealth(fetchImpl: typeof fetch = (...a) => fetch(...a
     ['rpc', rpc], ['rpcFallback', rpcFallback], ['jupiter', jupiter], ['agents.rpc', agents?.rpc === rpc ? null : agents?.rpc], ['agents.build', agents?.build],
   ];
   const refused = checks.flatMap(([name, c]) => (c?.status && PLAN_REFUSALS.has(c.status) ? [`${name} ${c.status}`] : []));
-  return { ok, paused: disabled, rpc, rpcFallback, jupiter, agents, agentApi: agents ? 'on' : 'off', sharedState, refused };
+  return { ok, paused: disabled, rpc, rpcFallback, jupiter, agents, agentApi: agents ? 'on' : 'off', sharedState, refused, near: nearLimits() };
 }
 
 /** The agent API's own RPC and a swap built with its own Jupiter key; null while the API is off. */

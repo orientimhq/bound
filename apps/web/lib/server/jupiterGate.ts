@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { JupiterError } from '@orientim/jupiter';
+import { countJupiterBusy } from './metrics';
 
 /**
  * Orientim's own Jupiter requests, paced to its plan. Jupiter counts every request of the
@@ -25,7 +26,10 @@ const SECOND_MS = 1_000;
  */
 const MAX_WAIT_MS = 15_000;
 
-const busy = () => new JupiterError('Jupiter 429: too many requests waiting for room in the plan', 429);
+const busy = () => {
+  countJupiterBusy();
+  return new JupiterError('Jupiter 429: too many requests waiting for room in the plan', 429);
+};
 
 type Job = { go: () => void; stop: (reason: unknown) => void; signal?: AbortSignal; off?: () => void };
 

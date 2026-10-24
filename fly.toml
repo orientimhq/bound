@@ -36,6 +36,8 @@ kill_timeout = "30s"
   # The Jupiter plan's requests a minute: 60 Free (unset), 600 Developer, 3000 Launch (jupiterGate.ts).
   # Developer: JUPITER_API_KEY must be that plan's key, or Jupiter answers 429 past 60.
   ORIENTIM_JUPITER_PER_MINUTE = "600"
+  # The RPC plan's credits a month (Helius Developer: 10M): /api/health's `near` past 80% at the last day's rate.
+  ORIENTIM_RPC_CREDITS_PER_MONTH = "10000000"
   # Well under the machine's 4 GB, so that V8 collects before the machine runs out (the process uses a few hundred MB).
   NODE_OPTIONS = "--max-old-space-size=2048"
 

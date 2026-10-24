@@ -1,4 +1,5 @@
 import { address } from '@solana/kit';
+import type { Address } from '@solana/kit';
 import { createJupiterClient, heliusPriorityFee, localCurveRoutes, MIN_FEE } from '@orientim/jupiter';
 import type { JupiterClient, PriorityFeeLevel } from '@orientim/jupiter';
 import { createServerRpc, mainPassedOver } from '../rpcFailover';
@@ -15,6 +16,7 @@ import { DEFAULT_KEYS_PER_HOUR, type AccessDeps } from './access';
 import type { AgentDeps } from './api';
 import { blobRecorder, fileRecorder } from './termsRecord';
 import { logEvent, maskedReason } from './events';
+import { countedRpc, countRpcCall, startEventLoopMonitor } from '../metrics';
 
 /** The lower fee for a large swap, as the build checked it; one fee at every size if it cannot be read. */
 function tiers() {
@@ -161,11 +163,17 @@ export function agentDeps(): AgentDeps | null {
   if (clients?.for !== identity) {
     const rpc = createServerRpc(rpcUrl, server.rpcFallbackUrl, undefined, redis);
     // One estimate for the swaps that write the same accounts within two seconds (sharedReads.ts).
-    const helius = withSharedFee(heliusPriorityFee(rpcUrl));
+    const fee = heliusPriorityFee(rpcUrl);
+    const helius = withSharedFee<Address>(writable => {
+      countRpcCall();
+      return fee(writable);
+    });
+    startEventLoopMonitor();
     clients = {
       for: identity,
       // The blockhash and the rent, read once for the swaps that ask at the same time (sharedReads.ts).
-      rpc: withSharedReads(rpc),
+      // Each call counted against the plan's credits (metrics.ts).
+      rpc: withSharedReads(countedRpc(rpc)),
       // Asked of the main RPC itself, around the failover: not while it is passed over, when it would
       // only add its timeout to every build. The recent fees on the accounts then come from the backup.
       priorityFee: writable => (mainPassedOver(rpc) ? Promise.resolve(null) : helius(writable)),

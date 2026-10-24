@@ -16,6 +16,7 @@ import { hasPermanentDelegate } from '@orientimhq/swap/verifier';
 import type { SolanaRpc } from '@orientimhq/swap/solana';
 import { readBodyLimited } from '../body';
 import { loggableError, logEvent, maskedReason } from './events';
+import { checkLandings, recordDuration, trackSent } from '../metrics';
 import { jupiterLane } from '../jupiterGate';
 import { clientKey, limit } from '../rateLimit';
 import { memoryShared, type Shared } from '../shared';
@@ -631,6 +632,10 @@ async function prepareFor(req: Request, deps: AgentDeps, auth: { id: string; wal
     // What the transaction has left to live, in blocks: 150 at most, about 40 s, from the height read
     // with the last simulation; left out when it could not be read, and the swap is still answered.
     const height = prepared.blockHeight;
+    recordDuration('prepare', prepared.timings.totalMs);
+    recordDuration('prepare.jupiter-build', prepared.timings.jupiterBuildMs);
+    recordDuration('prepare.simulation', prepared.timings.simulationMs);
+    recordDuration('prepare.verification', prepared.timings.verificationMs);
     return json(200, {
       ticket,
       transaction: getBase64EncodedWireTransaction(prepared.transaction),
@@ -850,6 +855,7 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
   // finalize must describe the transaction it repeats, never invite a second swap.
   // One deadline for the whole finalize: every read, the signing and the send.
   const deadline = deadlineFor(deps.finalizeDeadlineMs ?? FINALIZE_DEADLINE_MS, deps.rpc, deps.jupiter);
+  const finalizeStarted = Date.now();
   const rpc = deadline.rpc;
   // The output account's balance and the block height a first send needs are read with it, all at
   // once; each is still judged in turn, the chain's record of this transaction first.
@@ -1003,7 +1009,11 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     }
     // From here the bytes may be out, until the network says it refused them.
     out = true;
+    const sendStarted = Date.now();
     const sent = await sendOnce(rpc, signed);
+    recordDuration('finalize.send', Date.now() - sendStarted);
+    // Whether it lands is read from the chain later, for the landing rate (metrics.ts).
+    if (sent.status !== 'rejected' && !repeat) trackSent(sent.signature, BigInt(ticket.lvbh));
     // Refused by the network: it cannot land, and the account and E are free for the next swap. Not
     // when this repeats a finalize that may have sent the same bytes: they may still land.
     if (sent.status === 'rejected' && repeat) sent.status = 'unknown';
@@ -1041,5 +1051,8 @@ export async function agentFinalize(req: Request, deps: AgentDeps): Promise<Resp
     // Before the answer leaves: a refusal, or a send the network refused, holds nothing.
     if (!out) await release();
     deadline.done();
+    recordDuration('finalize', Date.now() - finalizeStarted);
+    // The swaps sent earlier, read from the chain at most every 30 seconds, after this answer.
+    void checkLandings(deps.rpc);
   }
 }
