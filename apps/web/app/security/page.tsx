@@ -25,15 +25,14 @@ const SUPPORTED: [string, string][] = [
   ['Routes too large for one transaction', 'Not supported: Orientim never splits a swap'],
 ];
 
-/** The verifier's seven rules (packages/verifier, verify.ts), in the words of the page. */
-const RULES: [string, string, string][] = [
-  ['R1', 'Your wallet stays out of reach', 'The swap program never receives your wallet, or any of its token accounts except the one that receives what you buy.'],
-  ['R2', 'Only the instructions expected', 'Every instruction Orientim adds fills one expected place, with the exact accounts and amounts: the approved amount, the minimum checked on chain, the fee to the pinned treasury, the cleanup.'],
-  ['R3', 'A new one-time key', 'The one-time key and its token accounts do not exist on chain yet, so nothing was prepared in them beforehand.'],
-  ['R4', 'A capped network fee', 'The network fee your wallet pays, priority fee included, stays under a fixed maximum.'],
-  ['R5', 'One transaction, nothing left open', 'One transaction within the size limit, each account loaded once, and every temporary account created and closed in it.'],
-  ['R6', 'Only two signers', 'Your wallet pays the fee, and the only signers are your wallet and the one-time key.'],
-  ['R7', 'Only tokens it can isolate', 'Both tokens, and any token the route passes through, are standard tokens or Token-2022 tokens without the features that would break the protection.'],
+/** What the check before signing holds every swap to, as the client gets it (packages/verifier, verify.ts). */
+const CHECKS: [string, string][] = [
+  ['Your wallet signs only the swap you asked for', 'The exact amount, the tokens you chose and nothing else. A changed transaction is never signed.'],
+  ['The rest of your wallet stays out of reach', 'Its other tokens, its NFTs and the rest of its SOL never reach the market.'],
+  ['Your minimum, or nothing happens', 'Less than your minimum would arrive, and the whole swap reverts.'],
+  ['Every cost is known before you sign', "Orientim's fee goes only to Orientim and never above its cap, and the network fee stays under a fixed maximum."],
+  ['Nothing is left behind', 'No permission over your wallet outlives the swap, and nothing stays open after it.'],
+  ['Unsafe tokens are refused', 'A token whose features could break the protection is refused, with the reason.'],
 ];
 
 /**
@@ -48,11 +47,11 @@ export default async function Page() {
     <InfoPage
       eyebrow="Security"
       title="How Orientim protects you"
-      lead="Least privilege, enforced per trade. A typical swap acts with the wallet's authority for the whole transaction. Orientim builds each swap so that the swap program never gets it: only the amount your agent approves is placed within its reach, under a one-time key that exists for this one transaction."
+      lead="Your agent's swap can only ever touch the amount it approved. The rest of the wallet stays out of reach, and you can check every swap yourself before your wallet signs."
     >
       <nav className="sub-nav" aria-label="On this page">
         <a href="#enforces">What it enforces</a>
-        <a href="#rules">The 7 rules</a>
+        <a href="#rules">What is checked</a>
         <a href="#supported">Supported tokens</a>
         <a href="#fees">Fees ({feeText})</a>
       </nav>
@@ -73,15 +72,14 @@ export default async function Page() {
 
       <section id="rules">
         <p className="eyebrow">Pre-sign verification</p>
-        <h2>Don&apos;t trust our servers. Check every instruction yourself before you sign.</h2>
+        <h2>Don&apos;t trust our servers. Check every swap yourself before you sign.</h2>
         <p>
-          Before your wallet signs, the open-source verifier decodes the exact transaction on your machine and checks it
-          against your own RPC. If anything differs from the amount you approved, the minimum you set or the isolation of your
-          wallet, it refuses, and your wallet never signs. These are the seven rules it checks:
+          Before your wallet signs, the open-source check runs on your machine, against your own RPC. If anything is not what you
+          asked for, your wallet never signs. Every swap gets:
         </p>
         <ol className="rules">
-          {RULES.map(([id, name, text]) => (
-            <li key={id}><span className="rule-id">{id}</span><div><h3>{name}</h3><p>{text}</p></div></li>
+          {CHECKS.map(([name, text], i) => (
+            <li key={name}><span className="rule-id">{i + 1}</span><div><h3>{name}</h3><p>{text}</p></div></li>
           ))}
         </ol>
         <p>

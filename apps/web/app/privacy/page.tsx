@@ -18,7 +18,7 @@ const PROCESSING: [string, string, string][] = [
     'To read the chain for you, and to build, check and send the swap you ask for; to sign one swap at a time into your receiving account; to issue an API key bound to your wallet, and limit how many a wallet gets.',
     'Providing the service you request',
   ],
-  ['The swap: tokens, amounts, your minimum, and the transaction you signed', 'The same.', 'Providing the service you request'],
+  ['The swap: tokens, amounts, your minimum, and the transaction you signed', 'The same; and, for a swap our servers sent, its signature, to count how many sent swaps land.', 'Providing the service you request'],
   ['Your IP address', 'To limit how often requests can be made, counted by our servers (in Upstash Redis, which they share) and by our hosting provider\'s firewall, and to protect the service from abuse.', 'Our legitimate interest in security'],
   [
     'Logs kept by our hosting provider: for each request, its time, the address requested (which can name a wallet or a token account), IP address and browser type; for each swap request, a few lines that together name the wallet the API key belongs to, the outcome (its error code, why a check refused it, with every address removed), which routes built it, the side of the fee and how long it took; and, when our servers fail, the error',
@@ -117,6 +117,7 @@ export default async function Page() {
         <ul>
           <li>Rate-limit counts: at Upstash and in our servers&apos; memory, for the window they count, at most an hour, or 24 hours for the keys issued to a wallet; and at our hosting provider&apos;s firewall, for at most an hour.</li>
           <li>Swap records at Upstash (which receiving account a swap in flight is signed into, and its signature): 10 minutes, past the time the transaction can still land.</li>
+          <li>The signature of a swap our servers sent, in their memory: until the chain shows whether it landed, and at most 10 minutes.</li>
           <li>Request logs and swap log lines at our hosting provider: up to {legal('logRetentionDays')} days, then deleted.</li>
           <li>The record that you accepted the Terms: while your API keys are valid, and up to 5 years after the last one expires, the time within which a claim about the Terms can be brought.</li>
           <li>What you write to us: as long as needed to answer you, and up to 12 months after.</li>

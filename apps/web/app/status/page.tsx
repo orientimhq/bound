@@ -27,7 +27,7 @@ export default async function Page() {
           <span className={shown.className}>{shown.row}</span>
         </div>
         <p>
-          When something is wrong, Orientim pauses new swaps. A swap already sent is settled by the Solana network.
+          When needed, we pause new swaps. A swap already sent is settled by the Solana network.
         </p>
       </section>
     </InfoPage>

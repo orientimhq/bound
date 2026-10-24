@@ -112,6 +112,13 @@ describe('the landing rate', () => {
     expect(asked).toHaveLength(2);
   });
 
+  it('forgets a signature after 10 minutes, whether or not the chain was asked', () => {
+    const now = Date.now();
+    trackSent('old', 100n, now - 11 * 60_000);
+    trackSent('new', 100n, now);
+    expect(metrics(now).landing.waiting).toBe(1);
+  });
+
   it('an RPC that fails leaves the swaps waiting, and throws nothing', async () => {
     trackSent('a', 100n);
     const rpc = { getSignatureStatuses: () => ({ send: async () => { throw new Error('down'); } }), getBlockHeight: () => ({ send: async () => 1n }) };

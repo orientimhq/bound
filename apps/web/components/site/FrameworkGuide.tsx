@@ -24,7 +24,7 @@ export function FrameworkGuide(props: { framework: string; install: string; code
       <section id="need">
         <h2>What you need</h2>
         <ul>
-          <li>Node 20 or later.</li>
+          <li>Node 20.18 or later.</li>
           <li>
             A wallet for the agent alone, as a keypair file, holding only what it may trade and 0.01 SOL. The server gets its
             own <a href="/developers#access">API key</a> with it.

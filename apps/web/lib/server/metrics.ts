@@ -71,11 +71,27 @@ const pending = new Map<string, Sent>();
 const landings: { at: number; kind: Landing }[] = [];
 const MAX_PENDING = 10_000;
 const LANDINGS_KEPT = 50_000;
+/** A sent swap's signature is kept no longer than this, decided or not (the privacy notice says so). */
+const PENDING_MS = 10 * 60_000;
+let pruner: ReturnType<typeof setInterval> | null = null;
+
+/** Forgets the signatures older than PENDING_MS, uncounted; stops its timer once none is left. */
+function prunePending(now = Date.now()): void {
+  for (const [signature, s] of pending) if (s.at < now - PENDING_MS) pending.delete(signature);
+  if (pending.size === 0 && pruner) {
+    clearInterval(pruner);
+    pruner = null;
+  }
+}
 
 /** A swap the server sent (or may have): its fate is read from the chain later (`checkLandings`). */
 export function trackSent(signature: string, lastValidBlockHeight: bigint, now = Date.now()): void {
   if (pending.size >= MAX_PENDING) pending.delete(pending.keys().next().value!);
   pending.set(signature, { signature, lvbh: lastValidBlockHeight, at: now });
+  if (!pruner) {
+    pruner = setInterval(() => prunePending(), 60_000);
+    pruner.unref?.();
+  }
 }
 
 type StatusRpc = {
@@ -92,6 +108,7 @@ const CHECK_EVERY_MS = 30_000;
  * is waiting, none otherwise. A swap with no status past its last valid block height has expired.
  */
 export function checkLandings(rpc: StatusRpc, now = Date.now()): Promise<void> {
+  prunePending(now);
   if (checking || pending.size === 0 || now < nextCheck) return checking ?? Promise.resolve();
   nextCheck = now + CHECK_EVERY_MS;
   const batch = [...pending.values()].slice(0, 256);
@@ -206,6 +223,7 @@ export type Metrics = {
 };
 
 export function metrics(now = Date.now()): Metrics {
+  prunePending(now);
   const mb = (b: number) => Math.round(b / 1048576);
   const mem = process.memoryUsage();
   const counts = { landed: 0, failed: 0, expired: 0 };
@@ -229,6 +247,8 @@ export function metrics(now = Date.now()): Metrics {
 export function resetMetrics(): void {
   durations.clear();
   pending.clear();
+  if (pruner) clearInterval(pruner);
+  pruner = null;
   landings.length = 0;
   rpcCalls.clear();
   rpcCallsTotal = 0;

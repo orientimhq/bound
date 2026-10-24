@@ -163,6 +163,7 @@ const MCP_JSON = <pre tabIndex={0}><code>{`{
       "env": {
         "SOLANA_RPC_URL": "https://your-own-rpc.example/...",
         "ORIENTIM_WALLET_KEYPAIR": "/path/to/agent-wallet.json",
+        "ORIENTIM_POLICY": "/path/to/orientim-policy.json",
         "JUPITER_API_KEY": "..."
       }
     }
@@ -235,8 +236,9 @@ export default async function Page() {
                   <pre tabIndex={0}><code>{`npm install --save-exact @orientimhq/swap@${SKILL_VERSION}`}</code></pre>
                 </li>
                 <li>
-                  <strong>Check it</strong> was built from the GitHub source.
-                  <pre tabIndex={0}><code>{`npm audit signatures`}</code></pre>
+                  <strong>Check it</strong> was built from the GitHub source: the file npm installs, against the release&apos;s attestation.
+                  <pre tabIndex={0}><code>{`npm pack @orientimhq/swap@${SKILL_VERSION}
+gh attestation verify orientimhq-swap-${SKILL_VERSION}.tgz -R orientimhq/orientim-protected-swap`}</code></pre>
                 </li>
                 <li>
                   <strong>Configure</strong> (all settings: <a href="https://github.com/orientimhq/orientim-protected-swap/blob/main/skills/orientim-protected-swap/reference/GUIDE.md#setup">guide</a>).
@@ -424,7 +426,7 @@ cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skill
                       <>
                         <pre tabIndex={0}><code>{`gh attestation verify orientim.mcpb -R orientimhq/orientim-protected-swap`}</code></pre>
                         <p className="hint">
-                          Download <a href={SKILL_EXTENSION}>orientim.mcpb</a> (v{SKILL_VERSION}), verify it and open it. It asks for your RPC and keypair file.
+                          Download <a href={SKILL_EXTENSION}>orientim.mcpb</a> (v{SKILL_VERSION}), verify it and open it. It asks for your RPC, keypair file and limits file.
                         </p>
                       </>
                     ),
@@ -433,7 +435,7 @@ cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skill
                   {
                     id: 'mcp-code',
                     label: 'Claude Code',
-                    content: <pre tabIndex={0}><code>{`claude mcp add --transport stdio orientim --env SOLANA_RPC_URL=... --env ORIENTIM_WALLET_KEYPAIR=... -- npx -y @orientimhq/swap@${SKILL_VERSION} mcp`}</code></pre>,
+                    content: <pre tabIndex={0}><code>{`claude mcp add --transport stdio orientim --env SOLANA_RPC_URL=... --env ORIENTIM_WALLET_KEYPAIR=... --env ORIENTIM_POLICY=... -- npx -y @orientimhq/swap@${SKILL_VERSION} mcp`}</code></pre>,
                   },
                   {
                     id: 'mcp-own',
@@ -467,7 +469,7 @@ cp -r node_modules/@orientimhq/swap/skills/orientim-protected-swap .claude/skill
             <section id="verify">
               <h2>Pre-sign verification</h2>
               <p>
-                With pre-sign verification (R1–R7), even a compromised server cannot make your wallet sign more than you approved, or below your own
+                With pre-sign verification, even a compromised server cannot make your wallet sign more than you approved, or below your own
                 floor. <strong>Without it, you trust Orientim&apos;s server with your wallet.</strong>
               </p>
               <p>

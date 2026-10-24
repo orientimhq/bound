@@ -3,9 +3,9 @@ import { SKILL_EXTENSION } from '@/lib/server/skill';
 import { AgentTerminal, CapsuleFlow } from './Motion';
 
 const CAPSULE_STEPS = [
-  ['Strictly Bounded Principal', 'Your wallet authorizes only the input for a single trade, plus the fee and network costs shown before it signs. No open allowances, no lingering delegations, no exposure for the rest of your balance.'],
-  ['Isolated Route Execution', 'Liquidity pools, bonding curves and third-party contracts never receive your wallet or its token accounts; the only one they reach is the account that receives your output. The market’s complexity stays outside your vault.'],
-  ['Guaranteed Net Settlement', 'Either at least your minimum output lands in your wallet, net of every fee, or the entire transaction reverts atomically: nothing is traded, and only the network fee is paid.'],
+  ['Only the amount you approve can move', 'Your wallet signs for one trade: its amount, plus the fee and network costs shown before it signs. No open allowances, no lingering permissions, nothing more of your balance.'],
+  ['Your balance never enters the market', 'Pools, curves and other contracts never reach your wallet or its other tokens. The only account they reach is the one that receives what you buy.'],
+  ['Your minimum, or nothing happens', 'At least your minimum arrives in your wallet, after every fee, or the whole trade reverts: nothing is traded, and only the network fee is paid.'],
 ];
 
 const AGENT_POINTS = [
@@ -127,8 +127,8 @@ export function HomeSections() {
             <p className="eyebrow">Containment by design</p>
             <h2>Absolute separation between your capital and the market.</h2>
             <p className="lead">
-              <b className="lead-strong">Least privilege, enforced per trade.</b> Each trade receives a single-use authority scoped to the
-              exact amount your agent is authorised to move. The wallet signs; it never enters the route.
+              <b className="lead-strong">Only what you approve, one trade at a time.</b> Each trade can move only the amount your agent
+              approved, plus the costs shown before it signs.
             </p>
           </div>
           <div className="glass-stage">
@@ -223,7 +223,7 @@ export function HomeSections() {
               </svg>
               <div className="lim-hub" aria-hidden="true">
                 <b>Orientim · on your machine</b>
-                <span>pre-sign verification R1–R7</span>
+                <span>checked before your wallet signs</span>
               </div>
               <svg className="lim-out" viewBox="0 0 600 130" aria-hidden="true">
                 <path className="lim-line" d="M300 0 V76" />
