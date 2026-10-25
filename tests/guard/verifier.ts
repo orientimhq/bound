@@ -185,11 +185,8 @@ await refused('V12', 'larger than 1232 bytes', new Uint8Array(1300), /1232/);
 
     const bad = await fetch(`${url}/v1/cosign`, { method: 'POST', body: '{"transaction": 5}' });
     check('V15', 'the HTTP service refuses a malformed request', bad.status === 400, String(bad.status));
-    const refusedOverHttp = await requestCosign(url, compileTransaction(pipe(
-      createTransactionMessage({ version: 0 }), m => setTransactionMessageFeePayer(g.agent.address, m),
-      m => setTransactionMessageLifetimeUsingBlockhash(lifetimeOf(g.svm), m),
-      m => appendTransactionMessageInstructions([ix.pull(g, AMOUNT, MIN_OUT), honest(g, AMOUNT, MIN_OUT)], m),
-    ))).then(() => 'co-signed', (e: Error) => e.message);
+    const refusedOverHttp = await requestCosign(url, await byAgent([ix.pull(g, AMOUNT, MIN_OUT), honest(g, AMOUNT, MIN_OUT)]))
+      .then(() => 'co-signed', (e: Error) => e.message);
     check('V16', 'the SDK reports the verifier\'s reason', /Settle/.test(refusedOverHttp), refusedOverHttp);
   } finally {
     server.close();
