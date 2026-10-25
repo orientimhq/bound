@@ -312,7 +312,7 @@ for (const [i, [kIn, kOut]] of ([['spl6', 'hook'], ['hook', 'spl6'], ['spl6', 'd
 }
 {
   const big = 10n ** 18n;
-  const m = await market('spl9', 'spl9', { perSwap: big, perDay: 4n * big, ownerHas: 4n * big, poolHas: 10n ** 19n });
+  const m = await market('spl9', 'spl9', { perSwap: big, perDay: 4n * big, budget: 4n * big, ownerHas: 4n * big, poolHas: 10n ** 19n });
   const s = await honestSwap(m, big);
   check('H2-06', 'a billion whole tokens in one swap (10^18 base units)', s.ok, s.detail);
   const r = await m.swap(big + 1n);
