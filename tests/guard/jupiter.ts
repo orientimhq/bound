@@ -110,8 +110,11 @@ type Case = {
   minOut: bigint; arrived: bigint | null; oracle: string;
 };
 
-/** Mainnet's accounts the route names (and the programs' data), into a fresh copy at mainnet's clock. */
-async function mainnetCopy(r: BuildResponse, extra: Address[]): Promise<LiteSVM> {
+/**
+ * Mainnet's accounts the route names (and the programs' data), read once; each call of the result is
+ * a fresh copy of that one snapshot at mainnet's clock, so that the baseline and the Guard start equal.
+ */
+async function mainnetCopy(r: BuildResponse, extra: Address[]): Promise<() => LiteSVM> {
   const want = [...new Set([...ixAddresses(r), ...Object.keys(r.addressesByLookupTableAddress ?? {}), ...extra])]
     .filter(a => !KEEP.has(a)).map(a => address(a));
   const got = await fetchAccounts(rpc, want);
@@ -121,21 +124,23 @@ async function mainnetCopy(r: BuildResponse, extra: Address[]): Promise<LiteSVM>
     void a;
   }
   const pd = programData.length ? await fetchAccounts(rpc, programData) : new Map();
-  const svm = new LiteSVM().withSigverify(true).withNativeMints();
-  // Program data first, so that each program finds its code when it is set.
-  for (const [a, acc] of [...pd, ...got]) {
-    if (!acc) continue;
-    const executable = LOADERS.has(acc.owner) && (acc.owner !== UPGRADEABLE || acc.data[0] === 2);
-    svm.setAccount({ address: address(a), data: acc.data, executable, lamports: lamports(acc.lamports), programAddress: acc.owner, space: BigInt(acc.data.length) });
-  }
   // A finalized slot has its block time; a fresh one may not yet. The wall clock is close enough then.
   const slot = await rpc.getSlot({ commitment: 'finalized' }).send();
   const time = await rpc.getBlockTime(slot).send().catch(() => null);
-  const clock = svm.getClock();
-  clock.slot = slot;
-  clock.unixTimestamp = BigInt(time ?? Math.floor(Date.now() / 1000));
-  svm.setClock(clock);
-  return svm;
+  return () => {
+    const svm = new LiteSVM().withSigverify(true).withNativeMints();
+    // Program data first, so that each program finds its code when it is set.
+    for (const [a, acc] of [...pd, ...got]) {
+      if (!acc) continue;
+      const executable = LOADERS.has(acc.owner) && (acc.owner !== UPGRADEABLE || acc.data[0] === 2);
+      svm.setAccount({ address: address(a), data: acc.data, executable, lamports: lamports(acc.lamports), programAddress: acc.owner, space: BigInt(acc.data.length) });
+    }
+    const clock = svm.getClock();
+    clock.slot = slot;
+    clock.unixTimestamp = BigInt(time ?? Math.floor(Date.now() / 1000));
+    svm.setClock(clock);
+    return svm;
+  };
 }
 
 const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -266,14 +271,15 @@ async function runCase(spec: string): Promise<Case> {
   };
 
   // The baseline: the same route alone, from the agent's own account.
-  const base = await mainnetCopy(r, prices);
+  const copy = await mainnetCopy(r, prices);
+  const base = copy();
   fill(base, false);
   const baseTx = await signTransaction([agent.keyPair], compileTransaction(compile(base, agent, [cuLimit, ...route, ...cleanup], r)));
   const baseResult = send(base, baseTx);
   const baseOut = amountOf(base, g.wOut);
 
   // The Guard: Pull, the route, Settle.
-  const svm = await mainnetCopy(r, prices);
+  const svm = copy();
   svm.addProgramFromFile(guardKey.address, GUARD_SO);
   fill(svm, true);
   const pyth = prices.length === 2 && prices.every(p => {
