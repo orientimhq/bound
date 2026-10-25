@@ -1,7 +1,7 @@
 name: Guard on devnet
 
-# Orientim Guard end to end on Solana's devnet (tests/guard/devnet.ts). Each run makes its own keys,
-# gets devnet SOL from the faucet, deploys the Guard and the test swap program, runs the owner's set-up,
+# Orientim Guard end to end on Solana's devnet (tests/guard/devnet.ts). A devnet-only deployer key is kept in the Actions cache;
+# it gets devnet SOL from the faucet (or by hand from faucet.solana.com), deploys the Guard and the test swap program, runs the owner's set-up,
 # the verifier and the agent's swaps over a real RPC node, then closes both programs so the SOL comes
 # back. No real funds; nothing persists.
 #
@@ -48,30 +48,46 @@ jobs:
           (cd tests/guard/attacker && cargo build-sbf)
           ls -l programs/guard/target/deploy/*.so tests/guard/attacker/target/deploy/*.so
 
-      - name: The devnet RPC and a deployer key for this run
+      - name: The deployer key kept between runs (devnet only, never real funds)
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.devnet-deployer
+          key: devnet-deployer-v1
+      - name: The devnet RPC and the deployer
         env:
           CANARY_RPC_URL: ${{ secrets.CANARY_RPC_URL }}
         run: |
           url="${CANARY_RPC_URL/mainnet/devnet}"
           echo "::add-mask::$url"
           echo "RPC_URL=$url" >> "$GITHUB_ENV"
-          solana-keygen new --no-bip39-passphrase --silent -o "$RUNNER_TEMP/deployer.json"
-          echo "PAYER_KEYPAIR=$RUNNER_TEMP/deployer.json" >> "$GITHUB_ENV"
-          echo "deployer: $(solana-keygen pubkey "$RUNNER_TEMP/deployer.json")"
+          mkdir -p ~/.devnet-deployer
+          [ -f ~/.devnet-deployer/key.json ] || solana-keygen new --no-bip39-passphrase --silent -o ~/.devnet-deployer/key.json
+          echo "PAYER_KEYPAIR=$HOME/.devnet-deployer/key.json" >> "$GITHUB_ENV"
+          echo "DEPLOYER=$(solana-keygen pubkey ~/.devnet-deployer/key.json)" >> "$GITHUB_ENV"
+      - name: Keep the deployer key for the next run
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
+        with:
+          path: ~/.devnet-deployer
+          key: devnet-deployer-v1
 
-      - name: Devnet SOL from the faucet
+      # The public faucet often refuses machines in the cloud. When it does, the deployer's address is
+      # printed: send it devnet SOL from https://faucet.solana.com and run the workflow again.
+      - name: Devnet SOL
         run: |
-          need=8
-          for i in $(seq 1 24); do
-            have=$(solana balance -u "$RPC_URL" -k "$PAYER_KEYPAIR" | awk '{print int($1)}')
+          need=5
+          echo "deployer: $DEPLOYER"
+          for i in 1 2 3 4 5 6; do
+            have=$(solana balance -u "$RPC_URL" "$DEPLOYER" | awk '{print int($1)}')
             if [ "$have" -ge "$need" ]; then echo "balance: $have SOL"; exit 0; fi
             for url in "$RPC_URL" https://api.devnet.solana.com; do
-              solana airdrop 2 -u "$url" -k "$PAYER_KEYPAIR" > /dev/null 2>&1 && break
+              solana airdrop 2 "$DEPLOYER" -u "$url" > /dev/null 2>&1 && break
             done
             sleep 5
           done
-          have=$(solana balance -u "$RPC_URL" -k "$PAYER_KEYPAIR")
-          echo "::error::the devnet faucet gave only $have; it limits how much a machine may ask for"
+          have=$(solana balance -u "$RPC_URL" "$DEPLOYER")
+          echo "::error::the deployer $DEPLOYER has $have and needs $need SOL; the faucet refused this machine. Send devnet SOL to $DEPLOYER from https://faucet.solana.com and run again."
+          echo "Deployer \`$DEPLOYER\` has $have, needs $need devnet SOL: fund it at https://faucet.solana.com and run again." >> "$GITHUB_STEP_SUMMARY"
           exit 1
 
       - name: Deploy both programs
