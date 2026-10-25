@@ -114,6 +114,12 @@ const later = async (g: GuardWorld, seconds: bigint) => {
   await setPrice(g, feedIn, 1_00000000n, { address: g.prices![0] });
   await setPrice(g, feedOut, 10_00000000n, { address: g.prices![1] });
 };
+/** An honest route for a transfer-fee input: Token-2022 needs TransferChecked (the mint, after the route's accounts). */
+const feeRoute = (g: GuardWorld, take: bigint, out: bigint) => route(g, [{
+  program: IX.token,
+  metas: [{ key: IX.eIn, w: true }, { key: 8 }, { key: IX.attackerIn, w: true }, { key: IX.E, s: true }],
+  data: transferChecked(take, g.inDecimals),
+}, deliver(out)], [{ address: g.mintIn, role: AccountRole.READONLY }]);
 /** Sends one complete honest swap of `amount` first, so that the case's own transaction is the second. */
 const oneSwapFirst = (amount: bigint) => async (g: GuardWorld) => {
   const r = send(g.svm, await sign(g.svm, swap(g, honest(g, amount, MIN), amount).ixs, g.agent, [g.verifier]));
@@ -492,13 +498,13 @@ const CASES: Case[] = [
     id: 'G-T14h', name: 'loss budget with a transfer-fee input: the fee lost on the refund counts (H01)',
     opts: { tokenProgram: TOKEN_2022_PROGRAM, inTransferFeeBps: 1_000 },
     before: priced({ maxLossPerDay: 5_000_000n, slippageBps: 0 }),
-    plan: g => swap(g, honest(g, 10_000_000n, 2_000_000_000n), AMOUNT, 1n), expect: 'fails', because: ERR.LossBudgetSpent,
+    plan: g => swap(g, feeRoute(g, 10_000_000n, 2_000_000_000n), AMOUNT, 1n), expect: 'fails', because: ERR.LossBudgetSpent,
   },
   {
     id: 'G-T14i', name: 'loss budget with a transfer-fee input: a loss under the cap passes, the owner paying the real debit',
     opts: { tokenProgram: TOKEN_2022_PROGRAM, inTransferFeeBps: 1_000 },
     before: priced({ maxLossPerDay: 5_000_000n, slippageBps: 0 }),
-    plan: g => swap(g, honest(g, 10_000_000n, 2_400_000_000n), AMOUNT, 1n), expect: 'succeeds',
+    plan: g => swap(g, feeRoute(g, 10_000_000n, 2_400_000_000n), AMOUNT, 1n), expect: 'succeeds',
     ownerPays: 28_250_000n, treasuryGets: 225_000n,
   },
   {
