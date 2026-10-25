@@ -100,6 +100,8 @@ writable, never in another instruction), with a recent blockhash (so a co-signed
 about 90 s), already signed by the agent (so no one else can spend the agent's rate), within a rate per
 agent (30 a minute by default). It does not simulate the swap: a simulation would protect nothing the
 program does not, and would add an RPC round trip in which a fast-moving price can turn a good swap into
-a refused one. It adds no rule the program does not already enforce; it refuses early,
+a refused one. It reads the lookup tables a transaction names from an RPC node, only once the fee
+payer has signed and is within its rate, a few at a time and each within 3 s (503 otherwise). The rate
+is kept per machine. It adds no rule the program does not already enforce; it refuses early,
 with a reason, and keeps its signature from authorising anything but a `Pull`. CI requires its tests
 to catch a verifier that lets its key be used outside `Pull` (M6).

@@ -148,7 +148,11 @@ const hexBytes = (hex: string) => {
   return id;
 };
 
-/** Asks a verifier to co-sign the unsigned guarded swap; returns it with the verifier's signature. */
+/**
+ * The verifier's HTTP call alone, with no check of what comes back: it returns whatever the verifier
+ * answered, changed or not, signed or not. Integrators use `cosignPrepared`, which signs as the agent
+ * first and refuses an answer that differs from what was sent or lacks a valid signature.
+ */
 export async function requestCosign(url: string, tx: Transaction, fetchImpl: typeof fetch = fetch): Promise<Transaction> {
   const body = JSON.stringify({ transaction: toBase64(new Uint8Array(getTransactionEncoder().encode(tx))) });
   const res = await fetchImpl(`${url.replace(/\/$/, '')}/v1/cosign`, {

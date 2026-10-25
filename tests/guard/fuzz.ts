@@ -56,7 +56,7 @@ type Shape = (typeof SHAPES)[number];
 
 type Step = { what: string; inner: (g: GuardWorld) => Inner; extra?: (g: GuardWorld) => string[] };
 
-const counts = { succeeded: 0, refused: 0 };
+const counts = { succeeded: 0, refused: 0, unbuilt: 0 };
 const failures: string[] = [];
 let g: GuardWorld | null = null;
 let ran = 0;
@@ -151,8 +151,11 @@ for (let i = 0; i < RUNS; i++) {
   try {
     // An attacker fits any of these with an address lookup table, so size is not what stops them.
     result = send(w.svm, await sign(w.svm, ixs, w.agent, signers), { viaLookupTable: true });
-  } catch {
-    counts.refused++; // too large to compile into one transaction: nothing is sent
+  } catch (e) {
+    // Not even a transaction (too many accounts to compile, a signer missing): nothing is sent. Counted
+    // apart from what the chain refused, and never allowed for an honest swap, which a test defect would be.
+    counts.unbuilt++;
+    if (honest) failures.push(`an honest swap could not be built: ${(e as Error).message} ${describe()}`);
     continue;
   }
   const after = guardBalances(w);
@@ -167,7 +170,7 @@ const took = Math.round((Date.now() - started) / 1000);
 const summary = [
   '# Orientim Guard fuzz',
   '',
-  `Seed ${SEED}, ${ran} of ${RUNS} cases in ${took} s: ${counts.succeeded} went through, ${counts.refused} refused by the chain.`,
+  `Seed ${SEED}, ${ran} of ${RUNS} cases in ${took} s: ${counts.succeeded} went through, ${counts.refused} refused by the chain, ${counts.unbuilt} could not be built into a transaction.`,
   '',
   failures.length ? `**${failures.length} broke the promise:**\n\n${failures.map(f => `- ${f}`).join('\n')}` : 'The promise held on the chain in every case.',
   '',

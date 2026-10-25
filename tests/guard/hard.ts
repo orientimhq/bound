@@ -12,7 +12,7 @@
  */
 import {
   AccountRole, address, appendTransactionMessageInstructions, compileTransaction, createKeyPairSignerFromBytes, createSolanaRpc,
-  createTransactionMessage, fetchAddressesForLookupTables, generateKeyPairSigner, getAddressEncoder, getProgramDerivedAddress, pipe,
+  createTransactionMessage, fetchAddressesForLookupTables, generateKeyPairSigner, getAddressEncoder, getProgramDerivedAddress, getTransactionEncoder, pipe,
   setTransactionMessageFeePayer, setTransactionMessageLifetimeUsingBlockhash, signTransaction,
 } from '@solana/kit';
 import type { Address, Blockhash, Instruction, KeyPairSigner } from '@solana/kit';
@@ -23,10 +23,10 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
-  accountsFor, ataOf, createAtaIdempotent, createGuardClient, decodeGrant, decodeTokenAccount, feeOf, grantOf, ownerSetup,
-  ownerSetupTransactions, pull, rpcChain, settle, TOKEN_PROGRAM,
+  accountsFor, ataOf, compileGuardedSwap, createAtaIdempotent, createGuardClient, decodeGrant, decodeTokenAccount, feeOf, grantOf,
+  guardedSwap, ownerSetup, ownerSetupTransactions, pull, rpcChain, settle, TOKEN_PROGRAM,
 } from '../../sdk/src/index.ts';
-import type { GuardClient, JupiterRoute, RouteRequest, SwapResult } from '../../sdk/src/index.ts';
+import type { GuardClient, GuardRoute, JupiterRoute, RouteRequest, SwapResult } from '../../sdk/src/index.ts';
 import { createCosigner } from '../../verifier/src/cosign.ts';
 import { handler } from '../../verifier/src/server.ts';
 import { attackerData, transferChecked, TOKEN_2022_PROGRAM, u64 } from './chain.ts';
@@ -81,9 +81,13 @@ const describe = (r: SwapResult) => (r.ok ? `arrived ${r.arrived}, fee ${r.fee}`
 // ---------------------------------------------------------------- the verifier, over HTTP
 
 const verifier = await generateKeyPairSigner();
+let tableReads = 0;
 const cosign = createCosigner({
   program: GUARD, key: verifier.keyPair, address: verifier.address, perMinute: 100_000,
-  loadTables: tables => fetchAddressesForLookupTables(tables, rpc, { commitment: 'confirmed' }),
+  loadTables: tables => {
+    tableReads++;
+    return fetchAddressesForLookupTables(tables, rpc, { commitment: 'confirmed' });
+  },
 });
 const server = createServer(handler(cosign));
 await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -372,6 +376,59 @@ for (const [i, [kIn, kOut]] of ([['spl6', 'hook'], ['hook', 'spl6'], ['spl6', 'd
   const before2 = await balance(m.ownerIn);
   const r4 = await direct(m, 10n * unit, m.agent, stale);
   check('H4-04', 'a blockhash the chain does not know: refused, nothing moves', !r4.ok && before2 === await balance(m.ownerIn), r4.ok ? 'landed' : (r4.error ?? ''));
+}
+
+// ---------------------------------------------------------------- H6: a real address lookup table
+
+// The route's accounts in a lookup table made on this chain: the verifier reads it from the RPC node,
+// the transaction is smaller by them, and the swap lands exactly as without it (M06: the tests no longer
+// only pretend a table).
+{
+  const ALT = address('AddressLookupTab1e1111111111111111111111111');
+  const unit = 1_000_000n;
+  const m = await market('spl6', 'spl9');
+  const slot = await rpc.getSlot({ commitment: 'finalized' }).send();
+  const [table, bump] = await getProgramDerivedAddress({ programAddress: ALT, seeds: [encoder.encode(payer.address), u64(slot)] });
+  const routeIx = await m.routeFor(m.agent)(10n * unit);
+  const inTable = (routeIx.accounts ?? []).filter(a => a.role < 2).map(a => a.address);
+  const altIx = (data: number[]): Instruction => ({
+    programAddress: ALT,
+    accounts: [
+      { address: table, role: AccountRole.WRITABLE }, { address: payer.address, role: AccountRole.READONLY_SIGNER },
+      { address: payer.address, role: AccountRole.WRITABLE_SIGNER }, { address: SYSTEM, role: AccountRole.READONLY },
+    ],
+    data: Uint8Array.from(data),
+  });
+  await fresh();
+  await send([altIx([0, 0, 0, 0, ...u64(slot), bump])], payer, [], 'the lookup table');
+  await fresh();
+  await send([altIx([2, 0, 0, 0, ...u64(BigInt(inTable.length)), ...inTable.flatMap(key)])], payer, [], 'its addresses');
+  // A table's new addresses are usable from the next slot.
+  const extended = await rpc.getSlot({ commitment: 'confirmed' }).send();
+  while ((await rpc.getSlot({ commitment: 'confirmed' }).send()) <= extended + 1n) await new Promise(resolve => setTimeout(resolve, 200));
+
+  const sizeOf = async (lookupTables?: Record<Address, Address[]>) => {
+    const accounts = await accountsFor({
+      program: GUARD, owner: m.owner.address, agent: m.agent.address, verifier: verifier.address,
+      mintIn: m.mintIn, mintOut: m.mintOut, tokenIn: programOf(m.kIn), tokenOut: programOf(m.kOut),
+    });
+    const built = guardedSwap({ accounts, amount: 10n * unit, route: { instructions: [routeIx], minOut: m.arrives(10n * unit), lookupTables } });
+    return getTransactionEncoder().encode(compileGuardedSwap(built, m.agent.address, latest)).length;
+  };
+  const [plain, compressed] = [await sizeOf(), await sizeOf({ [table]: inTable })];
+  const reads = tableReads;
+  const viaTable = m.clientOf(m.agent, verifierUrl, {
+    route: async (r: RouteRequest): Promise<GuardRoute> => ({
+      instructions: [await m.routeFor(m.agent)(r.amount)], minOut: m.arrives(r.amount), lookupTables: { [table]: inTable },
+    }),
+  });
+  const [inBefore, outBefore] = [await balance(m.ownerIn), await balance(m.ownerOut)];
+  const r = await viaTable.swap({ mintIn: m.mintIn, mintOut: m.mintOut, amount: 10n * unit });
+  const paid = inBefore - await balance(m.ownerIn);
+  const got = await balance(m.ownerOut) - outBefore;
+  check('H6-01', 'a swap through a real lookup table: the verifier reads it, the transaction is smaller, it lands exactly',
+    r.ok && tableReads === reads + 1 && compressed < plain && paid === 10n * unit + feeOf(10n * unit) && got === m.arrives(10n * unit),
+    `${describe(r)}; ${plain} → ${compressed} bytes; the verifier read the table ${tableReads - reads} times; the owner paid ${paid}, received ${got}`);
 }
 
 // ---------------------------------------------------------------- H5: a long run

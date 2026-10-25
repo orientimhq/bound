@@ -5,7 +5,15 @@ name: Guard on a local chain
 # faucets refuse GitHub's machines; a local validator has the same runtime and SOL without limit.
 on:
   push:
-    branches: [guard-poc]
+    branches: [main, guard-poc]
+    paths:
+      - 'tests/guard/devnet.ts'
+      - 'tests/guard/hard.ts'
+      - 'sdk/src/**'
+      - 'verifier/src/**'
+      - 'programs/guard/src/**'
+      - '.github/workflows/guard-local-chain.yml'
+  pull_request:
     paths:
       - 'tests/guard/devnet.ts'
       - 'tests/guard/hard.ts'

@@ -1,7 +1,8 @@
 /**
  * The verifier's decision: whether to co-sign an agent's guarded swap. The Guard program enforces the
- * owner's rules on chain whatever the verifier does; the verifier only checks, at once and without
- * asking an RPC node, that the transaction has the Guard's shape, and keeps a rate per agent. It does
+ * owner's rules on chain whatever the verifier does; the verifier only checks, at once, that the
+ * transaction has the Guard's shape, and keeps a rate per agent; it asks an RPC node only for the lookup
+ * tables a transaction names, and only once the fee payer has signed and is within its rate (U03). It does
  * not simulate the swap: a simulation protects nothing the program does not, adds a round trip to an
  * RPC node (latency, in which a fast-moving price can turn a good swap into a refused one, and one more
  * service to be down) and is work a stranger could make it do.
@@ -12,7 +13,7 @@
  * within about a minute and a half.
  *
  * It only looks at a transaction the agent has already signed (M04): without the agent's key no one can
- * spend the agent's rate.
+ * spend the agent's rate. The rate is kept in this process: with several machines, each keeps its own.
  */
 import {
   AccountRole, decompileTransactionMessage, getCompiledTransactionMessageDecoder, getPublicKeyFromAddress, getTransactionDecoder,
@@ -38,6 +39,9 @@ export type CosignConfig = {
   loadTables: (tables: Address[]) => Promise<AddressesByLookupTableAddress>;
   /** Co-signed swaps one agent may have per minute (30 by default). */
   perMinute?: number;
+  /** Lookup table reads at once (16 by default) and how long one may take (3 s); beyond either, 503. */
+  maxTableLoads?: number;
+  tableTimeoutMs?: number;
   now?: () => number;
 };
 
@@ -52,15 +56,31 @@ export function createCosigner(c: CosignConfig) {
   const now = c.now ?? Date.now;
   const recent = new Map<Address, number[]>();
 
-  /** Whether `agent` may have another co-signed swap now; counts it if so. */
-  const withinRate = (agent: Address) => {
-    const t = now();
-    const times = (recent.get(agent) ?? []).filter(x => t - x < 60_000);
-    if (times.length >= perMinute) return false;
-    times.push(t);
-    recent.set(agent, times);
+  const maxTableLoads = c.maxTableLoads ?? 16;
+  const tableTimeoutMs = c.tableTimeoutMs ?? 3_000;
+  let tableLoads = 0;
+
+  /** `agent`'s co-signed swaps in the last minute. */
+  const recentOf = (agent: Address) => (recent.get(agent) ?? []).filter(x => now() - x < 60_000);
+  /** Counts a co-signed swap of `agent`. */
+  const count = (agent: Address) => {
+    recent.set(agent, [...recentOf(agent), now()]);
     if (recent.size > 100_000) recent.clear(); // a bound on memory; the chain's limits still hold
-    return true;
+  };
+  /** The lookup tables, read at most `maxTableLoads` at once and each within `tableTimeoutMs`. */
+  const tablesOf = async (tables: Address[]) => {
+    if (tableLoads >= maxTableLoads) throw new Error('busy');
+    tableLoads++;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        c.loadTables(tables),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), tableTimeoutMs); }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+      tableLoads--;
+    }
   };
 
   return async function cosign(wire: Uint8Array): Promise<Verdict> {
@@ -73,13 +93,34 @@ export function createCosigner(c: CosignConfig) {
     } catch {
       return refuse('not a Solana transaction');
     }
+    // Only the agent can ask for its own swaps: the fee payer (the first account, never from a lookup
+    // table) must have signed, and be within its rate, before anything is read for it. That it is the
+    // agent of Pull is checked below.
+    const payer = compiled.staticAccounts[0];
+    const payerSignature = payer ? tx.signatures[payer] : null;
+    let signedByPayer = false;
+    try {
+      signedByPayer = !!payerSignature && (await verifySignature(await getPublicKeyFromAddress(payer), payerSignature as SignatureBytes, tx.messageBytes));
+    } catch {
+      signedByPayer = false;
+    }
+    if (!signedByPayer) return refuse('the agent named in Pull must sign the transaction first', 401);
+    if (recentOf(payer).length >= perMinute) return refuse('too many swaps from this agent in the last minute', 429);
+
     const lookups = 'addressTableLookups' in compiled ? (compiled.addressTableLookups ?? []) : [];
+    let tables: AddressesByLookupTableAddress = {};
+    if (lookups.length) {
+      try {
+        tables = await tablesOf(lookups.map(l => l.lookupTableAddress));
+      } catch {
+        return refuse('the lookup tables of the transaction could not be read now', 503);
+      }
+    }
     let message;
     try {
-      const tables = lookups.length ? await c.loadTables(lookups.map(l => l.lookupTableAddress)) : {};
       message = decompileTransactionMessage(compiled, { addressesByLookupTableAddress: tables });
     } catch {
-      return refuse('a lookup table of the transaction could not be read');
+      return refuse('a lookup table of the transaction does not hold the addresses it names');
     }
     if (!isTransactionMessageWithBlockhashLifetime(message)) return refuse('only a transaction with a recent blockhash is co-signed');
 
@@ -110,17 +151,9 @@ export function createCosigner(c: CosignConfig) {
     }
     if (!slots) return refuse('this verifier is not named in the transaction');
 
-    // Only the agent can ask for its own swaps: its signature first, then the rate.
-    const agentSignature = tx.signatures[agent];
-    let signedByAgent = false;
-    try {
-      signedByAgent = !!agentSignature && (await verifySignature(await getPublicKeyFromAddress(agent), agentSignature as SignatureBytes, tx.messageBytes));
-    } catch {
-      signedByAgent = false;
-    }
-    if (!signedByAgent) return refuse('the agent named in Pull must sign the transaction first', 401);
-    if (!withinRate(agent)) return refuse('too many swaps from this agent in the last minute', 429);
-
+    // Again, now that it counts: other requests of this agent may have been co-signed meanwhile.
+    if (recentOf(agent).length >= perMinute) return refuse('too many swaps from this agent in the last minute', 429);
+    count(agent);
     try {
       return { ok: true, transaction: await partiallySignTransaction([c.key], tx), agent };
     } catch {

@@ -5,7 +5,7 @@
  *
  *   node tests/guard/verifier.ts
  */
-import { compileTransaction, createTransactionMessage, appendTransactionMessageInstructions, generateKeyPairSigner, getTransactionEncoder, partiallySignTransaction, pipe, setTransactionMessageFeePayer, setTransactionMessageLifetimeUsingBlockhash } from '@solana/kit';
+import { compileTransaction, compressTransactionMessageUsingAddressLookupTables, createTransactionMessage, appendTransactionMessageInstructions, generateKeyPairSigner, getTransactionEncoder, partiallySignTransaction, pipe, setTransactionMessageFeePayer, setTransactionMessageLifetimeUsingBlockhash } from '@solana/kit';
 import type { Address, Instruction, Transaction } from '@solana/kit';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -86,7 +86,7 @@ await refused('V07', 'the verifier\'s key also signs inside the route',
   wire(byAgent(swap(route(g, [takeFrom(AMOUNT), deliver(MIN_OUT)], [{ address: g.verifier.address, role: 2 }])))), /outside Pull/);
 await refused('V08', 'the verifier\'s key as a writable account of the route',
   wire(byAgent(swap(route(g, [takeFrom(AMOUNT), deliver(MIN_OUT)], [g.verifier.address])))), /outside Pull/);
-await refused('V09', 'the verifier pays for the transaction', wire(byAgent(swap(), g.verifier.address)), /agent named in Pull must pay/);
+await refused('V09', 'the verifier pays for the transaction (unsigned by it: refused before anything else)', wire(byAgent(swap(), g.verifier.address)), /must sign/, 401);
 await refused('V10', 'another verifier named in Pull', wire(byAgent([ix.pull(g, AMOUNT, MIN_OUT, { verifier: stranger.address }), honest(g, AMOUNT, MIN_OUT), ix.settle(g)])), /not named/);
 await refused('V11', 'not a transaction', Uint8Array.of(1, 2, 3), /not a Solana transaction/);
 await refused('V12', 'larger than 1232 bytes', new Uint8Array(1300), /1232/);
@@ -116,6 +116,45 @@ await refused('V12', 'larger than 1232 bytes', new Uint8Array(1300), /1232/);
   clock += 61_000;
   const own = await limited(await wire(byAgent(swap())));
   check('V18', 'after strangers\' requests, the agent\'s own swap still has its rate', own.ok && !forgedVerdict.ok, own.ok ? 'co-signed' : `${own.status} ${own.reason}`);
+}
+
+// V19–V21 (U03): a transaction that names a lookup table. Its table is read only for a fee payer that
+// signed and is within its rate, so a stranger makes the verifier ask nothing of the RPC node; a table
+// read that does not answer in time is a 503, not a hang.
+{
+  const table = (await generateKeyPairSigner()).address;
+  const routeIx = honest(g, AMOUNT, MIN_OUT);
+  const inTable = (routeIx.accounts ?? []).filter(a => a.role < 2).map(a => a.address).filter(a => a !== g.agent.address);
+  const withTable = (payer: Address = g.agent.address) => compileTransaction(compressTransactionMessageUsingAddressLookupTables(pipe(
+    createTransactionMessage({ version: 0 }),
+    m => setTransactionMessageFeePayer(payer, m),
+    m => setTransactionMessageLifetimeUsingBlockhash(lifetimeOf(g.svm), m),
+    m => appendTransactionMessageInstructions(swap(routeIx), m),
+  ), { [table]: inTable }));
+  let reads = 0;
+  let slow = false;
+  const reading = createCosigner({
+    program: g.guard, key: g.verifier.keyPair, address: g.verifier.address, perMinute: 1, now: () => clock, tableTimeoutMs: 50,
+    loadTables: async () => {
+      reads++;
+      if (slow) await new Promise(resolve => setTimeout(resolve, 500));
+      return { [table]: inTable };
+    },
+  });
+  const compiled = withTable();
+  const named = compiled.messageBytes.length < unsigned(swap(routeIx)).messageBytes.length;
+  const strangers = [await reading(await wire(compiled)), await reading(await wire(compiled))];
+  check('V19', 'a stranger\'s unsigned request that names a lookup table: 401, the table never read',
+    named && strangers.every(v => !v.ok && v.status === 401) && reads === 0, `${named ? 'a table is named' : 'no table named'}; ${reads} reads`);
+  const own = await reading(await wire(partiallySignTransaction([g.agent.keyPair], compiled)));
+  const over = await reading(await wire(partiallySignTransaction([g.agent.keyPair], compiled)));
+  check('V20', 'the agent\'s swap through a lookup table is co-signed; past its rate, 429 with the table not read again',
+    own.ok && !over.ok && over.status === 429 && reads === 1, `${own.ok ? 'co-signed' : `${own.status} ${own.reason}`}; then ${over.ok ? 'co-signed' : over.status}; ${reads} reads`);
+  clock += 61_000;
+  slow = true;
+  const late = await reading(await wire(partiallySignTransaction([g.agent.keyPair], compiled)));
+  check('V21', 'a lookup table read that does not answer in time: 503', !late.ok && late.status === 503, late.ok ? 'co-signed' : `${late.status} ${late.reason}`);
+  clock += 61_000;
 }
 
 // V14: the agent's whole path through the SDK: a route shaped as Jupiter's answer, the guarded swap,

@@ -1,10 +1,10 @@
 # Orientim's verifier on Fly. Secrets (set with `fly secrets set`, never in this file):
-# VERIFIER_KEY, RPC_URL. Deploy from the repository root: fly deploy -c verifier/fly.toml
+# VERIFIER_KEY, RPC_URL. Deploy from the repository root, which is the image's build context:
+#   fly deploy . -c verifier/fly.toml --dockerfile verifier/Dockerfile
+# (the flag names the Dockerfile from the repository root, so no path here depends on how flyctl reads it).
+# Each machine keeps its own rate per agent: with two machines an agent can have up to twice the rate.
 app = 'orientim-verifier'
 primary_region = 'fra'
-
-[build]
-  dockerfile = 'Dockerfile'
 
 [env]
   GUARD_PROGRAM = '11111111111111111111111111111111' # the Guard's address, once it is deployed

@@ -35,7 +35,10 @@ const result = await sendOwnerSetup(chain, {
 
 The set-up is larger than one Solana transaction, so it is sent as two or three, signed in one
 wallet approval and confirmed in order. If it stops part way, call `sendOwnerSetup` again with the
-same arguments: it sees what exists and finishes the rest. To stop every agent without Orientim,
+same arguments, and the owner signs again: it skips the policy if it exists and sends the rest whole.
+The grant and the approvals are set again to what you pass (not added to), accounts that exist are
+left as they are, and `agentLamports` is sent again: pass 0 on a run that only finishes a set-up whose
+agent was already funded. To stop every agent without Orientim,
 the owner revokes the approval in their wallet (`revoke`).
 
 ## 2. The agent's swap, with your own route
@@ -74,6 +77,14 @@ const r = await guard.swap({ mintIn: USDC, mintOut: SOL_MINT, amount: 50_000_000
 if (!r.ok) console.log(r.stage, r.reason); // 'rules' | 'route' | 'verifier' | 'chain'
 ```
 
+Once a swap is sent, the answer is one of: landed (`ok`, with `arrived`), refused on chain (the
+program's error), expired (never seen, its blockhash past its life: it cannot land), or
+`unknown: true`: the RPC node could not say within three minutes. **An unknown swap may have landed.**
+Look its `signature` up; do not build the swap again, or the owner may get two. `arrivedFrom` says
+whether `arrived` comes from the transaction's own token balances (`'transaction'`) or, when those
+could not be read, from the owner's balance before and after (`'balances'`), which also counts
+anything else that arrived meanwhile.
+
 The route's own compute budget instructions are dropped: the priority fee is the agent's alone.
 Nothing is simulated: `rpcChain` sends without the RPC node's own simulation (preflight), so a fast
 price does not turn a good swap into a refused one; a swap that fails on chain costs the agent its
@@ -83,7 +94,8 @@ network fee. `rpcChain(url, { skipPreflight: false })` asks the node to simulate
 ## 3. A transaction you build yourself
 
 If your system already builds and sends transactions, build the guarded swap, then co-sign it with
-`cosignPrepared`. It never returns a transaction a verifier changed or did not sign.
+`cosignPrepared`. It never returns a transaction a verifier changed or did not sign. (`requestCosign`
+is only the HTTP call, with none of these checks.)
 
 ```ts
 import { accountsFor, compileGuardedSwap, cosignPrepared, guardedSwap } from '@orientimhq/guard';
@@ -106,6 +118,8 @@ POST /v1/cosign   {"transaction": "<base64 wire transaction, signed by the agent
 It co-signs only `[ComputeBudget*] Pull, the route, Settle`, where its key is nothing but Pull's
 verifier, the agent pays and has already signed, and the blockhash is recent. It answers at once: it
 does not simulate the swap (the program checks everything that protects the owner when the swap
-lands). 400: not the Guard's shape; 401: the agent has not signed; 429: too many swaps from this
-agent in a minute; 503: the verifier could not check it now. The verifier adds no rule
+lands). It reads the lookup tables a transaction names from its RPC node, and only after the fee
+payer's signature and rate are checked. 400: not the Guard's shape; 401: the agent has not signed;
+429: too many swaps from this agent in a minute (counted on each verifier machine); 503: the verifier
+could not check it now (its lookup tables could not be read in time). The verifier adds no rule
 of its own: the Guard program enforces the owner's rules on chain whatever the verifier does.

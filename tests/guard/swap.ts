@@ -99,6 +99,17 @@ const refusedBefore = async (id: string, what: string, c: ReturnType<typeof clie
     r.ok ? `arrived ${r.arrived}, fee ${r.fee} ${broken.join('; ')}` : `${r.stage}: ${r.reason}`);
 }
 
+// S16: the swap lands but the node cannot say so: swap() answers unknown with the signature, sends it
+// once and never rebuilds it (U01). Without the chain's receipt, what arrived is marked as read from balances.
+{
+  const n = sends;
+  const unsure: Chain = { ...chain, send: async tx => ({ ...(await chain.send(tx)), ok: false, unknown: true, error: 'could not tell' }) };
+  const r = await client({ chain: unsure }).swap({ mintIn: g.mintIn, mintOut: g.mintOut, amount: AMOUNT });
+  const small = await client().swap({ mintIn: g.mintIn, mintOut: g.mintOut, amount: 1_000_000n });
+  check('S16', 'sent, but whether it landed is unknown: swap() says so, with its signature, sent once', !r.ok && r.stage === 'chain' && r.unknown === true && !!r.signature && sends === n + 2
+    && small.ok && small.arrivedFrom === 'balances', r.ok ? 'it said ok' : `${r.stage}: ${r.reason}, unknown ${r.unknown}, ${sends - n} sends`);
+}
+
 // S02–S04: the owner's rules, read before anything is sent.
 await refusedBefore('S02', 'above the limit per swap', client(), 'rules', /limit per swap/, { amount: 201_000_000n });
 await refusedBefore('S03', 'an output mint the owner did not allow', client(), 'rules', /output mint/, { mintOut: g.mintOther });
@@ -147,10 +158,10 @@ await refusedBefore('S09', 'a verifier the owner never named', client({ verifier
     if (!last.ok) break;
     n++;
   }
-  // So far 2 swaps (S01, S10) of 100.25 each; 4 in all fit in 500, the fifth does not.
+  // So far S01, S16 and S10 of 100.25 each and S16's 1.0025: 301.75 of the 500; one more fits, not two.
   const chainSays = send(g.svm, await sign(g.svm, [ix.pull(g, AMOUNT, OUT), honest(g, AMOUNT, OUT), ix.settle(g)], g.agent, [g.verifier]));
   check('S11', 'the daily limit: swap() refuses the fifth swap of the day before sending, as the chain does',
-    n === 2 && last !== null && !last.ok && last.stage === 'rules' && /daily limit/.test(last.reason) && !chainSays.ok && /0xc$/.test(chainSays.error),
+    n === 1 && last !== null && !last.ok && last.stage === 'rules' && /daily limit/.test(last.reason) && !chainSays.ok && /0xc$/.test(chainSays.error),
     `${n} more swaps, then ${last && !last.ok ? last.reason : 'no refusal'}; the chain: ${chainSays.ok ? 'allowed' : chainSays.error}`);
 }
 

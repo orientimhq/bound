@@ -27,12 +27,16 @@ export type Chain = {
   latestBlockhash: () => Promise<{ blockhash: Blockhash; lastValidBlockHeight: bigint }>;
   /** The cluster's clock, in unix seconds. */
   now: () => Promise<bigint>;
-  /** Sends the signed transaction and waits until it is confirmed or has failed. */
-  send: (tx: Transaction) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Sends the signed transaction and waits until it is confirmed or has failed. `unknown`: it was sent
+   * but whether it landed could not be told; it may have, so it is never to be rebuilt and sent again.
+   */
+  send: (tx: Transaction) => Promise<{ ok: boolean; error?: string; unknown?: boolean }>;
   /**
    * How much `account`'s balance changed in the confirmed transaction `signature`, from the
-   * transaction's own token balances: what `swap()` reports as arrived. Without it, `swap()` reads
-   * the balance before and after, which also counts anything else that arrived in between (L01).
+   * transaction's own token balances: what `swap()` reports as arrived. Without it, or when it cannot
+   * tell, `swap()` reads the balance before and after, which also counts anything else that arrived in
+   * between, and says so (`arrivedFrom: 'balances'`, L01).
    */
   received?: (signature: string, account: Address) => Promise<bigint | null>;
 };
@@ -71,8 +75,18 @@ export type SwapRequest = {
 };
 
 export type SwapResult =
-  | { ok: true; signature: string; amount: bigint; fee: bigint; minOut: bigint; arrived: bigint }
-  | { ok: false; stage: 'rules' | 'route' | 'verifier' | 'chain'; reason: string };
+  | {
+    ok: true; signature: string; amount: bigint; fee: bigint; minOut: bigint;
+    /** What reached the owner's output account: from the transaction itself, or the balance before and after it. */
+    arrived: bigint; arrivedFrom: 'transaction' | 'balances';
+  }
+  | {
+    ok: false; stage: 'rules' | 'route' | 'verifier' | 'chain'; reason: string;
+    /** At stage 'chain': the transaction that was sent. */
+    signature?: string;
+    /** Sent, but whether it landed could not be told: it may have. Look `signature` up; never rebuild the swap. */
+    unknown?: boolean;
+  };
 
 /** Why the Guard would refuse this swap, from the owner's rules as they are on chain now; null if it would not. */
 export function wouldRefuse(
@@ -194,15 +208,14 @@ export function createGuardClient(c: GuardClient) {
     const cosigned = await cosignPrepared(tx, c.verifiers, { agent: c.agent });
     if (!cosigned.ok) return { ok: false, stage: 'verifier', reason: cosigned.reason };
     const signed = cosigned.transaction;
-    const sent = await c.chain.send(signed);
-    if (!sent.ok) return { ok: false, stage: 'chain', reason: sent.error ?? 'the transaction failed' };
     const signature = getSignatureFromTransaction(signed);
-    let arrived = c.chain.received ? await c.chain.received(signature, accounts.ownerOut) : null;
-    if (arrived === null) {
-      const [after] = await c.chain.getAccounts([accounts.ownerOut]);
-      arrived = (after ? decodeTokenAccount(after.data).amount : before) - before;
-    }
-    return { ok: true, signature, amount: s.amount, fee: feeOf(s.amount), minOut, arrived };
+    const sent = await c.chain.send(signed);
+    if (!sent.ok) return { ok: false, stage: 'chain', reason: sent.error ?? 'the transaction failed', signature, unknown: !!sent.unknown };
+    const done = { ok: true as const, signature, amount: s.amount, fee: feeOf(s.amount), minOut };
+    const fromTransaction = await c.chain.received?.(signature, accounts.ownerOut).catch(() => null);
+    if (fromTransaction !== undefined && fromTransaction !== null) return { ...done, arrived: fromTransaction, arrivedFrom: 'transaction' };
+    const [after] = await c.chain.getAccounts([accounts.ownerOut]);
+    return { ...done, arrived: (after ? decodeTokenAccount(after.data).amount : before) - before, arrivedFrom: 'balances' };
   }
 
   return { swap, rules };

@@ -72,6 +72,17 @@ jobs:
         run: node tests/guard/verifier.ts
       - name: The SDK's swap() in one call
         run: node tests/guard/swap.ts
+      - name: The SDK's send, against an RPC node that drops, delays and answers processed
+        run: node tests/guard/rpc.ts
+      - name: The verifier's image builds from the repository root and answers its health check
+        run: |
+          docker build -q -f verifier/Dockerfile -t orientim-verifier .
+          # A key made for this step only, never stored: the image must start with one.
+          key=$(node -e "const {generateKeyPairSync}=require('node:crypto');const k=generateKeyPairSync('ed25519');const d=k.privateKey.export({format:'jwk'});const b=s=>Buffer.from(s,'base64url');process.stdout.write(Buffer.concat([b(d.d),b(d.x)]).toString('base64'))")
+          docker run -d --name verifier -p 8080:8080 -e VERIFIER_KEY="$key" -e RPC_URL=http://127.0.0.1:1 \
+            -e GUARD_PROGRAM=11111111111111111111111111111111 orientim-verifier
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8080/health && exit 0; sleep 1; done
+          docker logs verifier; exit 1
       - name: The npm package, installed by an outside project
         run: |
           (cd sdk && npm pack --pack-destination "$RUNNER_TEMP")

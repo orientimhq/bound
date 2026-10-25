@@ -42,6 +42,7 @@ The full rules (I1–I11), the transaction's shape and every test case are in
 | `tests/guard/jupiter.ts` | Real Jupiter routes from a copy of mainnet, with Pyth's real prices |
 | `tests/guard/attacker` | A malicious swap program the tests use as the route |
 | `tests/guard/consumer` | The packed npm package installed by an outside project, with plain Node |
+| `tests/guard/rpc.ts` | `rpcChain().send` against a scripted RPC node: dropped connections, `processed`, expiry, `unknown` |
 | `tests/guard/devnet.ts` | End to end on a real validator (in CI, `solana-test-validator`; or devnet by hand): deploys, the owner's set-up, the verifier over HTTP, swaps and refusals |
 
 ## Running the tests
@@ -56,6 +57,7 @@ npm run fuzz
 node tests/guard/rules.ts
 node tests/guard/verifier.ts
 node tests/guard/swap.ts
+node tests/guard/rpc.ts
 RPC_URL=… JUPITER_API_KEY=… npm run jupiter
 ```
 
