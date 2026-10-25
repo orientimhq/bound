@@ -37,6 +37,8 @@ type Plan = {
   /** The amount and minimum the invariant holds the transaction to. */
   amount?: bigint;
   minOut?: bigint;
+  /** Above 1232 bytes here, but an attacker fits it with an address lookup table: send it anyway. */
+  viaLookupTable?: boolean;
 };
 
 type Case = {
@@ -242,7 +244,7 @@ const CASES: Case[] = [
         data: Uint8Array.from(p.data!),
       };
       // The route gets every account pull needs, with the same roles, and the Guard program itself.
-      return { ixs: [route(g, [inner], [{ address: g.guard, role: AccountRole.READONLY }, ...p.accounts!]), ix.settle(g)], amount: AMOUNT, minOut: MIN };
+      return { ixs: [route(g, [inner], [{ address: g.guard, role: AccountRole.READONLY }, ...p.accounts!]), ix.settle(g)], amount: AMOUNT, minOut: MIN, viaLookupTable: true };
     },
     expect: 'fails', because: 'top-level',
   },
@@ -526,7 +528,7 @@ for (const c of CASES) {
   const amount = plan.amount ?? AMOUNT;
   const minOut = plan.minOut ?? MIN;
   const before = guardBalances(g);
-  const result = send(g.svm, await sign(g.svm, plan.ixs, g.agent, plan.signers ?? [g.verifier]));
+  const result = send(g.svm, await sign(g.svm, plan.ixs, g.agent, plan.signers ?? [g.verifier]), { viaLookupTable: plan.viaLookupTable });
   const after = guardBalances(g);
   const broken = guardInvariants(before, after, result.ok, amount, minOut);
   if (result.ok && c.expect === 'succeeds') {

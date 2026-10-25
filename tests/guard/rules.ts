@@ -328,7 +328,8 @@ for (let i = 0; i < RUNS; i++) {
   if (sdkSays) counts.sdkRefused++;
 
   const result = await sign(g.svm, ixs, g.agent, signers).then(
-    tx => send(g.svm, tx),
+    // Real routes come with lookup tables; the owner's rules, not the size, are what this compares.
+    tx => send(g.svm, tx, { viaLookupTable: true }),
     () => ({ ok: false, error: 'a required signature is missing', index: null, logs: [] }),
   );
   const after = guardBalances(g);

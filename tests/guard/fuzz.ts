@@ -149,7 +149,8 @@ for (let i = 0; i < RUNS; i++) {
   const before = guardBalances(w);
   let result;
   try {
-    result = send(w.svm, await sign(w.svm, ixs, w.agent, signers));
+    // An attacker fits any of these with an address lookup table, so size is not what stops them.
+    result = send(w.svm, await sign(w.svm, ixs, w.agent, signers), { viaLookupTable: true });
   } catch {
     counts.refused++; // too large to compile into one transaction: nothing is sent
     continue;

@@ -174,10 +174,13 @@ export async function sign(svm: LiteSVM, ixs: Instruction[], payer: KeyPairSigne
 /** A transaction's result, whichever way litesvm reports it. */
 export type Outcome = { ok: boolean; error: string; index: number | null; logs: string[] };
 
-/** litesvm takes any size; the network refuses a transaction above 1232 bytes, and so does this. */
-export function send(svm: LiteSVM, tx: Transaction): Outcome {
+/**
+ * litesvm takes any size; the network refuses a transaction above 1232 bytes, and so does this, unless
+ * `viaLookupTable`: an attack an attacker would fit with an address lookup table, which these tests do not build.
+ */
+export function send(svm: LiteSVM, tx: Transaction, o: { viaLookupTable?: boolean } = {}): Outcome {
   const bytes = getTransactionEncoder().encode(tx).length;
-  if (bytes > 1232) return { ok: false, error: `transaction too large: ${bytes} bytes (max 1232)`, index: null, logs: [] };
+  if (bytes > 1232 && !o.viaLookupTable) return { ok: false, error: `transaction too large: ${bytes} bytes (max 1232)`, index: null, logs: [] };
   const result = svm.sendTransaction(tx) as {
     err?: () => unknown; meta?: () => { logs: () => string[] }; logs?: () => string[];
   };
