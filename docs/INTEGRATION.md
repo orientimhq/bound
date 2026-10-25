@@ -75,8 +75,9 @@ if (!r.ok) console.log(r.stage, r.reason); // 'rules' | 'route' | 'verifier' | '
 ```
 
 The route's own compute budget instructions are dropped: the priority fee is the agent's alone.
-`rpcChain(url, { skipPreflight: true })` sends without the RPC node's own simulation: faster, and a
-swap that would fail then costs the agent its network fee.
+Nothing is simulated: `rpcChain` sends without the RPC node's own simulation (preflight), so a fast
+price does not turn a good swap into a refused one; a swap that fails on chain costs the agent its
+network fee. `rpcChain(url, { skipPreflight: false })` asks the node to simulate first.
 `fromJupiter` turns Jupiter's `/swap/v2/build` answer into a `GuardRoute`, and is the default route.
 
 ## 3. A transaction you build yourself
