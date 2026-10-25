@@ -106,7 +106,7 @@ const ixAddresses = (r: BuildResponse) => [
 
 type Case = {
   pair: string; amount: string; labels: string; ok: boolean; baseline: string; result: string;
-  bytes: number | null; baseBytes: number | null; cu: number | null; baseCu: number | null; guardCu: number | null;
+  bytes: number | null; tableBytes: number | null; tableResult: string; baseBytes: number | null; cu: number | null; baseCu: number | null; guardCu: number | null;
   minOut: bigint; arrived: bigint | null; oracle: string;
 };
 
@@ -128,11 +128,12 @@ async function mainnetCopy(r: BuildResponse, extra: Address[]): Promise<LiteSVM>
     const executable = LOADERS.has(acc.owner) && (acc.owner !== UPGRADEABLE || acc.data[0] === 2);
     svm.setAccount({ address: address(a), data: acc.data, executable, lamports: lamports(acc.lamports), programAddress: acc.owner, space: BigInt(acc.data.length) });
   }
-  const slot = await rpc.getSlot({ commitment: 'confirmed' }).send();
-  const time = await rpc.getBlockTime(slot).send();
+  // A finalized slot has its block time; a fresh one may not yet. The wall clock is close enough then.
+  const slot = await rpc.getSlot({ commitment: 'finalized' }).send();
+  const time = await rpc.getBlockTime(slot).send().catch(() => null);
   const clock = svm.getClock();
   clock.slot = slot;
-  if (time !== null) clock.unixTimestamp = BigInt(time);
+  clock.unixTimestamp = BigInt(time ?? Math.floor(Date.now() / 1000));
   svm.setClock(clock);
   return svm;
 }
@@ -156,8 +157,12 @@ function base58(bytes: Uint8Array): string {
 const hexBytes = (h: string) => Uint8Array.from(h.match(/../g)!.map(x => Number.parseInt(x, 16)));
 const pythAccount = async (feed: string) => (await getProgramDerivedAddress({ programAddress: PYTH_PUSH_ORACLE, seeds: [Uint8Array.of(0, 0), hexBytes(feed)] }))[0];
 
-function compile(svm: LiteSVM, payer: KeyPairSigner, ixs: Instruction[], r: BuildResponse) {
-  const tables = Object.fromEntries(Object.entries(r.addressesByLookupTableAddress ?? {}).map(([k, v]) => [address(k), v.map(x => address(x))]));
+type Tables = Record<Address, Address[]>;
+function compile(svm: LiteSVM, payer: KeyPairSigner, ixs: Instruction[], r: BuildResponse, own: Tables = {}) {
+  const tables = {
+    ...Object.fromEntries(Object.entries(r.addressesByLookupTableAddress ?? {}).map(([k, v]) => [address(k), v.map(x => address(x))])),
+    ...own,
+  };
   return pipe(
     createTransactionMessage({ version: 0 }),
     m => setTransactionMessageFeePayer(payer.address, m),
@@ -165,6 +170,24 @@ function compile(svm: LiteSVM, payer: KeyPairSigner, ixs: Instruction[], r: Buil
     m => appendTransactionMessageInstructions(ixs, m),
     m => compressTransactionMessageUsingAddressLookupTables(m, tables),
   );
+}
+const LOOKUP_TABLE_PROGRAM = 'AddressLookupTab1e1111111111111111111111111';
+/**
+ * The owner's own lookup table, written straight into the copy: the accounts every one of its swaps
+ * names (its policy, grant, authority and token accounts, the treasury's, the mints, the prices). In
+ * production the owner creates it once, next to the policy. Header: kind 1, never deactivated, last
+ * extended at slot 0, an authority, then the addresses.
+ */
+function lookupTable(svm: LiteSVM, at: Address, owner: Address, list: Address[]) {
+  const d = new Uint8Array(56 + 32 * list.length);
+  const v = new DataView(d.buffer);
+  v.setUint32(0, 1, true);
+  v.setBigUint64(4, 0xffff_ffff_ffff_ffffn, true);
+  d[20] = list.length;
+  d[21] = 1;
+  d.set(enc.encode(owner), 22);
+  list.forEach((a, i) => d.set(enc.encode(a), 56 + 32 * i));
+  svm.setAccount({ address: at, data: d, executable: false, lamports: lamports(SOL), programAddress: address(LOOKUP_TABLE_PROGRAM), space: BigInt(d.length) });
 }
 const wireBytes = (tx: Transaction) => Buffer.from(getBase64EncodedWireTransaction(tx), 'base64').length;
 
@@ -273,6 +296,18 @@ async function runCase(spec: string): Promise<Case> {
   if (pyth) Object.assign(g, { prices, lossBudget: true });
   const guardIxs = [cuLimit, ix.pull(g, amount, minOut), ...route, ...cleanup, ix.settle(g)];
   const tx = await signTransaction([agent.keyPair, verifier.keyPair], compileTransaction(compile(svm, agent, guardIxs, r)));
+  // The same transaction with the owner's lookup table: simulated first, so that the state stays as it was.
+  const table = (await generateKeyPairSigner()).address;
+  const owned = [
+    g.policy, g.grant, g.authority, g.wIn, g.wOut, g.hopper, g.treasuryIn, IN.mint, OUT.mint, TOKEN_PROGRAM,
+    address('Sysvar1nstructions1111111111111111111111111'), ...(pyth ? prices : []),
+  ];
+  lookupTable(svm, table, W.address, owned);
+  const tableTx = await signTransaction([agent.keyPair, verifier.keyPair], compileTransaction(compile(svm, agent, guardIxs, r, { [table]: owned })));
+  const sim = svm.simulateTransaction(tableTx) as { err?: () => unknown; meta: () => { logs: () => string[] } };
+  const tableResult = typeof sim.err === 'function'
+    ? String([...sim.meta().logs()].reverse().find(l => /failed|error/i.test(l)) ?? sim.err()).slice(0, 120)
+    : 'ok';
   const result = send(svm, tx);
   const arrived = result.ok ? amountOf(svm, g.wOut) : null;
   const paid = result.ok ? amount * 4n - amountOf(svm, g.wIn) : null;
@@ -284,7 +319,7 @@ async function runCase(spec: string): Promise<Case> {
     pair: `${inName} → ${outName}`, amount: `${ui} ${inName}`, labels, ok: good || (!baseResult.ok && !result.ok),
     baseline: baseResult.ok ? `ok, ${baseOut}` : baseResult.error,
     result: result.ok ? (good ? 'ok' : `promise broken: paid ${paid}, arrived ${arrived}`) : result.error,
-    bytes: wireBytes(tx), baseBytes: wireBytes(baseTx), cu: c.total || null, baseCu: b.total || null, guardCu: c.own || null,
+    bytes: wireBytes(tx), tableBytes: wireBytes(tableTx), tableResult, baseBytes: wireBytes(baseTx), cu: c.total || null, baseCu: b.total || null, guardCu: c.own || null,
     minOut, arrived, oracle: pyth ? 'Pyth, 3% and loss budget' : 'none (no sponsored feed found)',
   };
 }
@@ -295,7 +330,8 @@ for (const spec of PAIRS) {
   try {
     const c = await runCase(spec);
     rows.push(c);
-    console.log(`${c.ok ? 'OK  ' : 'FAIL'} ${c.pair} ${c.amount} [${c.labels}] ${c.bytes} B (alone ${c.baseBytes}), CU ${c.cu} (Guard ${c.guardCu}, alone ${c.baseCu}): ${c.result}`);
+    const tag = !c.ok ? 'FAIL' : c.result === 'ok' ? 'OK  ' : 'BOTH';
+    console.log(`${tag} ${c.pair} ${c.amount} [${c.labels}] ${c.bytes} B (with the owner's table ${c.tableBytes}: ${c.tableResult}; alone ${c.baseBytes}), CU ${c.cu} (Guard ${c.guardCu}, alone ${c.baseCu}): ${c.result}`);
     if (!c.ok) failed.push(spec);
   } catch (e) {
     console.log(`SKIP ${spec}: ${(e as Error).message.split('\n')[0]}`);
@@ -307,11 +343,11 @@ const cell = (v: unknown) => (v === null || v === undefined ? '—' : String(v))
 const summary = [
   `# Orientim Guard with real Jupiter routes (maxAccounts ${MAX_ACCOUNTS})`,
   '',
-  `${rows.filter(r => r.ok).length} of ${PAIRS.length} cases kept the promise; ${rows.filter(r => (r.bytes ?? 0) > PACKET).length} would not fit in ${PACKET} bytes.`,
+  `${rows.filter(r => r.ok && r.result === 'ok').length} of ${PAIRS.length} cases swapped through the Guard and kept the promise; ${rows.filter(r => r.ok && r.result !== 'ok').length} failed the same way alone too (the route went stale in the copy). Too large for ${PACKET} bytes: ${rows.filter(r => (r.bytes ?? 0) > PACKET).length} as is, ${rows.filter(r => (r.tableBytes ?? 0) > PACKET).length} with the owner's lookup table.`,
   '',
-  '| Pair | Amount | Route | Bytes (alone) | CU total (alone) | CU Guard | Oracle | Result |',
-  '| --- | --- | --- | --- | --- | --- | --- | --- |',
-  ...rows.map(r => `| ${r.pair} | ${r.amount} | ${r.labels} | ${cell(r.bytes)}${(r.bytes ?? 0) > PACKET ? ' (too large)' : ''} (${cell(r.baseBytes)}) | ${cell(r.cu)} (${cell(r.baseCu)}) | ${cell(r.guardCu)} | ${r.oracle} | ${r.result.replace(/\|/g, '/')} |`),
+  '| Pair | Amount | Route | Bytes (alone) | With the owner\'s table | CU total (alone) | CU Guard | Oracle | Result |',
+  '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+  ...rows.map(r => `| ${r.pair} | ${r.amount} | ${r.labels} | ${cell(r.bytes)}${(r.bytes ?? 0) > PACKET ? ' (too large)' : ''} (${cell(r.baseBytes)}) | ${cell(r.tableBytes)}${(r.tableBytes ?? 0) > PACKET ? ' (too large)' : ''}, ${r.tableResult.replace(/\|/g, '/')} | ${cell(r.cu)} (${cell(r.baseCu)}) | ${cell(r.guardCu)} | ${r.oracle} | ${r.result.replace(/\|/g, '/')} |`),
   '',
   failed.length ? `Did not pass: ${failed.join('; ')}` : 'Every case passed.',
   '',
