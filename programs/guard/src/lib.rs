@@ -469,6 +469,13 @@ fn parse_price(data: &[u8], feed: &Pubkey, now: i64) -> Result<Price, ProgramErr
     Ok(p)
 }
 
+/// The fee, rounded up: every swap pays at least one base unit, whatever the decimals. In u128, as
+/// amount × 25 passes u64 above about 7.4 × 10^17 base units (a large share of a 9-decimal token's supply);
+/// the result is never above the amount, so it fits back in u64.
+fn fee_of(amount: u64) -> u64 {
+    ((amount as u128 * FEE_BPS as u128).div_ceil(10_000)) as u64
+}
+
 fn pow10(e: u32) -> Result<u128, ProgramError> {
     10u128.checked_pow(e).ok_or_else(|| GuardError::Math.into())
 }
@@ -943,8 +950,7 @@ fn pull(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramRe
     if amount == 0 {
         return Err(fail(GuardError::BadAmount, "nothing to swap"));
     }
-    // Rounded up: every swap pays at least one base unit, whatever the decimals.
-    let fee = amount.checked_mul(FEE_BPS).and_then(|f| f.checked_add(9_999)).ok_or(GuardError::Math)? / 10_000;
+    let fee = fee_of(amount);
     let total = amount.checked_add(fee).ok_or(GuardError::Math)?;
     let day = now.div_euclid(SECONDS_PER_DAY);
     let limit = grant
@@ -1116,6 +1122,16 @@ fn settle(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Program
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fee_rounds_up_and_never_overflows() {
+        assert_eq!(fee_of(1), 1);
+        assert_eq!(fee_of(400), 1);
+        assert_eq!(fee_of(401), 2);
+        assert_eq!(fee_of(100_000_000), 250_000);
+        assert_eq!(fee_of(1_000_000_000_000_000_000), 2_500_000_000_000_000);
+        assert_eq!(fee_of(u64::MAX), (u64::MAX as u128 * 25).div_ceil(10_000) as u64);
+    }
 
     #[test]
     fn policy_round_trips() {
