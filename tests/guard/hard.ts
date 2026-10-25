@@ -24,7 +24,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
   accountsFor, ataOf, compileGuardedSwap, createAtaIdempotent, createGuardClient, decodeGrant, decodeTokenAccount, feeOf, grantOf,
-  guardedSwap, ownerSetup, ownerSetupTransactions, pull, rpcChain, settle, TOKEN_PROGRAM,
+  guardedSwap, ownerSetup, ownerSetupTransactions, policyOf, pull, revoke, rpcChain, settle, TOKEN_PROGRAM, updatePolicy,
 } from '../../sdk/src/index.ts';
 import type { GuardClient, GuardRoute, JupiterRoute, RouteRequest, SwapResult } from '../../sdk/src/index.ts';
 import { createCosigner } from '../../verifier/src/cosign.ts';
@@ -89,7 +89,22 @@ const cosign = createCosigner({
     return fetchAddressesForLookupTables(tables, rpc, { commitment: 'confirmed' });
   },
 });
-const server = createServer(handler(cosign));
+/** How long the verifier took for each request, in ms: its own work, without the HTTP round trip. */
+const verifierMs: number[] = [];
+const server = createServer(handler(async wire => {
+  const started = performance.now();
+  try {
+    return await cosign(wire);
+  } finally {
+    verifierMs.push(performance.now() - started);
+  }
+}));
+/** p50 / p95 / p99 of `ms`. */
+const percentiles = (ms: number[]) => {
+  const sorted = [...ms].sort((a, b) => a - b);
+  const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]?.toFixed(1) ?? '-';
+  return `p50 ${at(0.5)} / p95 ${at(0.95)} / p99 ${at(0.99)} ms`;
+};
 await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
 const verifierUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
@@ -146,7 +161,8 @@ async function createMint(k: Kind): Promise<Address> {
   await send([
     getCreateAccountInstruction({ payer, newAccount: mint, lamports: rent, space: BigInt(space), programAddress: program }),
     ...before,
-    getInitializeMint2Instruction({ mint: mint.address, decimals: DECIMALS[k], mintAuthority: payer.address, freezeAuthority: null }, { programAddress: program }),
+    // A freeze authority, as USDC and most issued tokens have: H7 freezes accounts with it.
+    getInitializeMint2Instruction({ mint: mint.address, decimals: DECIMALS[k], mintAuthority: payer.address, freezeAuthority: payer.address }, { programAddress: program }),
     ...after,
   ], payer, [mint], `creating a ${k} mint`);
   return mint.address;
@@ -353,6 +369,56 @@ for (const [i, [kIn, kOut]] of ([['spl6', 'hook'], ['hook', 'spl6'], ['spl6', 'd
     `${landed} landed; the owner paid ${paid}`);
 }
 
+/** The grant's use today of `m`'s input mint, the fee included. */
+const usedToday = async (m: Market, agent = m.agent) =>
+  decodeGrant((await chain.getAccounts([await grantOf(GUARD, m.owner.address, agent.address)]))[0]!.data).limits[0].usedToday;
+/** Each swap that landed received exactly what the pool gives and was charged exactly its fee. */
+const eachExact = (m: Market, rs: SwapResult[]) => rs.every(r => !r.ok || (r.arrived === m.arrives(r.amount) && r.fee === feeOf(r.amount)));
+/** What the swaps that landed cost the owner, the fee included. */
+const costOf = (rs: SwapResult[]) => rs.reduce((t, r) => t + (r.ok ? r.amount + r.fee : 0n), 0n);
+{
+  const unit = 1_000_000n;
+  const m = await market('spl6', 'spl9', { perSwap: 101n * unit, perDay: 400n * unit });
+  const before = await balance(m.ownerIn);
+  // Different amounts: the same swap with the same blockhash is the same transaction, and lands once.
+  const rs = await Promise.all([m.swap(100n * unit), m.swap(99n * unit), m.swap(98n * unit)]);
+  const paid = before - (await balance(m.ownerIn));
+  const used = await usedToday(m);
+  check('H3-03', 'three swaps of one agent at once, all within the limits: all three land, each exact',
+    rs.every(r => r.ok) && new Set(rs.map(r => r.ok && r.signature)).size === 3 && eachExact(m, rs) && paid === costOf(rs) && used === paid,
+    `${rs.map(describe).join(' / ')}; the owner paid ${paid}, the grant counts ${used}`);
+}
+{
+  const unit = 1_000_000n;
+  const m = await market('spl6', 'spl9', { perSwap: 101n * unit, perDay: 10n ** 15n, budget: 250n * unit, agents: 4 });
+  const before = await balance(m.ownerIn);
+  const rs = await Promise.all(m.agents.map(a => m.clientOf(a).swap({ mintIn: m.mintIn, mintOut: m.mintOut, amount: 100n * unit })));
+  const paid = before - (await balance(m.ownerIn));
+  const landed = rs.filter(r => r.ok).length;
+  const counted = (await Promise.all(m.agents.map(a => usedToday(m, a)))).reduce((x, y) => x + y, 0n);
+  check('H3-04', 'four agents of one owner at once, the approved budget fits two: exactly two land, each exact', landed === 2
+    && eachExact(m, rs) && paid === 2n * (100n * unit + feeOf(100n * unit)) && counted === paid,
+    `${landed} landed; the owner paid ${paid}, the grants count ${counted}`);
+}
+// The owner stops the agent while its swaps are in flight: whatever landed before the stop is exact and
+// counted, nothing lands after it, and the next swap is refused.
+for (const [id, how] of [['H3-05', 'pauses the policy'], ['H3-06', 'revokes the approval in the wallet']] as const) {
+  const unit = 1_000_000n;
+  const m = await market('spl6', 'spl9', { perSwap: 101n * unit, perDay: 10n ** 15n });
+  const stop = id === 'H3-05'
+    ? updatePolicy({ program: GUARD, owner: m.owner.address, policy: await policyOf(GUARD, m.owner.address), verifiers: [verifier.address], programs: [SWAP], paused: true })
+    : revoke(m.ownerIn, m.owner.address, TOKEN_PROGRAM);
+  const before = await balance(m.ownerIn);
+  await fresh();
+  const [stopped, ...rs] = await Promise.all([send([stop], m.owner), m.swap(10n * unit), m.swap(9n * unit), m.swap(8n * unit)]);
+  const paid = before - (await balance(m.ownerIn));
+  const landed = rs.filter(r => r.ok).length;
+  const after = await m.swap(7n * unit);
+  check(id, `the owner ${how} while three swaps are in flight: what landed is exact, the next is refused`,
+    stopped.ok && eachExact(m, rs) && paid === costOf(rs) && (await usedToday(m)) === paid && !after.ok,
+    `${landed} landed before the stop; the owner paid ${paid}; then ${describe(after)}`);
+}
+
 // ---------------------------------------------------------------- H4: the network failing
 
 {
@@ -431,6 +497,35 @@ for (const [i, [kIn, kOut]] of ([['spl6', 'hook'], ['hook', 'spl6'], ['spl6', 'd
     `${describe(r)}; ${plain} → ${compressed} bytes; the verifier read the table ${tableReads - reads} times; the owner paid ${paid}, received ${got}`);
 }
 
+// ---------------------------------------------------------------- H7: frozen accounts
+
+// The issuer freezes the owner's input or output account: swap() sends (it does not read freezes), the
+// chain refuses the whole transaction and nothing moves; thawed, the same swap lands exactly.
+{
+  const unit = 1_000_000n;
+  const m = await market('spl6', 'spl9');
+  const freezeIx = (account: Address, mint: Address, thaw = false): Instruction => ({
+    programAddress: TOKEN_PROGRAM,
+    accounts: [
+      { address: account, role: AccountRole.WRITABLE }, { address: mint, role: AccountRole.READONLY },
+      { address: payer.address, role: AccountRole.READONLY_SIGNER },
+    ],
+    data: Uint8Array.of(thaw ? 11 : 10),
+  });
+  for (const [id, which, account, mint] of [['H7-01', 'input', m.ownerIn, m.mintIn], ['H7-02', 'output', m.ownerOut, m.mintOut]] as const) {
+    await fresh();
+    await send([freezeIx(account, mint)], payer, [], `freezing the ${which} account`);
+    const [inBefore, outBefore] = [await balance(m.ownerIn), await balance(m.ownerOut)];
+    const r = await m.swap(10n * unit);
+    const still = inBefore === await balance(m.ownerIn) && outBefore === await balance(m.ownerOut);
+    await fresh();
+    await send([freezeIx(account, mint, true)], payer, [], `thawing the ${which} account`);
+    const s = await honestSwap(m, 10n * unit);
+    check(id, `the owner's ${which} account frozen by the issuer: refused on chain, nothing moves; thawed, it lands`,
+      !r.ok && r.stage === 'chain' && !r.unknown && still && s.ok, `${describe(r)}; then ${s.detail}`);
+  }
+}
+
 // ---------------------------------------------------------------- H5: a long run
 
 {
@@ -444,9 +539,13 @@ for (const [i, [kIn, kOut]] of ([['spl6', 'hook'], ['hook', 'spl6'], ['spl6', 'd
   let bad = 0;
   let firstBad = '';
   const started = Date.now();
+  const swapMs: number[] = [];
+  verifierMs.length = 0;
   for (let i = 0; i < LONG_RUN; i++) {
     const amount = BigInt(1 + (next() % 1000)) * unit / BigInt(1 + (next() % 4));
+    const t = performance.now();
     const s = await honestSwap(m, amount);
+    swapMs.push(performance.now() - t);
     if (!s.ok) {
       bad++;
       firstBad ||= `swap ${i + 1} of ${amount}: ${s.detail}`;
@@ -455,6 +554,11 @@ for (const [i, [kIn, kOut]] of ([['spl6', 'hook'], ['hook', 'spl6'], ['spl6', 'd
   const seconds = (Date.now() - started) / 1000;
   check('H5-01', `${LONG_RUN} swaps in a row (spl6 → pump), each checked against the accounts`, bad === 0,
     bad ? `${bad} wrong; the first: ${firstBad}` : `all exact, ${(seconds / LONG_RUN).toFixed(2)} s a swap`);
+  // Measured on a local validator: the verifier's own time is what Fly would add; the whole swap here
+  // includes confirmation on this chain and the balance reads of the check, so it is not mainnet latency.
+  const latency = `the verifier ${percentiles(verifierMs)}; a whole swap, confirmed and checked, ${percentiles(swapMs)}`;
+  lines.push(`| M-01 | latency over the ${LONG_RUN} swaps (measured, no pass or fail) | - | ${latency} |`);
+  console.log(`M-01 ${latency}`);
 }
 
 server.close();
@@ -468,7 +572,7 @@ const summary = [
   '| --- | --- | --- | --- |',
   ...lines,
   '',
-  failed ? `**${failed} of ${lines.length} cases failed.**` : `All ${lines.length} cases passed.`,
+  failed ? `**${failed} of ${lines.filter(l => !l.startsWith('| M-')).length} cases failed.**` : `All ${lines.filter(l => !l.startsWith('| M-')).length} cases passed.`,
   '',
 ].join('\n');
 mkdirSync('tests/guard/results', { recursive: true });

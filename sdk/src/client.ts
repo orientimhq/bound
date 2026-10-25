@@ -34,9 +34,9 @@ export type Chain = {
   send: (tx: Transaction) => Promise<{ ok: boolean; error?: string; unknown?: boolean }>;
   /**
    * How much `account`'s balance changed in the confirmed transaction `signature`, from the
-   * transaction's own token balances: what `swap()` reports as arrived. Without it, or when it cannot
-   * tell, `swap()` reads the balance before and after, which also counts anything else that arrived in
-   * between, and says so (`arrivedFrom: 'balances'`, L01).
+   * transaction's own token balances: what `swap()` reports as arrived; null while it cannot be read
+   * (then `receiptPending`). Without it, `swap()` reads the balance before and after, which also counts
+   * anything else that arrived in between, and says so (`arrivedFrom: 'balances'`, L01).
    */
   received?: (signature: string, account: Address) => Promise<bigint | null>;
 };
@@ -77,8 +77,13 @@ export type SwapRequest = {
 export type SwapResult =
   | {
     ok: true; signature: string; amount: bigint; fee: bigint; minOut: bigint;
-    /** What reached the owner's output account: from the transaction itself, or the balance before and after it. */
-    arrived: bigint; arrivedFrom: 'transaction' | 'balances';
+    /**
+     * What reached the owner's output account (`outputAccount`), from the transaction's own token
+     * balances. When those cannot be read yet, `arrived` is null and `receiptPending` true: read it
+     * later with `chain.received(signature, outputAccount)`. Only a chain without `received` gives the
+     * balance before and after instead (`arrivedFrom: 'balances'`), which counts anything else too.
+     */
+    arrived: bigint | null; arrivedFrom: 'transaction' | 'balances' | null; receiptPending?: boolean; outputAccount: Address;
   }
   | {
     ok: false; stage: 'rules' | 'route' | 'verifier' | 'chain'; reason: string;
@@ -211,9 +216,12 @@ export function createGuardClient(c: GuardClient) {
     const signature = getSignatureFromTransaction(signed);
     const sent = await c.chain.send(signed);
     if (!sent.ok) return { ok: false, stage: 'chain', reason: sent.error ?? 'the transaction failed', signature, unknown: !!sent.unknown };
-    const done = { ok: true as const, signature, amount: s.amount, fee: feeOf(s.amount), minOut };
-    const fromTransaction = await c.chain.received?.(signature, accounts.ownerOut).catch(() => null);
-    if (fromTransaction !== undefined && fromTransaction !== null) return { ...done, arrived: fromTransaction, arrivedFrom: 'transaction' };
+    const done = { ok: true as const, signature, amount: s.amount, fee: feeOf(s.amount), minOut, outputAccount: accounts.ownerOut };
+    if (c.chain.received) {
+      // The receipt is the transaction's own: when it cannot be read yet, it is pending, never guessed.
+      const arrived = await c.chain.received(signature, accounts.ownerOut).catch(() => null);
+      return arrived === null ? { ...done, arrived: null, arrivedFrom: null, receiptPending: true } : { ...done, arrived, arrivedFrom: 'transaction' };
+    }
     const [after] = await c.chain.getAccounts([accounts.ownerOut]);
     return { ...done, arrived: (after ? decodeTokenAccount(after.data).amount : before) - before, arrivedFrom: 'balances' };
   }

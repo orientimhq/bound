@@ -85,6 +85,18 @@ jobs:
       - name: The report
         if: always()
         run: |
+          # What was tested: the commit and the exact program binary, so a report names what it proves.
+          { echo "Commit \`$GITHUB_SHA\`, \`orientim_guard.so\` sha256 \`$(sha256sum programs/guard/target/deploy/orientim_guard.so | cut -d' ' -f1)\`"; echo; } \
+            | tee tests/guard/results/build.md >> "$GITHUB_STEP_SUMMARY" || true
           cat tests/guard/results/devnet.md >> "$GITHUB_STEP_SUMMARY" || true
           cat tests/guard/results/hard.md >> "$GITHUB_STEP_SUMMARY" || true
           tail -n 40 "$RUNNER_TEMP/validator.log" || true
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: local-chain-report
+          path: |
+            tests/guard/results/
+            programs/guard/target/deploy/orientim_guard.so
+          if-no-files-found: ignore

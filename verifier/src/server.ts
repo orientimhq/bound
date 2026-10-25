@@ -23,7 +23,11 @@ const need = (name: string) => {
 
 const MAX_BODY = 8 * 1024;
 
-export function handler(cosign: ReturnType<typeof createCosigner>) {
+/** Requests checked at once; beyond it, 503 at once rather than a queue a stranger can grow. */
+const MAX_IN_FLIGHT = 64;
+
+export function handler(cosign: ReturnType<typeof createCosigner>, maxInFlight = MAX_IN_FLIGHT) {
+  let inFlight = 0;
   const reply = (res: ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify(body));
@@ -45,6 +49,16 @@ export function handler(cosign: ReturnType<typeof createCosigner>) {
   return async (req: IncomingMessage, res: ServerResponse) => {
     if (req.method === 'GET' && req.url === '/health') return reply(res, 200, { ok: true });
     if (req.method !== 'POST' || req.url !== '/v1/cosign') return reply(res, 404, { error: 'not found' });
+    if (inFlight >= maxInFlight) return reply(res, 503, { error: 'the verifier is busy: try again' });
+    inFlight++;
+    try {
+      return await answer(req, res);
+    } finally {
+      inFlight--;
+    }
+  };
+
+  async function answer(req: IncomingMessage, res: ServerResponse) {
     let wire: Uint8Array;
     try {
       const body = JSON.parse(await readBody(req)) as { transaction?: unknown };
@@ -62,7 +76,7 @@ export function handler(cosign: ReturnType<typeof createCosigner>) {
       console.error('cosign failed', e instanceof Error ? e.message : e);
       return reply(res, 503, { error: 'the verifier could not check this transaction now' });
     }
-  };
+  }
 }
 
 if (import.meta.main) {
@@ -76,5 +90,9 @@ if (import.meta.main) {
     perMinute: Number(process.env.VERIFIER_PER_MINUTE ?? 30),
   });
   const port = Number(process.env.PORT ?? 8080);
-  createServer(handler(cosign)).listen(port, () => console.log(`verifier on :${port}`));
+  const server = createServer(handler(cosign));
+  // A request whose body takes longer than this holds no slot: a slow client cannot fill the 64.
+  server.requestTimeout = 5_000;
+  server.headersTimeout = 5_000;
+  server.listen(port, () => console.log(`verifier on :${port}`));
 }

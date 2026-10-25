@@ -35,10 +35,11 @@ const result = await sendOwnerSetup(chain, {
 
 The set-up is larger than one Solana transaction, so it is sent as two or three, signed in one
 wallet approval and confirmed in order. If it stops part way, call `sendOwnerSetup` again with the
-same arguments, and the owner signs again: it skips the policy if it exists and sends the rest whole.
-The grant and the approvals are set again to what you pass (not added to), accounts that exist are
-left as they are, and `agentLamports` is sent again: pass 0 on a run that only finishes a set-up whose
-agent was already funded. To stop every agent without Orientim,
+same arguments, and the owner signs again: it reads what is on chain and sends only what is missing.
+Nothing already there is set again without the owner asking, and `skipped` says what was kept: an
+existing grant keeps its rules, an input account already approved to the Guard keeps its budget
+(`approveAgain: true` sets it to `budgets`), and `agentLamports` goes only to an agent that had no
+grant when the run began (`fundAgent: true` sends it anyway). To stop every agent without Orientim,
 the owner revokes the approval in their wallet (`revoke`).
 
 ## 2. The agent's swap, with your own route
@@ -123,3 +124,37 @@ payer's signature and rate are checked. 400: not the Guard's shape; 401: the age
 429: too many swaps from this agent in a minute (counted on each verifier machine); 503: the verifier
 could not check it now (its lookup tables could not be read in time). The verifier adds no rule
 of its own: the Guard program enforces the owner's rules on chain whatever the verifier does.
+
+## Retries and duplicate swaps
+
+A swap's identity on Solana is its signature, and the signature is fixed by the transaction's bytes:
+the same route, amount, accounts, priority fee and blockhash give the same transaction. Solana runs a
+signature once, so sending the same signed transaction again (H4-03) never makes a second swap.
+
+A new transaction is a new swap. Two swaps the agent builds, even for the same amount, differ once
+their blockhash differs, and both can land within the owner's limits. So:
+
+- Retry by sending the same signed transaction again, until it is confirmed, failed or expired.
+- Build a new one only when the last answer was `expired` (never seen, its blockhash past its life:
+  it can no longer land) or a refusal that names a reason.
+- After `unknown`, do not build a new one: look the signature up (`getSignatureStatuses` with the
+  history searched) until it is settled.
+
+The Guard does not keep an order id on chain: two distinct transactions are two orders to it, and only
+the owner's limits bound them. An integrator that needs "this order at most once" keeps its own order
+id next to the signature it sent.
+
+## What the Guard does not do
+
+- The limits are per agent (its grant) and per input mint; the approved budget is per input account,
+  shared by every agent of the owner. There is no limit across the owner's whole wallet: no
+  wallet-wide stop-loss or take-profit.
+- The loss budget and the price floor need a Pyth feed for both mints. With a slippage limit set, a
+  pair without feeds is refused unless the owner allows unpriced pairs, and then it has only the
+  route's own minimum; with a loss budget, it is always refused. With neither set, no price is checked.
+- Mints with a transfer hook or a permanent delegate are always refused. Other tokens and strategies
+  are not all tested: the tested kinds are in `tests/guard/hard.ts` (classic SPL at 0 to 9 decimals,
+  Token-2022 plain, with metadata, with a transfer fee) and `tests/guard/jupiter.ts` (real Jupiter
+  routes, wrapped SOL).
+- A frozen account fails the swap on chain, and costs the agent the network fee; `swap()` does not read
+  freezes first.

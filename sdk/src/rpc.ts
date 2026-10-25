@@ -113,10 +113,15 @@ export function rpcChain(
       }
     },
     async received(signature: string, account: Address) {
-      const tx = await rpc
-        .getTransaction(signature as Parameters<typeof rpc.getTransaction>[0], { commitment, encoding: 'json', maxSupportedTransactionVersion: 0 })
-        .send()
-        .catch(() => null);
+      // A node may not serve a transaction for a moment after confirming it: a few tries, then null.
+      let tx = null;
+      for (let i = 0; i < 4 && !tx; i++) {
+        if (i) await pause(o.pollMs ?? 800);
+        tx = await rpc
+          .getTransaction(signature as Parameters<typeof rpc.getTransaction>[0], { commitment, encoding: 'json', maxSupportedTransactionVersion: 0 })
+          .send()
+          .catch(() => null);
+      }
       if (!tx?.meta) return null;
       const keys = [...tx.transaction.message.accountKeys, ...(tx.meta.loadedAddresses?.writable ?? []), ...(tx.meta.loadedAddresses?.readonly ?? [])];
       const at = keys.indexOf(account);

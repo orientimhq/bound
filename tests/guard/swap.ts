@@ -110,6 +110,15 @@ const refusedBefore = async (id: string, what: string, c: ReturnType<typeof clie
     && small.ok && small.arrivedFrom === 'balances', r.ok ? 'it said ok' : `${r.stage}: ${r.reason}, unknown ${r.unknown}, ${sends - n} sends`);
 }
 
+// S18 (L01): a chain that has receipts but cannot read this one yet: arrived is null and the receipt
+// pending, never the balance before and after.
+{
+  const noReceipt: Chain = { ...chain, received: async () => null };
+  const r = await client({ chain: noReceipt }).swap({ mintIn: g.mintIn, mintOut: g.mintOut, amount: 1_000_000n });
+  check('S18', 'a receipt that cannot be read yet: arrived null, receiptPending, not a guess', r.ok && r.arrived === null && r.receiptPending === true && r.arrivedFrom === null,
+    r.ok ? `arrived ${r.arrived}, from ${r.arrivedFrom}, pending ${r.receiptPending}` : `${r.stage}: ${r.reason}`);
+}
+
 // S02–S04: the owner's rules, read before anything is sent.
 await refusedBefore('S02', 'above the limit per swap', client(), 'rules', /limit per swap/, { amount: 201_000_000n });
 await refusedBefore('S03', 'an output mint the owner did not allow', client(), 'rules', /output mint/, { mintOut: g.mintOther });
@@ -158,7 +167,7 @@ await refusedBefore('S09', 'a verifier the owner never named', client({ verifier
     if (!last.ok) break;
     n++;
   }
-  // So far S01, S16 and S10 of 100.25 each and S16's 1.0025: 301.75 of the 500; one more fits, not two.
+  // So far S01, S16 and S10 of 100.25 each, and 1.0025 each in S16 and S18: 302.755 of the 500; one more fits, not two.
   const chainSays = send(g.svm, await sign(g.svm, [ix.pull(g, AMOUNT, OUT), honest(g, AMOUNT, OUT), ix.settle(g)], g.agent, [g.verifier]));
   check('S11', 'the daily limit: swap() refuses the fifth swap of the day before sending, as the chain does',
     n === 1 && last !== null && !last.ok && last.stage === 'rules' && /daily limit/.test(last.reason) && !chainSays.ok && /0xc$/.test(chainSays.error),
@@ -239,7 +248,7 @@ await refusedBefore('S09', 'a verifier the owner never named', client({ verifier
 }
 
 // S15: a set-up that stopped after its first transaction (the wallet closed, the network dropped) is
-// finished by running sendOwnerSetup again: it sees the policy and sends the rest.
+// finished by running sendOwnerSetup again: it sees what exists and sends the rest.
 {
   const owner5 = await generateKeyPairSigner();
   const agent5 = await generateKeyPairSigner();
@@ -262,6 +271,19 @@ await refusedBefore('S09', 'a verifier the owner never named', client({ verifier
   const done = again.ok && !!accountOf(g.svm, await grantOf(g.guard, owner5.address, agent5.address));
   check('S15', 'a set-up that stopped part way is finished by running sendOwnerSetup again', half && done,
     `first run: ${first.ok ? 'completed' : first.error}; again: ${again.ok ? `${again.transactions} transactions confirmed` : again.error}`);
+
+  // S17: run once more on a finished set-up: nothing is sent, the agent gets no more SOL and the
+  // approval keeps what is left of it, each said in `skipped`. Asked for, the funding is sent.
+  const funded = g.svm.getBalance(agent5.address) ?? 0n;
+  const [allowance] = await chain.getAccounts([ownerIn5]);
+  const third = await sendOwnerSetup(chain, setup5, signAll);
+  const [allowanceAfter] = await chain.getAccounts([ownerIn5]);
+  const unchanged = (g.svm.getBalance(agent5.address) ?? 0n) === funded && Buffer.from(allowance?.data ?? []).equals(Buffer.from(allowanceAfter?.data ?? []));
+  const asked = await sendOwnerSetup(chain, { ...setup5, fundAgent: true }, signAll);
+  const topped = (g.svm.getBalance(agent5.address) ?? 0n) - funded;
+  check('S17', 'a finished set-up run again sends nothing and adds no SOL or budget without being asked',
+    third.ok && third.transactions === 0 && unchanged && third.skipped.length === 3 && asked.ok && asked.transactions === 1 && topped === SOL / 100n,
+    `${third.ok ? `${third.transactions} transactions; skipped: ${third.skipped.join(' / ')}` : third.error}; with fundAgent: ${topped} lamports`);
 }
 
 console.log(results.join('\n'));

@@ -164,7 +164,10 @@ jobs:
 
       - name: The report
         if: always()
-        run: cat tests/guard/results/*.md || true
+        run: |
+          mkdir -p tests/guard/results
+          echo "Commit $GITHUB_SHA, orientim_guard.so sha256 $(sha256sum programs/guard/target/deploy/orientim_guard.so | cut -d' ' -f1)" | tee tests/guard/results/build.md
+          cat tests/guard/results/*.md || true
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
