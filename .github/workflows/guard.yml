@@ -63,16 +63,22 @@ jobs:
           GUARD_FUZZ_RUNS: 1000
           GUARD_FUZZ_SEED: ${{ github.run_number }}
         run: node tests/guard/fuzz.ts
+      - name: The owner's rules, fuzzed
+        env:
+          GUARD_RULES_RUNS: 1000
+          GUARD_RULES_SEED: ${{ github.run_number }}
+        run: node tests/guard/rules.ts
 
-      # A fuzzer that passes on a broken program proves nothing. M1 drops the minimum check of Settle
-      # (I4); M2 drops the check that the output account is the owner's (I2). Each copy must make the
-      # fuzzer fail (exit 1, a broken promise), with a fixed seed so the result is repeatable.
-      - name: Two broken copies the fuzzer must catch
+      # A fuzzer that passes on a broken program proves nothing. Each broken copy must make its fuzzer
+      # fail (exit 1), with a fixed seed so the result is repeatable. fuzz.ts: M1 drops the minimum
+      # check of Settle (I4), M2 the check that the output account is the owner's (I2). rules.ts: M3
+      # drops the daily limit (I2), M4 the daily loss cap (I11), M5 the oracle's floor (I10).
+      - name: Broken copies the fuzzers must catch
         run: |
           mutant() {
             dir="$RUNNER_TEMP/$1"
             rm -rf "$dir" && mkdir -p "$dir" && cp -r programs/guard/Cargo.toml programs/guard/Cargo.lock programs/guard/src "$dir/"
-            python3 - "$dir/src/lib.rs" "$2" "$3" <<'PY'
+            python3 - "$dir/src/lib.rs" "$3" "$4" <<'PY'
           import sys
           path, old, new = sys.argv[1:]
           text = open(path).read()
@@ -81,14 +87,18 @@ jobs:
           PY
             (cd "$dir" && cargo build-sbf -- --locked)
             set +e
-            GUARD_SO="$dir/target/deploy/orientim_guard.so" GUARD_FUZZ_RUNS=1000 GUARD_FUZZ_SEED=1 GUARD_FUZZ_OUT="mutant-$1.md" node tests/guard/fuzz.ts
+            GUARD_SO="$dir/target/deploy/orientim_guard.so" GUARD_FUZZ_RUNS=1000 GUARD_FUZZ_SEED=1 GUARD_FUZZ_OUT="mutant-$1.md" \
+              GUARD_RULES_RUNS=3000 GUARD_RULES_SEED=1 GUARD_RULES_OUT="mutant-$1.md" node "tests/guard/$2.ts"
             code=$?
             set -e
-            if [ "$code" -ne 1 ]; then echo "::error::the fuzzer did not catch mutant $1 (exit $code)"; return 1; fi
-            echo "mutant $1 caught"
+            if [ "$code" -ne 1 ]; then echo "::error::$2 did not catch mutant $1 (exit $code)"; return 1; fi
+            echo "mutant $1 caught by $2"
           }
-          mutant m1 'if arrived < p.min_out {' 'if false && arrived < p.min_out {'
-          mutant m2 'if out.owner != policy.owner || out.mint' 'if out.mint'
+          mutant m1 fuzz 'if arrived < p.min_out {' 'if false && arrived < p.min_out {'
+          mutant m2 fuzz 'if out.owner != policy.owner || out.mint' 'if out.mint'
+          mutant m3 rules 'if used > limit.max_per_day {' 'if false && used > limit.max_per_day {'
+          mutant m4 rules 'grant.loss_today > grant.max_loss_per_day) ||' 'grant.loss_today > u64::MAX) ||'
+          mutant m5 rules 'if (arrived as u128) < floor {' 'if false && (arrived as u128) < floor {'
 
       - name: The report
         if: always()

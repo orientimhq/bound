@@ -1,0 +1,65 @@
+name: Guard fuzz at scale
+
+# Both Guard fuzzers (tests/guard/fuzz.ts: attacks on the route and the transaction's shape;
+# tests/guard/rules.ts: the owner's rules against an independent model) across many shards, each with
+# its own seed. Nightly at one million cases per fuzzer (20 shards of 50,000), or by hand with any size.
+# A failing shard prints the seed and case that broke, so that it can be replayed locally.
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: 'Cases per shard, per fuzzer'
+        required: false
+        default: '50000'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm install --no-save --ignore-scripts litesvm@1.4.1
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 23 September 2026
+      - name: Install the Solana toolchain
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - id: solana
+        run: echo "version=$(solana --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache the SBF platform tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/solana
+          key: platform-tools-${{ runner.os }}-${{ steps.solana.outputs.version }}
+      - run: npm run build
+
+      - name: Attacks
+        env:
+          GUARD_FUZZ_RUNS: ${{ inputs.runs || '50000' }}
+          GUARD_FUZZ_SEED: ${{ github.run_number }}0${{ matrix.shard }}
+          GUARD_FUZZ_OUT: fuzz-${{ matrix.shard }}.md
+        run: node tests/guard/fuzz.ts
+      - name: The owner's rules
+        if: always()
+        env:
+          GUARD_RULES_RUNS: ${{ inputs.runs || '50000' }}
+          GUARD_RULES_SEED: ${{ github.run_number }}0${{ matrix.shard }}
+          GUARD_RULES_OUT: rules-${{ matrix.shard }}.md
+        run: node tests/guard/rules.ts
+      - name: The report
+        if: always()
+        run: cat tests/guard/results/*.md >> "$GITHUB_STEP_SUMMARY" || true
