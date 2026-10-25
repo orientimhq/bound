@@ -3,13 +3,13 @@
  * and report what arrived; a swap the owner's rules forbid is refused before anything is sent, for the
  * same reason the chain would give; a verifier that changes the transaction or does not sign it is
  * caught before the agent signs; a route too large for one transaction is asked for again, smaller;
- * and the owner's one set-up transaction (`ownerSetup`) gives a new agent everything it needs.
+ * and the owner's set-up (`ownerSetup`, packed by `ownerSetupTransactions`) gives a new agent everything it needs.
  *
  *   node tests/guard/swap.ts
  */
-import { AccountRole, generateKeyPairSigner, getAddressDecoder, getTransactionEncoder, signBytes } from '@solana/kit';
+import { AccountRole, generateKeyPairSigner, getAddressDecoder, getTransactionEncoder, lamports, signBytes, signTransaction } from '@solana/kit';
 import type { Transaction } from '@solana/kit';
-import { ataOf, createGuardClient, ownerSetup } from '@orientimhq/guard';
+import { ataOf, createAtaIdempotent, createGuardClient, grantOf, ownerSetup, ownerSetupTransactions, policyOf } from '@orientimhq/guard';
 import type { Chain, GuardClient, JupiterRoute, RouteRequest, SwapRequest } from '@orientimhq/guard';
 import { createCosigner } from '../../verifier/src/cosign.ts';
 import { accountOf, deliver, lifetimeOf, requireProgram, send, sendOrThrow, sign, SOL, takeFrom } from './chain.ts';
@@ -172,12 +172,39 @@ await refusedBefore('S09', 'a verifier the owner never named', client({ verifier
     budgets: [{ mint: g.mintIn, amount: 300_000_000n, tokenProgram: g.tokenProgram }],
     outputTokenPrograms: { [g.mintOut]: g.tokenProgram }, agentLamports: SOL / 100n,
   });
-  const setupResult = send(g.svm, await sign(g.svm, ixs, g.W));
+  const txs = ownerSetupTransactions(ixs, owner, lifetimeOf(g.svm));
+  let setupResult = { ok: true, error: '' };
+  for (const tx of txs) if (setupResult.ok) setupResult = send(g.svm, await signTransaction([g.W.keyPair], tx));
   const w2: GuardWorld = { ...g, agent: agent2, hopper: await ataOf(agent2.address, g.mintIn, g.tokenProgram) };
   const r = setupResult.ok ? await client({}, w2).swap({ mintIn: g.mintIn, mintOut: g.mintOut, amount: AMOUNT }) : null;
   const funded = BigInt(g.svm.getBalance(agent2.address) ?? 0n);
-  check('S12', 'ownerSetup(): one owner transaction, then the new agent swaps (paying its own fees)', setupResult.ok && !!r?.ok && funded > 0n && funded < SOL / 100n,
+  check('S12', 'ownerSetup(): the owner\'s set-up, then the new agent swaps (paying its own fees)', setupResult.ok && !!r?.ok && funded > 0n && funded < SOL / 100n,
     !setupResult.ok ? `set-up failed: ${setupResult.error}` : r?.ok ? `swapped; the agent has ${funded} lamports left of 0.01 SOL` : `${r?.stage}: ${r?.reason}`);
+}
+
+// S13: a new owner's whole set-up (policy, grant, accounts, approval, SOL for the agent) is larger than one
+// transaction; ownerSetupTransactions() packs it into transactions of at most 1232 bytes, signed together.
+{
+  const owner3 = await generateKeyPairSigner();
+  const agent3 = await generateKeyPairSigner();
+  g.svm.airdrop(owner3.address, lamports(SOL));
+  const ownerIn3 = await ataOf(owner3.address, g.mintIn, g.tokenProgram);
+  const ixs = [
+    createAtaIdempotent(owner3.address, ownerIn3, owner3.address, g.mintIn, g.tokenProgram),
+    ...await ownerSetup({
+      program: g.guard, owner: owner3.address, agent: agent3.address, verifiers: [g.verifier.address], programs: [g.attackerProgram],
+      rules: { limits: [{ mint: g.mintIn, perSwap: 200_000_000n, perDay: 500_000_000n }], outputs: [g.mintOut] },
+      budgets: [{ mint: g.mintIn, amount: 300_000_000n, tokenProgram: g.tokenProgram }],
+      outputTokenPrograms: { [g.mintOut]: g.tokenProgram }, agentLamports: SOL / 100n,
+    }),
+  ];
+  const txs = ownerSetupTransactions(ixs, owner3.address, lifetimeOf(g.svm));
+  const sizes = txs.map(tx => getTransactionEncoder().encode(tx).length);
+  const outcomes = [];
+  for (const tx of txs) outcomes.push(send(g.svm, await signTransaction([owner3.keyPair], tx)));
+  const made = !!accountOf(g.svm, await policyOf(g.guard, owner3.address)) && !!accountOf(g.svm, await grantOf(g.guard, owner3.address, agent3.address));
+  check('S13', 'a new owner\'s whole set-up fits in transactions of at most 1232 bytes, sent in order', txs.length > 1 && sizes.every(n => n <= 1232) && outcomes.every(o => o.ok) && made,
+    `${txs.length} transactions of ${sizes.join(', ')} bytes; ${outcomes.every(o => o.ok) ? 'all confirmed' : outcomes.find(o => !o.ok)?.error}; policy and grant ${made ? 'made' : 'missing'}`);
 }
 
 console.log(results.join('\n'));

@@ -25,7 +25,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
-  accountsFor, ataOf, createAtaIdempotent, createGuardClient, decodeTokenAccount, ownerSetup, policyOf, pull, revoke, rpcChain, settle,
+  accountsFor, ataOf, createAtaIdempotent, createGuardClient, decodeTokenAccount, ownerSetup, ownerSetupTransactions, policyOf, pull, revoke, rpcChain, settle,
   TOKEN_PROGRAM, updatePolicy,
 } from '@orientimhq/guard';
 import type { JupiterRoute, RouteRequest, SwapResult } from '@orientimhq/guard';
@@ -106,12 +106,15 @@ await send([
 const PER_SWAP = 100n * UNIT_IN;
 const PER_DAY = 250n * UNIT_IN;
 await fresh();
-const setup = await send(await ownerSetup({
+const setupTxs = ownerSetupTransactions(await ownerSetup({
   program: GUARD, owner: owner.address, agent: agent.address, verifiers: [verifier.address], programs: [SWAP],
   rules: { limits: [{ mint: mintIn, perSwap: PER_SWAP, perDay: PER_DAY }], outputs: [mintOut] },
   budgets: [{ mint: mintIn, amount: 1_000n * UNIT_IN }], agentLamports: 20_000_000n,
-}), owner);
-check('D01', 'the owner\'s one set-up transaction (ownerSetup): policy, grant, accounts, approval, SOL for the agent', setup.ok, setup.ok ? 'confirmed' : setup.error ?? '');
+}), owner.address, lifetime);
+// One wallet approval signs them all (signAllTransactions); they are sent in order.
+let setup: { ok: boolean; error?: string } = { ok: true };
+for (const tx of await Promise.all(setupTxs.map(tx => signTransaction([owner.keyPair], tx)))) if (setup.ok) setup = await chain.send(tx);
+check('D01', 'the owner\'s set-up (ownerSetup), signed at once: policy, grant, accounts, approval, SOL for the agent', setup.ok, setup.ok ? `${setupTxs.length} transactions confirmed` : setup.error ?? '');
 
 // ---------------------------------------------------------------- the verifier, serving over HTTP
 

@@ -40,6 +40,7 @@ The full rules (I1–I11), the transaction's shape and every test case are in
 | `tests/guard/swap.ts` | `swap()` in one call: honest swaps, the owner's rules read first, a verifier that cheats, `ownerSetup()` |
 | `tests/guard/jupiter.ts` | Real Jupiter routes from a copy of mainnet, with Pyth's real prices |
 | `tests/guard/attacker` | A malicious swap program the tests use as the route |
+| `tests/guard/devnet.ts` | End to end on a real validator (in CI, `solana-test-validator`; or devnet by hand): deploys, the owner's set-up, the verifier over HTTP, swaps and refusals |
 
 ## Running the tests
 
@@ -78,7 +79,7 @@ const r = await guard.swap({ mintIn: USDC, mintOut: SOL, amount: 100_000_000n })
 asks Jupiter for a route that fits one transaction; has the verifier co-sign; checks the verifier
 signed exactly the transaction it built; then signs with the agent's key and sends it.
 
-The owner's one set-up transaction comes from `ownerSetup(...)`; `revoke(...)` ends every approval.
+The owner's set-up comes from `ownerSetup(...)`; it is larger than one transaction, so `ownerSetupTransactions(...)` packs it into a few that the owner's wallet signs in one approval. `revoke(...)` ends every approval.
 
 ## Security
 

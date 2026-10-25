@@ -6,7 +6,7 @@
  */
 import {
   AccountRole, address, appendTransactionMessageInstructions, compileTransaction, createTransactionMessage,
-  generateKeyPairSigner, getAddressEncoder, getProgramDerivedAddress, lamports, pipe, setTransactionMessageFeePayer,
+  generateKeyPairSigner, getAddressEncoder, getProgramDerivedAddress, getTransactionEncoder, lamports, pipe, setTransactionMessageFeePayer,
   setTransactionMessageLifetimeUsingBlockhash, signTransaction,
 } from '@solana/kit';
 import type { Address, Instruction, KeyPairSigner, Transaction } from '@solana/kit';
@@ -174,7 +174,10 @@ export async function sign(svm: LiteSVM, ixs: Instruction[], payer: KeyPairSigne
 /** A transaction's result, whichever way litesvm reports it. */
 export type Outcome = { ok: boolean; error: string; index: number | null; logs: string[] };
 
+/** litesvm takes any size; the network refuses a transaction above 1232 bytes, and so does this. */
 export function send(svm: LiteSVM, tx: Transaction): Outcome {
+  const bytes = getTransactionEncoder().encode(tx).length;
+  if (bytes > 1232) return { ok: false, error: `transaction too large: ${bytes} bytes (max 1232)`, index: null, logs: [] };
   const result = svm.sendTransaction(tx) as {
     err?: () => unknown; meta?: () => { logs: () => string[] }; logs?: () => string[];
   };

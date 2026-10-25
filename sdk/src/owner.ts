@@ -1,10 +1,15 @@
 /**
- * The owner's one set-up, as instructions for one transaction the owner signs: the policy, the
- * agent's grant, the accounts every swap needs (the agent's hopper and the treasury's account for each
- * input mint) and the approval of the Guard's authority over each input account, for a budget.
+ * The owner's one set-up: the policy, the agent's grant, the accounts every swap needs (the agent's
+ * hopper and the treasury's account for each input mint) and the approval of the Guard's authority over
+ * each input account, for a budget. It is larger than one Solana transaction (1232 bytes), so
+ * `ownerSetupTransactions` packs it into as few as fit, which the owner signs together in one wallet
+ * approval (signAllTransactions) and sends in order.
  */
-import { AccountRole } from '@solana/kit';
-import type { Address, Instruction } from '@solana/kit';
+import {
+  AccountRole, appendTransactionMessageInstructions, compileTransaction, createTransactionMessage, getTransactionEncoder, pipe,
+  setTransactionMessageFeePayer, setTransactionMessageLifetimeUsingBlockhash,
+} from '@solana/kit';
+import type { Address, Blockhash, Instruction, Transaction } from '@solana/kit';
 import {
   ATA_PROGRAM, ataOf, authorityOf, grantOf, initPolicy, policyOf, setGrant, SYSTEM_PROGRAM, TOKEN_PROGRAM, TREASURY,
 } from './instructions.ts';
@@ -96,4 +101,34 @@ export async function ownerSetup(s: OwnerSetup): Promise<Instruction[]> {
   }
   if (s.agentLamports) ixs.push(transferSol(s.owner, s.agent, s.agentLamports));
   return ixs;
+}
+
+const MAX_TRANSACTION_SIZE = 1232;
+
+/**
+ * The set-up's instructions packed in order into as few unsigned transactions, paid by the owner, as fit
+ * in 1232 bytes each. Send them in this order, each confirmed before the next: the grant needs the policy.
+ */
+export function ownerSetupTransactions(
+  ixs: Instruction[], owner: Address, lifetime: { blockhash: Blockhash; lastValidBlockHeight: bigint },
+): Transaction[] {
+  const compile = (part: Instruction[]) => compileTransaction(pipe(
+    createTransactionMessage({ version: 0 }),
+    m => setTransactionMessageFeePayer(owner, m),
+    m => setTransactionMessageLifetimeUsingBlockhash(lifetime, m),
+    m => appendTransactionMessageInstructions(part, m),
+  ));
+  const size = (tx: Transaction) => getTransactionEncoder().encode(tx).length;
+  const out: Transaction[] = [];
+  let part: Instruction[] = [];
+  for (const ix of ixs) {
+    if (part.length && size(compile([...part, ix])) > MAX_TRANSACTION_SIZE) {
+      out.push(compile(part));
+      part = [];
+    }
+    part.push(ix);
+    if (part.length === 1 && size(compile(part)) > MAX_TRANSACTION_SIZE) throw new Error('one set-up instruction is larger than a transaction');
+  }
+  if (part.length) out.push(compile(part));
+  return out;
 }
