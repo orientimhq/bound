@@ -9,8 +9,8 @@
  */
 import { AccountRole, generateKeyPairSigner, getAddressDecoder, getTransactionEncoder, lamports, signBytes, signTransaction } from '@solana/kit';
 import type { Transaction } from '@solana/kit';
-import { ataOf, createAtaIdempotent, createGuardClient, grantOf, ownerSetup, ownerSetupTransactions, policyOf } from '@orientimhq/guard';
-import type { Chain, GuardClient, JupiterRoute, RouteRequest, SwapRequest } from '@orientimhq/guard';
+import { ataOf, createAtaIdempotent, createGuardClient, grantOf, ownerSetup, ownerSetupTransactions, policyOf, sendOwnerSetup } from '../../sdk/src/index.ts';
+import type { Chain, GuardClient, JupiterRoute, RouteRequest, SwapRequest } from '../../sdk/src/index.ts';
 import { createCosigner } from '../../verifier/src/cosign.ts';
 import { accountOf, deliver, lifetimeOf, requireProgram, send, sendOrThrow, sign, SOL, takeFrom } from './chain.ts';
 import { guardBalances, guardInvariants, guardSetup, honest, ix, requireGuard, route } from './world.ts';
@@ -234,6 +234,32 @@ await refusedBefore('S09', 'a verifier the owner never named', client({ verifier
   const taken = policy?.owner === g.guard && grant?.owner === g.guard && !!policy.data.length && !!grant.data.length;
   check('S14', 'SOL sent to the policy and grant addresses first does not block the owner\'s set-up', outcomes.every(o => o.ok) && taken,
     `${outcomes.every(o => o.ok) ? 'all confirmed' : outcomes.find(o => !o.ok)?.error}; policy and grant ${taken ? 'owned by the Guard' : 'not made'}`);
+}
+
+// S15: a set-up that stopped after its first transaction (the wallet closed, the network dropped) is
+// finished by running sendOwnerSetup again: it sees the policy and sends the rest.
+{
+  const owner5 = await generateKeyPairSigner();
+  const agent5 = await generateKeyPairSigner();
+  g.svm.airdrop(owner5.address, lamports(SOL));
+  const ownerIn5 = await ataOf(owner5.address, g.mintIn, g.tokenProgram);
+  sendOrThrow(g.svm, await sign(g.svm, [createAtaIdempotent(owner5.address, ownerIn5, owner5.address, g.mintIn, g.tokenProgram)], owner5), 'the owner\'s input account');
+  const setup5 = {
+    program: g.guard, owner: owner5.address, agent: agent5.address, verifiers: [g.verifier.address], programs: [g.attackerProgram],
+    rules: { limits: [{ mint: g.mintIn, perSwap: 200_000_000n, perDay: 500_000_000n }], outputs: [g.mintOut] },
+    budgets: [{ mint: g.mintIn, amount: 300_000_000n, tokenProgram: g.tokenProgram }],
+    outputTokenPrograms: { [g.mintOut]: g.tokenProgram }, agentLamports: SOL / 100n,
+  };
+  const signAll = (txs: Transaction[]) => Promise.all(txs.map(tx => signTransaction([owner5.keyPair], tx)));
+  // The first run stops after its first transaction.
+  let calls = 0;
+  const stopping: Chain = { ...chain, send: async (tx: Transaction) => (calls++ === 0 ? chain.send(tx) : { ok: false, error: 'the wallet closed' }) };
+  const first = await sendOwnerSetup(stopping, setup5, signAll);
+  const half = !first.ok && first.confirmed === 1 && first.transactions > 1 && !!accountOf(g.svm, await policyOf(g.guard, owner5.address));
+  const again = await sendOwnerSetup(chain, setup5, signAll);
+  const done = again.ok && !!accountOf(g.svm, await grantOf(g.guard, owner5.address, agent5.address));
+  check('S15', 'a set-up that stopped part way is finished by running sendOwnerSetup again', half && done,
+    `first run: ${first.ok ? 'completed' : first.error}; again: ${again.ok ? `${again.transactions} transactions confirmed` : again.error}`);
 }
 
 console.log(results.join('\n'));

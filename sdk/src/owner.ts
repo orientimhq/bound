@@ -3,7 +3,8 @@
  * hopper and the treasury's account for each input mint) and the approval of the Guard's authority over
  * each input account, for a budget. It is larger than one Solana transaction (1232 bytes), so
  * `ownerSetupTransactions` packs it into as few as fit, which the owner signs together in one wallet
- * approval (signAllTransactions) and sends in order.
+ * approval (signAllTransactions) and sends in order. `sendOwnerSetup` does all of it, and can be run
+ * again after a set-up that stopped part way: it reads what exists and finishes the rest.
  */
 import {
   AccountRole, appendTransactionMessageInstructions, compileTransaction, createTransactionMessage, getTransactionEncoder, pipe,
@@ -14,6 +15,7 @@ import {
   ATA_PROGRAM, ataOf, authorityOf, grantOf, initPolicy, policyOf, setGrant, SYSTEM_PROGRAM, TOKEN_PROGRAM, TREASURY,
 } from './instructions.ts';
 import type { GrantRules } from './instructions.ts';
+import type { Chain } from './client.ts';
 
 /** Creates `owner`'s associated account for `mint` if it is missing, paid by `payer`. */
 export const createAtaIdempotent = (payer: Address, ata: Address, owner: Address, mint: Address, tokenProgram: Address): Instruction => ({
@@ -131,4 +133,26 @@ export function ownerSetupTransactions(
   }
   if (part.length) out.push(compile(part));
   return out;
+}
+
+/**
+ * The owner's whole set-up, sent: reads whether the policy exists (so a set-up that stopped part way
+ * resumes: the grant and the approvals are set again, the accounts are created only if missing), packs
+ * the transactions, has the wallet sign them all at once (`signAll`, e.g. a wallet's
+ * signAllTransactions) and sends them in order, each confirmed before the next. On a failure it says
+ * which transaction failed; running it again finishes the set-up. `agentLamports`, when set, is sent
+ * again on each run that reaches the last transaction.
+ */
+export async function sendOwnerSetup(
+  chain: Chain, s: OwnerSetup, signAll: (txs: Transaction[]) => Promise<Transaction[]>,
+): Promise<{ ok: true; transactions: number } | { ok: false; error: string; confirmed: number; transactions: number }> {
+  const [policy] = await chain.getAccounts([await policyOf(s.program, s.owner)]);
+  const policyExists = !!policy && policy.owner === s.program;
+  const txs = ownerSetupTransactions(await ownerSetup({ ...s, policyExists }), s.owner, await chain.latestBlockhash());
+  const signed = await signAll(txs);
+  for (const [i, tx] of signed.entries()) {
+    const r = await chain.send(tx);
+    if (!r.ok) return { ok: false, error: `set-up transaction ${i + 1} of ${signed.length}: ${r.error ?? 'failed'}`, confirmed: i, transactions: signed.length };
+  }
+  return { ok: true, transactions: signed.length };
 }

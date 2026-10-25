@@ -9,8 +9,8 @@ import { compileTransaction, createTransactionMessage, appendTransactionMessageI
 import type { Address, Instruction, Transaction } from '@solana/kit';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { compileGuardedSwap, guardedSwap, requestCosign } from '@orientimhq/guard';
-import type { ApiInstruction, JupiterRoute } from '@orientimhq/guard';
+import { compileGuardedSwap, guardedSwap, requestCosign } from '../../sdk/src/index.ts';
+import type { ApiInstruction, JupiterRoute } from '../../sdk/src/index.ts';
 import { createCosigner } from '../../verifier/src/cosign.ts';
 import { handler } from '../../verifier/src/server.ts';
 import { deliver, lifetimeOf, requireProgram, send, takeFrom } from './chain.ts';

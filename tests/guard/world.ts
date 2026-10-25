@@ -11,15 +11,15 @@ import { AccountRole, generateKeyPairSigner, getAddressEncoder, getProgramDerive
 import type { Address, Instruction, KeyPairSigner } from '@solana/kit';
 import { getCreateAssociatedTokenIdempotentInstruction } from '@solana-program/token';
 import { existsSync } from 'node:fs';
-import { initPolicy, pull, setGrant, settle, updatePolicy } from '@orientimhq/guard';
-import type { GrantRules, SwapAccounts } from '@orientimhq/guard';
+import { initPolicy, pull, setGrant, settle, updatePolicy } from '../../sdk/src/index.ts';
+import type { GrantRules, SwapAccounts } from '../../sdk/src/index.ts';
 import { approve, ataOf, attackerData, deliver, SOL, SYSTEM_PROGRAM, sendOrThrow, setup, sign, takeFrom, tokensOf, u64 } from './chain.ts';
 import type { Inner, IssuerDelegate, World } from './chain.ts';
 
 /** The built program; GUARD_SO picks another build (the workflow's deliberately broken copies). */
 export const GUARD_SO = process.env.GUARD_SO ?? 'programs/guard/target/deploy/orientim_guard.so';
-export { COMPUTE_BUDGET, ERR, FEE_BPS, feeOf, STATUS, SYSVAR_INSTRUCTIONS, TREASURY } from '@orientimhq/guard';
-import { feeOf, TREASURY } from '@orientimhq/guard';
+export { COMPUTE_BUDGET, ERR, FEE_BPS, feeOf, STATUS, SYSVAR_INSTRUCTIONS, TREASURY } from '../../sdk/src/index.ts';
+import { feeOf, TREASURY } from '../../sdk/src/index.ts';
 export const DAY = 86_400n;
 export const START = 1_800_000_000n; // a fixed clock, so that "today" is the same on every run
 
@@ -35,7 +35,7 @@ const key = (a: Address) => Uint8Array.from(enc.encode(a));
 const ZERO = new Uint8Array(32);
 const bytes = (...parts: (Uint8Array | number[])[]) => Uint8Array.from(parts.flatMap(p => [...p]));
 
-export type { Feed, GrantRules, Limit } from '@orientimhq/guard';
+export type { Feed, GrantRules, Limit } from '../../sdk/src/index.ts';
 
 export type GuardWorld = World & {
   guard: Address;

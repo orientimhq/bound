@@ -26,7 +26,7 @@ import { AccountRole, generateKeyPairSigner } from '@solana/kit';
 import type { Address, KeyPairSigner } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { approve, deliver, requireProgram, send, sign, takeFrom, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from './chain.ts';
-import { decodeGrant, decodePolicy, decodeTokenAccount, wouldRefuse } from '@orientimhq/guard';
+import { decodeGrant, decodePolicy, decodeTokenAccount, wouldRefuse } from '../../sdk/src/index.ts';
 import { accountOf } from './chain.ts';
 import { DAY, feeOf, guardBalances, guardInvariants, guardSetup, ix, requireGuard, route, setPrice, STATUS } from './world.ts';
 import type { GrantRules, GuardWorld } from './world.ts';

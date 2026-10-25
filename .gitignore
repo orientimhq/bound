@@ -5,3 +5,4 @@ node_modules/
 tests/guard/results/
 tests/guard/attacker/target/
 programs/guard/target/
+sdk/dist/

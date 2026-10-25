@@ -72,6 +72,14 @@ jobs:
         run: node tests/guard/verifier.ts
       - name: The SDK's swap() in one call
         run: node tests/guard/swap.ts
+      - name: The npm package, installed by an outside project
+        run: |
+          (cd sdk && npm pack --pack-destination "$RUNNER_TEMP")
+          mkdir -p "$RUNNER_TEMP/consumer" && cp tests/guard/consumer/consumer.mjs "$RUNNER_TEMP/consumer/"
+          cd "$RUNNER_TEMP/consumer"
+          npm init -y > /dev/null
+          npm install --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/orientimhq-guard-*.tgz @solana/kit@8.3.0
+          node consumer.mjs
 
       # A fuzzer that passes on a broken program proves nothing. Each broken copy must make its fuzzer
       # fail (exit 1), with a fixed seed so the result is repeatable. fuzz.ts: M1 drops the minimum

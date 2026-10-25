@@ -1,15 +1,16 @@
 /**
- * The agent's guarded swap: Jupiter's route for the agent, wrapped as
+ * The agent's guarded swap: a route from any source (a `GuardRoute`: instructions, the least output,
+ * lookup tables; Jupiter's answer converts with `fromJupiter`), wrapped as
  * `[ComputeBudget] Pull, the route, Settle`, compiled as a v0 transaction with the route's lookup
- * tables (and the owner's, when given). The verifier co-signs it first, then the agent signs and sends
- * it through its own RPC.
+ * tables (and the owner's, when given). The agent signs it, the verifiers co-sign it
+ * (`cosignPrepared` checks they changed nothing), and the agent sends it through its own RPC.
  */
 import {
   AccountRole, address, appendTransactionMessageInstructions, compileTransaction, compressTransactionMessageUsingAddressLookupTables,
-  createTransactionMessage, getAddressDecoder, getProgramDerivedAddress, getTransactionDecoder, getTransactionEncoder, pipe, setTransactionMessageFeePayer,
-  setTransactionMessageLifetimeUsingBlockhash,
+  createTransactionMessage, getAddressDecoder, getProgramDerivedAddress, getPublicKeyFromAddress, getTransactionDecoder, getTransactionEncoder,
+  partiallySignTransaction, pipe, setTransactionMessageFeePayer, setTransactionMessageLifetimeUsingBlockhash, verifySignature,
 } from '@solana/kit';
-import type { Address, Blockhash, Instruction, Transaction } from '@solana/kit';
+import type { Address, Blockhash, Instruction, KeyPairSigner, SignatureBytes, Transaction } from '@solana/kit';
 import { COMPUTE_BUDGET, pull, settle } from './instructions.ts';
 import type { SwapAccounts } from './instructions.ts';
 
@@ -82,30 +83,41 @@ export const computeUnitPrice = (microLamports: bigint): Instruction => {
 export type GuardedSwap = { instructions: Instruction[]; tables: Record<Address, Address[]>; minOut: bigint };
 
 /**
+ * A route from any source, for the guarded swap: the instructions that run between Pull and Settle
+ * (taking at most the amount from the agent's hopper and delivering to the owner's output account),
+ * the least output they promise (Pull's minimum), and the lookup tables they use.
+ */
+export type GuardRoute = { instructions: Instruction[]; minOut: bigint; lookupTables?: Record<Address, Address[]> };
+
+/** Jupiter's `/swap/v2/build` answer as a `GuardRoute`. */
+export const fromJupiter = (r: JupiterRoute): GuardRoute => ({
+  instructions: [...r.setupInstructions, r.swapInstruction, ...(r.cleanupInstruction ? [r.cleanupInstruction] : []), ...r.otherInstructions].map(toInstruction),
+  minOut: BigInt(r.otherAmountThreshold),
+  lookupTables: Object.fromEntries(Object.entries(r.addressesByLookupTableAddress ?? {}).map(([k, v]) => [address(k), v.map(x => address(x))])),
+});
+
+const asGuardRoute = (r: GuardRoute | JupiterRoute): GuardRoute => ('swapInstruction' in r ? fromJupiter(r) : r);
+
+/**
  * The guarded swap's instructions: the compute budget, Pull for `amount` with the route's own
- * minimum (or a higher one), Jupiter's instructions, Settle last. The compute budget is the agent's
+ * minimum (or a higher one), the route's instructions, Settle last. The compute budget is the agent's
  * alone: the route's own compute budget instructions are dropped, so a route cannot set a priority
  * fee above the agent's cap (M05).
  */
 export function guardedSwap(a: {
-  accounts: SwapAccounts; amount: bigint; route: JupiterRoute; minOut?: bigint;
+  accounts: SwapAccounts; amount: bigint; route: GuardRoute | JupiterRoute; minOut?: bigint;
   computeUnits?: number; microLamportsPerUnit?: bigint; ownerTable?: { address: Address; addresses: Address[] };
 }): GuardedSwap {
-  const quoted = BigInt(a.route.otherAmountThreshold);
-  const minOut = a.minOut && a.minOut > quoted ? a.minOut : quoted;
-  const r = a.route;
+  const r = asGuardRoute(a.route);
+  const minOut = a.minOut && a.minOut > r.minOut ? a.minOut : r.minOut;
   const instructions = [
     computeUnitLimit(a.computeUnits ?? 600_000),
     ...(a.microLamportsPerUnit ? [computeUnitPrice(a.microLamportsPerUnit)] : []),
     pull(a.accounts, a.amount, minOut),
-    ...[...r.setupInstructions, r.swapInstruction, ...(r.cleanupInstruction ? [r.cleanupInstruction] : []), ...r.otherInstructions]
-      .map(toInstruction)
-      .filter(i => i.programAddress !== COMPUTE_BUDGET),
+    ...r.instructions.filter(i => i.programAddress !== COMPUTE_BUDGET),
     settle(a.accounts),
   ];
-  const tables: Record<Address, Address[]> = Object.fromEntries(
-    Object.entries(r.addressesByLookupTableAddress ?? {}).map(([k, v]) => [address(k), v.map(x => address(x))]),
-  );
+  const tables: Record<Address, Address[]> = { ...r.lookupTables };
   if (a.ownerTable) tables[a.ownerTable.address] = a.ownerTable.addresses;
   return { instructions, tables, minOut };
 }
@@ -148,3 +160,41 @@ export async function requestCosign(url: string, tx: Transaction, fetchImpl: typ
 }
 
 const toBase64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
+
+/** A verifier of the owner's policy and how to ask it: its URL (`POST /v1/cosign`) or a function. */
+export type Cosigner = { address: Address; cosign: string | ((tx: Transaction) => Promise<Transaction>) };
+
+/**
+ * A guarded swap built anywhere (by `guardedSwap` or by hand), co-signed safely: signed by `agent` when
+ * given (a verifier co-signs only what the agent signed), then sent to each verifier in turn. Each
+ * answer must carry the same message bytes and a valid signature of that verifier, or the swap is
+ * refused: a verifier can neither change the swap nor raise the fee the agent pays. On success the
+ * transaction is ready to send (with the agent's signature, when `agent` was given).
+ */
+export async function cosignPrepared(
+  tx: Transaction, verifiers: Cosigner[], o: { agent?: KeyPairSigner; fetchImpl?: typeof fetch } = {},
+): Promise<{ ok: true; transaction: Transaction } | { ok: false; reason: string }> {
+  let signed = o.agent ? await partiallySignTransaction([o.agent.keyPair], tx) : tx;
+  const built = new Uint8Array(signed.messageBytes);
+  if (!verifiers.length) return { ok: false, reason: 'no verifier to co-sign' };
+  for (const v of verifiers) {
+    let answer: Transaction;
+    try {
+      answer = typeof v.cosign === 'string' ? await requestCosign(v.cosign, signed, o.fetchImpl) : await v.cosign(signed);
+    } catch (e) {
+      return { ok: false, reason: (e as Error).message };
+    }
+    const got = new Uint8Array(answer.messageBytes);
+    if (got.length !== built.length || got.some((x, i) => x !== built[i])) return { ok: false, reason: `the verifier ${v.address} returned a different transaction` };
+    const signature = answer.signatures[v.address];
+    let valid = false;
+    try {
+      valid = !!signature && (await verifySignature(await getPublicKeyFromAddress(v.address), signature as SignatureBytes, built));
+    } catch {
+      valid = false;
+    }
+    if (!valid) return { ok: false, reason: `the verifier ${v.address} did not sign the transaction` };
+    signed = { ...signed, signatures: { ...signed.signatures, [v.address]: signature } };
+  }
+  return { ok: true, transaction: signed };
+}

@@ -27,8 +27,8 @@ import type { AddressInfo } from 'node:net';
 import {
   accountsFor, ataOf, createAtaIdempotent, createGuardClient, decodeTokenAccount, ownerSetup, ownerSetupTransactions, policyOf, pull, revoke, rpcChain, settle,
   TOKEN_PROGRAM, updatePolicy,
-} from '@orientimhq/guard';
-import type { JupiterRoute, RouteRequest, SwapResult } from '@orientimhq/guard';
+} from '../../sdk/src/index.ts';
+import type { JupiterRoute, RouteRequest, SwapResult } from '../../sdk/src/index.ts';
 import { createCosigner } from '../../verifier/src/cosign.ts';
 import { handler, rpcSimulator } from '../../verifier/src/server.ts';
 import { attackerData, deliver, takeFrom } from './chain.ts';

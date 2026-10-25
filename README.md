@@ -24,14 +24,15 @@ Status: proof of concept. Not deployed, not audited, no real funds.
    policy or revoke the grant at any time.
 
 The full rules (I1–I11), the transaction's shape and every test case are in
-[docs/GUARD.md](docs/GUARD.md).
+[docs/GUARD.md](docs/GUARD.md). To integrate it (any route, not only Jupiter's), see
+[docs/INTEGRATION.md](docs/INTEGRATION.md).
 
 ## Layout
 
 | Path | What |
 | --- | --- |
 | `programs/guard` | The Guard program (native Rust, solana-program) |
-| `sdk` | `@orientimhq/guard`: the instructions, the owner's set-up, the agent's guarded swap (Jupiter route, Pull and Settle around it, v0 with lookup tables) and the verifier client |
+| `sdk` | `@orientimhq/guard`, shipped as JavaScript with type declarations: the instructions, the owner's set-up (`sendOwnerSetup`, resumable), the agent's guarded swap around any route (`GuardRoute`; Jupiter's with `fromJupiter`), and `cosignPrepared`, which co-signs a transaction built anywhere and checks each verifier changed nothing |
 | `verifier` | Orientim's verifier, an HTTP service (`POST /v1/cosign`) for Fly |
 | `tests/guard/run.ts` | The fixed cases, in litesvm |
 | `tests/guard/fuzz.ts` | The attack fuzzer; CI requires it to catch two broken copies of the program |
@@ -40,6 +41,7 @@ The full rules (I1–I11), the transaction's shape and every test case are in
 | `tests/guard/swap.ts` | `swap()` in one call: honest swaps, the owner's rules read first, a verifier that cheats, `ownerSetup()` |
 | `tests/guard/jupiter.ts` | Real Jupiter routes from a copy of mainnet, with Pyth's real prices |
 | `tests/guard/attacker` | A malicious swap program the tests use as the route |
+| `tests/guard/consumer` | The packed npm package installed by an outside project, with plain Node |
 | `tests/guard/devnet.ts` | End to end on a real validator (in CI, `solana-test-validator`; or devnet by hand): deploys, the owner's set-up, the verifier over HTTP, swaps and refusals |
 
 ## Running the tests

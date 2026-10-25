@@ -8,16 +8,13 @@
  * The chain, the route and the verifier are passed in, so the same code runs against mainnet, devnet
  * or a local VM.
  */
-import {
-  getPublicKeyFromAddress, getSignatureFromTransaction, getTransactionEncoder, partiallySignTransaction,
-  verifySignature,
-} from '@solana/kit';
-import type { Address, Blockhash, KeyPairSigner, SignatureBytes, Transaction } from '@solana/kit';
+import { getSignatureFromTransaction, getTransactionEncoder } from '@solana/kit';
+import type { Address, Blockhash, KeyPairSigner, Transaction } from '@solana/kit';
 import { decodeGrant, decodePolicy, decodeTokenAccount } from './accounts.ts';
 import type { GrantState, PolicyState } from './accounts.ts';
 import { accountsFor, feeOf, grantOf, policyOf } from './instructions.ts';
-import { compileGuardedSwap, guardedSwap, jupiterRoute, pythPriceAccount, requestCosign } from './swap.ts';
-import type { JupiterRoute } from './swap.ts';
+import { compileGuardedSwap, cosignPrepared, guardedSwap, jupiterRoute, pythPriceAccount } from './swap.ts';
+import type { Cosigner, GuardRoute, JupiterRoute } from './swap.ts';
 
 const DAY = 86_400n;
 const MAX_TRANSACTION_SIZE = 1232;
@@ -48,9 +45,12 @@ export type GuardClient = {
   agent: KeyPairSigner;
   chain: Chain;
   /** Each verifier of the policy that co-signs, with how to ask it (a URL or a function). */
-  verifiers: { address: Address; cosign: string | ((tx: Transaction) => Promise<Transaction>) }[];
-  /** The route's source: Jupiter's `/swap/v2/build` by default (with `jupiterApiKey`). */
-  route?: (r: RouteRequest) => Promise<JupiterRoute>;
+  verifiers: Cosigner[];
+  /**
+   * The route's source: any aggregator, a market maker or your own program, as a `GuardRoute`
+   * (instructions, least output, lookup tables); Jupiter's `/swap/v2/build` by default (with `jupiterApiKey`).
+   */
+  route?: (r: RouteRequest) => Promise<GuardRoute | JupiterRoute>;
   jupiterApiKey?: string;
   /** The priority fee the agent is willing to pay, in micro-lamports per compute unit (default 0). */
   microLamportsPerUnit?: bigint;
@@ -114,7 +114,6 @@ export function wouldRefuse(
 }
 
 const wireOf = (tx: Transaction) => new Uint8Array(getTransactionEncoder().encode(tx));
-const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
 const hex = (b: Uint8Array) => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
 
 /** The guarded-swap client; `swap()` is the one call an agent or a bot needs. */
@@ -130,27 +129,6 @@ export function createGuardClient(c: GuardClient) {
     if (!policy || policy.owner !== c.program) return null;
     if (!grant || grant.owner !== c.program) return { policy: decodePolicy(policy.data), grant: null };
     return { policy: decodePolicy(policy.data), grant: decodeGrant(grant.data) };
-  }
-
-  async function cosign(tx: Transaction): Promise<Transaction | string> {
-    const built = tx.messageBytes;
-    let signed = tx;
-    for (const v of c.verifiers) {
-      let answer: Transaction;
-      try {
-        answer = typeof v.cosign === 'string' ? await requestCosign(v.cosign, signed) : await v.cosign(signed);
-      } catch (e) {
-        return (e as Error).message;
-      }
-      // The verifier may only add its signature: the message must be the one this client built.
-      if (!same(new Uint8Array(answer.messageBytes), new Uint8Array(built))) return `the verifier ${v.address} returned a different transaction`;
-      const signature = answer.signatures[v.address];
-      if (!signature || !(await verifySignature(await getPublicKeyFromAddress(v.address), signature as SignatureBytes, built))) {
-        return `the verifier ${v.address} did not sign the transaction`;
-      }
-      signed = { ...signed, signatures: { ...signed.signatures, [v.address]: signature } };
-    }
-    return signed;
   }
 
   async function swap(s: SwapRequest): Promise<SwapResult> {
@@ -188,7 +166,7 @@ export function createGuardClient(c: GuardClient) {
     let minOut = 0n;
     let why = '';
     for (const maxAccounts of [40, 28, 20]) {
-      let r: JupiterRoute;
+      let r: GuardRoute | JupiterRoute;
       try {
         r = await route({
           inputMint: s.mintIn, outputMint: s.mintOut, amount: s.amount, taker: c.agent.address, destination: accounts.ownerOut,
@@ -213,8 +191,9 @@ export function createGuardClient(c: GuardClient) {
     if (!tx) return { ok: false, stage: 'route', reason: `no route fits in one transaction: ${why}` };
 
     // The agent signs first: a verifier co-signs only what the agent asked for (M04).
-    const signed = await cosign(await partiallySignTransaction([c.agent.keyPair], tx));
-    if (typeof signed === 'string') return { ok: false, stage: 'verifier', reason: signed };
+    const cosigned = await cosignPrepared(tx, c.verifiers, { agent: c.agent });
+    if (!cosigned.ok) return { ok: false, stage: 'verifier', reason: cosigned.reason };
+    const signed = cosigned.transaction;
     const sent = await c.chain.send(signed);
     if (!sent.ok) return { ok: false, stage: 'chain', reason: sent.error ?? 'the transaction failed' };
     const signature = getSignatureFromTransaction(signed);
