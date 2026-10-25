@@ -5,6 +5,10 @@ within limits the owner wrote on chain. The owner never signs a swap and can sto
 their wallet (SPL `Revoke`) without Orientim.
 
 Status: proof of concept on the `guard-poc` branch. Not deployed, not audited, no real funds.
+Research is still open: the design (fee level and tiers, referral share, the hopper or a one-time key
+E, the verifier's role) may change as studies and tests go on. Decisions so far: the agent's hopper
+(E optional later), optional 2 of 2 chosen by the owner, Pyth price floor per grant; fee 25 bps with
+a 30 bps cap, referral and volume tiers proposed, not decided.
 The treasury in the program (`TREASURY`) is a placeholder that no one holds a key for.
 
 ## The transaction
