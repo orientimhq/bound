@@ -147,8 +147,8 @@ id next to the signature it sent.
 ## What the Guard does not do
 
 - The limits are per agent (its grant) and per input mint; the approved budget is per input account,
-  shared by every agent of the owner. There is no limit across the owner's whole wallet: no
-  wallet-wide stop-loss or take-profit.
+  shared by every agent of the owner. Beyond the approval, there is no limit across the owner's whole
+  wallet.
 - The loss budget and the price floor need a Pyth feed for both mints. With a slippage limit set, a
   pair without feeds is refused unless the owner allows unpriced pairs, and then it has only the
   route's own minimum; with a loss budget, it is always refused. With neither set, no price is checked.
