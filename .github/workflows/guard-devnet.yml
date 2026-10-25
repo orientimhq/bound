@@ -21,7 +21,7 @@ permissions:
 jobs:
   devnet:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -77,7 +77,7 @@ jobs:
         run: |
           need=3
           echo "deployer: $DEPLOYER"
-          for i in 1 2 3 4 5 6; do
+          for i in 1 2 3; do
             have=$(solana balance -u "$RPC_URL" "$DEPLOYER" | awk '{print int($1)}')
             if [ "$have" -ge "$need" ]; then echo "balance: $have SOL"; exit 0; fi
             for url in "$RPC_URL" https://api.devnet.solana.com; do
@@ -85,6 +85,13 @@ jobs:
             done
             sleep 5
           done
+          # The airdrop refused: mine devnet SOL from the proof-of-work faucet instead.
+          echo "the airdrop refused; mining from the proof-of-work faucet"
+          cargo install devnet-pow --locked --version 0.1.4 > /dev/null 2>&1 || cargo install devnet-pow --version 0.1.4
+          timeout 20m devnet-pow mine -d 3 --reward 0.02 --no-infer -t $((need * 1000000000 + 300000000)) \
+            -k "$PAYER_KEYPAIR" -u "$RPC_URL" 2>&1 | tail -n 15 || true
+          have=$(solana balance -u "$RPC_URL" "$DEPLOYER" | awk '{print int($1)}')
+          if [ "$have" -ge "$need" ]; then echo "balance: $have SOL"; exit 0; fi
           have=$(solana balance -u "$RPC_URL" "$DEPLOYER")
           echo "::error::the deployer $DEPLOYER has $have and needs $need SOL; the faucet refused this machine. Send devnet SOL to $DEPLOYER from https://faucet.solana.com and run again."
           echo "Deployer \`$DEPLOYER\` has $have, needs $need devnet SOL: fund it at https://faucet.solana.com and run again." >> "$GITHUB_STEP_SUMMARY"
