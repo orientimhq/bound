@@ -1,0 +1,81 @@
+name: Guard
+
+# Orientim Guard (programs/guard): build the program and T6's malicious swap program, run the
+# program's own unit tests, then every fixed case of tests/guard/run.ts inside a real Solana VM
+# (litesvm). Separate from CI because it needs the Rust and Solana toolchains; it runs only when the
+# Guard, its tests or the attacker change.
+on:
+  push:
+    branches: [main, guard-poc]
+    paths:
+      - 'programs/guard/**'
+      - 'tests/guard/**'
+      - 'tests/cpi/**'
+      - '.github/workflows/guard.yml'
+  pull_request:
+    paths:
+      - 'programs/guard/**'
+      - 'tests/guard/**'
+      - 'tests/cpi/**'
+      - '.github/workflows/guard.yml'
+  workflow_dispatch:
+
+# Read only: no step here publishes or writes, and install scripts never run.
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      # The lockfile is written on Windows, where litesvm has no binary; make sure the Linux one is here.
+      - run: npm install --no-save --ignore-scripts litesvm@1.4.1
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 23 September 2026
+      - name: Install the Solana toolchain
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - id: solana
+        run: |
+          solana --version
+          echo "version=$(solana --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache the SBF platform tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/solana
+          key: platform-tools-${{ runner.os }}-${{ steps.solana.outputs.version }}
+
+      - name: The program's unit tests
+        working-directory: programs/guard
+        run: cargo test --locked
+
+      - name: Build the Guard
+        working-directory: programs/guard
+        run: cargo build-sbf --locked
+      - name: Build the malicious swap program
+        working-directory: tests/cpi/attacker
+        run: cargo build-sbf
+
+      - name: The fixed cases
+        run: node tests/guard/run.ts
+
+      - name: The report
+        if: always()
+        run: cat tests/guard/results/guard.md || true
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: guard-report
+          path: |
+            tests/guard/results/
+            programs/guard/target/deploy/orientim_guard.so
+          if-no-files-found: ignore

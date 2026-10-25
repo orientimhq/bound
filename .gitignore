@@ -11,6 +11,8 @@ tests/integration/results/
 spikes/
 tests/cpi/results/
 tests/cpi/attacker/target/
+tests/guard/results/
+programs/guard/target/
 
 # Written by `next dev` on every run; not part of the project.
 apps/web/AGENTS.md
