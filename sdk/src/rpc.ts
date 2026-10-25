@@ -30,7 +30,14 @@ export function rpcChain(url: string, o: { commitment?: 'confirmed' | 'finalized
     },
     async send(tx: Transaction) {
       const signature = getSignatureFromTransaction(tx);
-      await rpc.sendTransaction(getBase64EncodedWireTransaction(tx), { encoding: 'base64', preflightCommitment: commitment }).send();
+      try {
+        await rpc.sendTransaction(getBase64EncodedWireTransaction(tx), { encoding: 'base64', preflightCommitment: commitment }).send();
+      } catch (e) {
+        // Refused in the node's own simulation (preflight): it never reached the chain.
+        const err = e as Error & { context?: { logs?: string[] } };
+        const logs = err.context?.logs ?? [];
+        return { ok: false, error: [...logs].reverse().find(l => /failed|error/i.test(l)) ?? err.message };
+      }
       for (;;) {
         const { value } = await rpc.getSignatureStatuses([signature]).send();
         const status = value[0];
