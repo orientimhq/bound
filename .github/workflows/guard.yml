@@ -77,7 +77,8 @@ jobs:
       # fail (exit 1), with a fixed seed so the result is repeatable. fuzz.ts: M1 drops the minimum
       # check of Settle (I4), M2 the check that the output account is the owner's (I2). rules.ts: M3
       # drops the daily limit (I2), M4 the daily loss cap (I11), M5 the oracle's floor (I10).
-      # verifier.ts: M6 lets the verifier's key be used outside Pull.
+      # verifier.ts: M6 lets the verifier's key be used outside Pull. rules.ts: M7 makes swap() forget the fee
+      # when it reads the daily limit and the approval.
       - name: Broken copies the fuzzers must catch
         run: |
           mutant() {
@@ -122,6 +123,24 @@ jobs:
           cp "$RUNNER_TEMP/cosign.ts" verifier/src/cosign.ts
           if [ "$code" -ne 1 ]; then echo "::error::verifier.ts did not catch mutant m6 (exit $code)"; exit 1; fi
           echo "mutant m6 caught by verifier"
+
+          # M7: swap() forgets the fee when it checks the daily limit and the approval. rules.ts must fail.
+          cp sdk/src/client.ts "$RUNNER_TEMP/client.ts"
+          python3 - sdk/src/client.ts <<'PY'
+          import sys
+          path = sys.argv[1]
+          old = "const total = s.amount + feeOf(s.amount);"
+          text = open(path).read()
+          assert text.count(old) == 1, "the mutant's target is not in the SDK exactly once"
+          open(path, "w").write(text.replace(old, "const total = s.amount;"))
+          PY
+          set +e
+          GUARD_RULES_RUNS=3000 GUARD_RULES_SEED=1 GUARD_RULES_OUT=mutant-m7.md node tests/guard/rules.ts > /dev/null
+          code=$?
+          set -e
+          cp "$RUNNER_TEMP/client.ts" sdk/src/client.ts
+          if [ "$code" -ne 1 ]; then echo "::error::rules.ts did not catch mutant m7 (exit $code)"; exit 1; fi
+          echo "mutant m7 caught by rules"
 
       - name: The report
         if: always()

@@ -14,6 +14,11 @@
  *
  *   node tests/guard/rules.ts   (GUARD_RULES_RUNS cases, 1,000 by default; GUARD_RULES_SEED; GUARD_RULES_OUT)
  *
+ * The SDK's `swap()` is checked on the same swaps: its early refusal (sdk/src/client.ts `wouldRefuse`),
+ * read from the same chain state, must never refuse a swap the chain allows, and must refuse every swap
+ * the chain refuses for a rule it can read before sending (all but the route's minimum and the prices
+ * at Settle).
+ *
  * The Guard workflow builds broken copies of the program (the daily limit, the loss budget, the
  * oracle floor) and requires this fuzzer to catch each.
  */
@@ -21,6 +26,8 @@ import { AccountRole, generateKeyPairSigner } from '@solana/kit';
 import type { Address, KeyPairSigner } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { approve, deliver, requireProgram, send, sign, takeFrom, TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from './chain.ts';
+import { decodeGrant, decodePolicy, decodeTokenAccount, wouldRefuse } from '@orientimhq/guard';
+import { accountOf } from './chain.ts';
 import { DAY, feeOf, guardBalances, guardInvariants, guardSetup, ix, requireGuard, route, setPrice, STATUS } from './world.ts';
 import type { GrantRules, GuardWorld } from './world.ts';
 
@@ -136,7 +143,12 @@ function judge(m: Model, s: Swap, now: bigint, dIn: number, dOut: number): { ok:
 
 // ---------------------------------------------------------------- the run
 
-const counts = { allowed: 0, refused: 0, ownerActions: 0, days: 0 };
+const counts = { allowed: 0, refused: 0, ownerActions: 0, days: 0, sdkRefused: 0 };
+/** The model's reasons the SDK's swap() can see before sending (the rest depend on the route or the prices at Settle). */
+const VISIBLE = new Set([
+  'paused', 'grant not active', 'above the limit per swap', 'above the daily limit', 'approval spent', 'unpriced', 'loss budget spent',
+  'no verifier of the policy signed', 'threshold 2 without a second, different verifier',
+]);
 const reasons = new Map<string, number>();
 const failures: string[] = [];
 let ran = 0;
@@ -293,6 +305,21 @@ for (let i = 0; i < RUNS; i++) {
   g.svm.expireBlockhash();
   const before = guardBalances(g);
   // A key the transaction needs but nobody holds (the verifier stays silent): it cannot be sent at all.
+  // What the SDK's swap() would decide before sending, from the same chain state (sdk/src/client.ts).
+  const read = (a: Address) => {
+    const acc = accountOf(g.svm, a);
+    if (!acc) throw new Error(`missing account ${a}`);
+    return acc.data;
+  };
+  const ownerInState = decodeTokenAccount(read(g.wIn));
+  // swap() names its verifiers in order (the primary, then the second); one that does not sign is
+  // caught when its answer comes back, before the agent signs.
+  const sdkSays = swap.primary === 'none' ? 'the verifier did not sign' : wouldRefuse(
+    { policy: decodePolicy(read(g.policy)), grant: decodeGrant(read(g.grant)), now, agent: g.agent.address, verifiers: [primary.address, ...(secondKey ? [secondKey.address] : [])] },
+    { mintIn: g.mintIn, mintOut: g.mintOut, amount: swap.amount }, ownerInState, g.authority,
+  );
+  if (sdkSays) counts.sdkRefused++;
+
   const result = await sign(g.svm, ixs, g.agent, signers).then(
     tx => send(g.svm, tx),
     () => ({ ok: false, error: 'a required signature is missing', index: null, logs: [] }),
@@ -305,6 +332,8 @@ for (let i = 0; i < RUNS; i++) {
   if (broken.length) failures.push(`${broken.join('; ')} ${describe()}`);
   if (result.ok && !verdict.ok) failures.push(`the chain allowed a swap the rules forbid (${verdict.why}) ${describe()}`);
   if (!result.ok && verdict.ok) failures.push(`the chain refused a swap the rules allow: ${result.error} ${describe()}`);
+  if (sdkSays && result.ok) failures.push(`swap() would refuse a swap the chain allows (${sdkSays}) ${describe()}`);
+  if (!sdkSays && !result.ok && VISIBLE.has(verdict.why)) failures.push(`swap() would send a swap the chain refuses for a rule it can read (${verdict.why}) ${describe()}`);
   if (verdict.ok && verdict.next) r.m = verdict.next;
   if (failures.length >= 5) break;
 }
@@ -313,13 +342,13 @@ const took = Math.round((Date.now() - started) / 1000);
 const summary = [
   '# Orientim Guard: the owner\'s rules, fuzzed',
   '',
-  `Seed ${SEED}, ${ran} of ${RUNS} swaps in ${took} s: ${counts.allowed} allowed, ${counts.refused} refused; ${counts.ownerActions} owner actions, the clock moved ${counts.days} times.`,
+  `Seed ${SEED}, ${ran} of ${RUNS} swaps in ${took} s: ${counts.allowed} allowed, ${counts.refused} refused; ${counts.ownerActions} owner actions, the clock moved ${counts.days} times. The SDK's swap() would have refused ${counts.sdkRefused} before sending.`,
   '',
   '| The model\'s verdict | Swaps |',
   '| --- | --- |',
   ...[...reasons].sort((a, b) => b[1] - a[1]).map(([why, n]) => `| ${why} | ${n} |`),
   '',
-  failures.length ? `**${failures.length} disagreed with the rules or broke the promise:**\n\n${failures.map(f => `- ${f}`).join('\n')}` : 'The chain agreed with the rules on every swap, and the promise held.',
+  failures.length ? `**${failures.length} disagreed with the rules or broke the promise:**\n\n${failures.map(f => `- ${f}`).join('\n')}` : 'The chain agreed with the rules on every swap, swap() agreed with the chain, and the promise held.',
   '',
 ].join('\n');
 mkdirSync(OUT_DIR, { recursive: true });

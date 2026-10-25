@@ -77,9 +77,9 @@ export function wouldRefuse(
 ): string | null {
   const { policy, grant, now } = p;
   if (policy.paused) return 'the owner has paused the policy';
-  const known = p.verifiers.filter(v => policy.verifiers.includes(v));
-  if (!known.length) return 'none of the verifiers given is in the owner\'s policy';
-  if (policy.threshold >= 2 && new Set(known).size < 2) return 'the owner\'s policy needs two verifiers to co-sign';
+  const [first, second] = p.verifiers;
+  if (!(first && policy.verifiers.includes(first))) return 'the verifier given is not in the owner\'s policy';
+  if (policy.threshold >= 2 && !(second && second !== first && policy.verifiers.includes(second))) return 'the owner\'s policy needs a second, different verifier of the policy to co-sign';
   if (grant.agent !== p.agent) return 'this grant is not the agent\'s';
   if (grant.status !== 0) return grant.status === 1 ? 'the owner has paused this agent' : 'the owner has revoked this agent';
   if (grant.expiresAt !== 0n && now >= grant.expiresAt) return 'the agent\'s grant has expired';
