@@ -1,8 +1,9 @@
 name: Guard
 
 # Orientim Guard (programs/guard): build the program and T6's malicious swap program, run the
-# program's own unit tests, then every fixed case of tests/guard/run.ts inside a real Solana VM
-# (litesvm). Separate from CI because it needs the Rust and Solana toolchains; it runs only when the
+# program's own unit tests, every fixed case of tests/guard/run.ts and the fuzzer tests/guard/fuzz.ts
+# inside a real Solana VM (litesvm), then build two deliberately broken copies of the program and
+# require the fuzzer to catch each. Separate from CI because it needs the Rust and Solana toolchains; it runs only when the
 # Guard, its tests or the attacker change.
 on:
   push:
@@ -59,17 +60,48 @@ jobs:
 
       - name: Build the Guard
         working-directory: programs/guard
-        run: cargo build-sbf --locked
+        run: cargo build-sbf -- --locked
       - name: Build the malicious swap program
         working-directory: tests/cpi/attacker
         run: cargo build-sbf
 
       - name: The fixed cases
         run: node tests/guard/run.ts
+      - name: The fuzzer
+        env:
+          GUARD_FUZZ_RUNS: 1000
+          GUARD_FUZZ_SEED: ${{ github.run_number }}
+        run: node tests/guard/fuzz.ts
+
+      # A fuzzer that passes on a broken program proves nothing. M1 drops the minimum check of Settle
+      # (I4); M2 drops the check that the output account is the owner's (I2). Each copy must make the
+      # fuzzer fail (exit 1, a broken promise), with a fixed seed so the result is repeatable.
+      - name: Two broken copies the fuzzer must catch
+        run: |
+          mutant() {
+            dir="$RUNNER_TEMP/$1"
+            rm -rf "$dir" && mkdir -p "$dir" && cp -r programs/guard/Cargo.toml programs/guard/Cargo.lock programs/guard/src "$dir/"
+            python3 - "$dir/src/lib.rs" "$2" "$3" <<'PY'
+          import sys
+          path, old, new = sys.argv[1:]
+          text = open(path).read()
+          assert text.count(old) == 1, f"the mutant's target is not in the program exactly once: {old}"
+          open(path, "w").write(text.replace(old, new))
+          PY
+            (cd "$dir" && cargo build-sbf -- --locked)
+            set +e
+            GUARD_SO="$dir/target/deploy/orientim_guard.so" GUARD_FUZZ_RUNS=1000 GUARD_FUZZ_SEED=1 GUARD_FUZZ_OUT="mutant-$1.md" node tests/guard/fuzz.ts
+            code=$?
+            set -e
+            if [ "$code" -ne 1 ]; then echo "::error::the fuzzer did not catch mutant $1 (exit $code)"; return 1; fi
+            echo "mutant $1 caught"
+          }
+          mutant m1 'if arrived < p.min_out {' 'if false && arrived < p.min_out {'
+          mutant m2 'if out.owner != policy.owner || out.mint' 'if out.mint'
 
       - name: The report
         if: always()
-        run: cat tests/guard/results/guard.md || true
+        run: cat tests/guard/results/*.md || true
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

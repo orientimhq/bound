@@ -14,3 +14,7 @@ crate-type = ["cdylib", "lib"]
 
 [profile.release]
 overflow-checks = true
+
+# solana-program's entrypoint! macro tests these cfgs in this crate.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))', 'cfg(feature, values("custom-heap", "custom-panic"))'] }

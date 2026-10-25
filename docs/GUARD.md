@@ -63,5 +63,16 @@ untouched.
 | G-T11a, G-T11b | The agent changes the policy; the agent raises its own limits |
 | G-T10a, G-T10b | Token-2022 honest swap; permanent delegate refused |
 
-Still to come in this proof of concept: the fuzzer with two deliberate defects it must catch, a real
-Jupiter route captured from mainnet with its compute and size, and the off-chain verifier.
+`node tests/guard/fuzz.ts` sends random transactions through the Guard (1,000 per CI run, seeded by the
+run number): random amounts, minimums, decimals and token programs, a random shape (no settle,
+something after settle, two pulls, an unknown or absent verifier, the output paid to the agent, the
+hopper swapped for the attacker's) and a random route (take more or less, deliver more or less, pay the
+agent, sign as the authority, burn, spend the owner's other tokens). The same balance checks apply to
+every case, and an honest swap must go through.
+
+The workflow then builds two broken copies of the program and requires the fuzzer to fail on each: M1
+drops the minimum check of `Settle` (I4), M2 drops the check that the output account is the owner's
+(I2).
+
+Still to come in this proof of concept: a real Jupiter route captured from mainnet with its compute and
+size, and the off-chain verifier.

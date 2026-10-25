@@ -16,7 +16,8 @@ import { ataOf } from '@orientim/builder';
 import { approve, attackerData, deliver, SOL, sendOrThrow, setup, sign, takeFrom, tokensOf, u64 } from '../cpi/world.ts';
 import type { Inner, IssuerDelegate, World } from '../cpi/world.ts';
 
-export const GUARD_SO = 'programs/guard/target/deploy/orientim_guard.so';
+/** The built program; GUARD_SO picks another build (the workflow's deliberately broken copies). */
+export const GUARD_SO = process.env.GUARD_SO ?? 'programs/guard/target/deploy/orientim_guard.so';
 export const SYSVAR_INSTRUCTIONS = 'Sysvar1nstructions1111111111111111111111111' as Address;
 export const COMPUTE_BUDGET = 'ComputeBudget111111111111111111111111111111' as Address;
 /** The placeholder treasury compiled into the program (`TREASURY` in programs/guard/src/lib.rs). */
@@ -64,6 +65,8 @@ export type GuardWorld = World & {
   grant: Address;
   authority: Address;
   hopper: Address;
+  /** The agent's own account for the output mint: where a dishonest agent would want the output. */
+  agentOut: Address;
   treasuryIn: Address;
 };
 
@@ -155,12 +158,15 @@ export type GuardOptions = {
   issuer?: IssuerDelegate;
   /** The owner's approval of the Guard's authority over the input (default: 1,000 tokens). */
   budget?: bigint;
+  /** As T6's `setup`: the mints' decimals, and funds for many swaps of any size. */
+  decimals?: [number, number];
+  large?: boolean;
   rules?: (g: GuardWorld) => GrantRules;
 };
 
 /** T6's world, the Guard deployed, the owner's policy, grant and approval in place. */
 export async function guardSetup(opts: GuardOptions = {}): Promise<GuardWorld> {
-  const w = await setup(opts.tokenProgram, opts.issuer);
+  const w = await setup(opts.tokenProgram, opts.issuer, { decimals: opts.decimals, large: opts.large });
   const guardKey = await generateKeyPairSigner();
   w.svm.addProgramFromFile(guardKey.address, GUARD_SO);
   const clock = w.svm.getClock();
@@ -180,11 +186,13 @@ export async function guardSetup(opts: GuardOptions = {}): Promise<GuardWorld> {
     grant: await pda(text('grant'), key(owner), key(agent.address)),
     authority: await pda(text('auth'), key(owner)),
     hopper: await ataOf(agent.address, w.mintIn, w.tokenProgram),
+    agentOut: await ataOf(agent.address, w.mintOut, w.tokenProgram),
     treasuryIn: await ataOf(TREASURY, w.mintIn, w.tokenProgram),
   };
 
   sendOrThrow(w.svm, await sign(w.svm, [
     getCreateAssociatedTokenIdempotentInstruction({ payer: w.payer, ata: g.hopper, owner: agent.address, mint: w.mintIn, tokenProgram: w.tokenProgram }),
+    getCreateAssociatedTokenIdempotentInstruction({ payer: w.payer, ata: g.agentOut, owner: agent.address, mint: w.mintOut, tokenProgram: w.tokenProgram }),
     getCreateAssociatedTokenIdempotentInstruction({ payer: w.payer, ata: g.treasuryIn, owner: TREASURY, mint: w.mintIn, tokenProgram: w.tokenProgram }),
   ], w.payer), 'creating the hopper and the treasury account');
 
