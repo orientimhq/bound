@@ -8,12 +8,16 @@
  * a verifier of the one Pull, never as the fee payer and never writable, so its signature cannot
  * authorise anything else; and only with a blockhash lifetime, so a co-signed transaction expires
  * within about a minute and a half.
+ *
+ * It only looks at a transaction the agent has already signed (M04): without the agent's key no one can
+ * spend the agent's rate or make it simulate, and at most `maxConcurrent` simulations run at once, each
+ * for at most `simulateMs`.
  */
 import {
-  AccountRole, decompileTransactionMessage, getCompiledTransactionMessageDecoder, getTransactionDecoder, getTransactionEncoder,
-  isTransactionMessageWithBlockhashLifetime, partiallySignTransaction,
+  AccountRole, decompileTransactionMessage, getCompiledTransactionMessageDecoder, getPublicKeyFromAddress, getTransactionDecoder,
+  getTransactionEncoder, isTransactionMessageWithBlockhashLifetime, partiallySignTransaction, verifySignature,
 } from '@solana/kit';
-import type { Address, AddressesByLookupTableAddress, Transaction } from '@solana/kit';
+import type { Address, AddressesByLookupTableAddress, SignatureBytes, Transaction } from '@solana/kit';
 import { COMPUTE_BUDGET } from '../../sdk/src/instructions.ts';
 
 const MAX_TRANSACTION_SIZE = 1232;
@@ -37,6 +41,10 @@ export type CosignConfig = {
   simulate: (tx: Transaction) => Promise<Simulation>;
   /** Co-signed swaps one agent may have per minute (30 by default). */
   perMinute?: number;
+  /** Simulations at once, over all agents (16 by default); more are refused with 503. */
+  maxConcurrent?: number;
+  /** How long a simulation may take, in milliseconds (10,000 by default). */
+  simulateMs?: number;
   now?: () => number;
 };
 
@@ -48,7 +56,10 @@ const refuse = (reason: string, status = 400, logs?: string[]): Verdict => ({ ok
 
 export function createCosigner(c: CosignConfig) {
   const perMinute = c.perMinute ?? 30;
+  const maxConcurrent = c.maxConcurrent ?? 16;
+  const simulateMs = c.simulateMs ?? 10_000;
   const now = c.now ?? Date.now;
+  let running = 0;
   const recent = new Map<Address, number[]>();
 
   /** Whether `agent` may have another co-signed swap now; counts it if so. */
@@ -109,9 +120,28 @@ export function createCosigner(c: CosignConfig) {
     }
     if (!slots) return refuse('this verifier is not named in the transaction');
 
+    // Only the agent can ask for its own swaps: its signature first, then the rate.
+    const agentSignature = tx.signatures[agent];
+    let signedByAgent = false;
+    try {
+      signedByAgent = !!agentSignature && (await verifySignature(await getPublicKeyFromAddress(agent), agentSignature as SignatureBytes, tx.messageBytes));
+    } catch {
+      signedByAgent = false;
+    }
+    if (!signedByAgent) return refuse('the agent named in Pull must sign the transaction first', 401);
+    if (running >= maxConcurrent) return refuse('the verifier is busy; try again', 503);
     if (!withinRate(agent)) return refuse('too many swaps from this agent in the last minute', 429);
 
-    const simulation = await c.simulate(tx);
+    running++;
+    let simulation: Simulation;
+    try {
+      simulation = await Promise.race([
+        c.simulate(tx),
+        new Promise<Simulation>(resolve => setTimeout(() => resolve({ ok: false, error: 'the simulation timed out' }), simulateMs).unref?.()),
+      ]);
+    } finally {
+      running--;
+    }
     if (!simulation.ok) return refuse(`the swap fails on chain: ${simulation.error ?? 'unknown error'}`, 422, simulation.logs);
 
     try {

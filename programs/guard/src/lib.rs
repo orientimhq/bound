@@ -69,6 +69,9 @@ pub const PYTH_RECEIVER: Pubkey = pubkey!("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJ
 const PRICE_UPDATE_DISCRIMINATOR: [u8; 8] = [34, 241, 35, 99, 157, 126, 244, 205];
 /// A price older than this (seconds) is refused.
 pub const MAX_PRICE_AGE: i64 = 60;
+/// A price published more than this (seconds) after the chain's clock is refused (L02): the two
+/// clocks drift by a few seconds, no more.
+pub const MAX_PRICE_LEAD: i64 = 30;
 /// A price whose confidence interval is wider than 1/this of the price (2%) is refused.
 const MAX_CONF_DIVISOR: u128 = 50;
 /// The owner may allow at most this much below the oracle's price (50%).
@@ -217,9 +220,12 @@ pub struct Pending {
     /// I11: the grant whose loss budget Settle charges (default when the grant sets none), and the fee.
     pub loss_grant: Pubkey,
     pub fee: u64,
+    /// The owner's input balance before Pull: Settle charges the loss on what actually left it, net of
+    /// a Token-2022 transfer fee on the refund (H01).
+    pub in_before: u64,
 }
 
-const PENDING_SIZE: usize = 1 + 32 * 6 + 8 * 3 + 2 + 8 + 2 + 32 * 2 + 32 + 8;
+const PENDING_SIZE: usize = 1 + 32 * 6 + 8 * 3 + 2 + 8 + 2 + 32 * 2 + 32 + 8 + 8;
 
 /// The owner's rules. PDA `["policy", owner]`.
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
@@ -270,6 +276,7 @@ impl Policy {
             feed_out: r.key()?,
             loss_grant: r.key()?,
             fee: r.u64()?,
+            in_before: r.u64()?,
         };
         Ok(p)
     }
@@ -307,6 +314,7 @@ impl Policy {
         w.key(&q.feed_out);
         w.key(&q.loss_grant);
         w.u64(q.fee);
+        w.u64(q.in_before);
     }
 }
 
@@ -463,6 +471,9 @@ fn parse_price(data: &[u8], feed: &Pubkey, now: i64) -> Result<Price, ProgramErr
     if now.saturating_sub(p.publish_time) > MAX_PRICE_AGE {
         return Err(fail(GuardError::StalePrice, "the price is older than a minute"));
     }
+    if p.publish_time.saturating_sub(now) > MAX_PRICE_LEAD {
+        return Err(fail(GuardError::StalePrice, "the price is from the future"));
+    }
     if (p.conf as u128) * MAX_CONF_DIVISOR > p.price as u128 {
         return Err(fail(GuardError::PriceUncertain, "the price's confidence interval is too wide"));
     }
@@ -481,23 +492,39 @@ fn pow10(e: u32) -> Result<u128, ProgramError> {
 }
 
 /// The least output (in its base units) that `amount` of the input is worth by these prices, less
-/// `slippage_bps`: amount × price_in × 10^(expo_in − expo_out + decimals_out − decimals_in) / price_out.
+/// `slippage_bps`: ⌈amount × price_in × 10^(expo_in − expo_out + decimals_out − decimals_in) / price_out
+/// × (10,000 − slippage_bps) / 10,000⌉. Rounded up once, at the end, in the owner's favour (M03).
 fn oracle_floor(amount: u64, decimals_in: u8, decimals_out: u8, p_in: &Price, p_out: &Price, slippage_bps: u16) -> Result<u128, ProgramError> {
     let k = (p_in.expo as i64) - (p_out.expo as i64) + (decimals_out as i64) - (decimals_in as i64);
     let num = (amount as u128).checked_mul(p_in.price as u128).ok_or(GuardError::Math)?;
-    let expected = if k >= 0 {
-        num.checked_mul(pow10(k as u32)?).ok_or(GuardError::Math)? / p_out.price as u128
+    // expected = n / d exactly, as q + r / d.
+    let (n, d) = if k >= 0 {
+        (num.checked_mul(pow10(k as u32)?).ok_or(GuardError::Math)?, p_out.price as u128)
     } else {
-        num / (p_out.price as u128).checked_mul(pow10((-k) as u32)?).ok_or(GuardError::Math)?
+        (num, (p_out.price as u128).checked_mul(pow10((-k) as u32)?).ok_or(GuardError::Math)?)
     };
-    Ok(expected.checked_mul(10_000 - slippage_bps as u128).ok_or(GuardError::Math)? / 10_000)
+    let (q, r) = (n / d, n % d);
+    let m = 10_000 - slippage_bps as u128;
+    // ⌈(q × m + r × m / d) / 10,000⌉, with ⌈r × m / d⌉ for the fraction: an integer added to a fraction
+    // rounds up the same either way. Where r × m passes u128, r / ⌊d / m⌋ is a hair above it: stricter.
+    let part = match r.checked_mul(m) {
+        Some(rm) => rm.div_ceil(d),
+        None => r.div_ceil(d / m),
+    };
+    Ok(q.checked_mul(m).and_then(|x| x.checked_add(part)).ok_or(GuardError::Math)?.div_ceil(10_000))
 }
 
-/// What `amount` base units are worth in micro-USD at this price: amount × price × 10^(expo + 6 − decimals).
-fn usd_micro(amount: u64, decimals: u8, p: &Price) -> Result<u128, ProgramError> {
+/// What `amount` base units are worth in micro-USD at this price: amount × price × 10^(expo + 6 − decimals),
+/// rounded up when `up` (what the owner paid) and down otherwise (what arrived), so a loss is never
+/// undercounted.
+fn usd_micro(amount: u64, decimals: u8, p: &Price, up: bool) -> Result<u128, ProgramError> {
     let k = (p.expo as i64) + 6 - (decimals as i64);
     let v = (amount as u128).checked_mul(p.price as u128).ok_or(GuardError::Math)?;
-    Ok(if k >= 0 { v.checked_mul(pow10(k as u32)?).ok_or(GuardError::Math)? } else { v / pow10((-k) as u32)? })
+    Ok(match (k >= 0, up) {
+        (true, _) => v.checked_mul(pow10(k as u32)?).ok_or(GuardError::Math)?,
+        (false, true) => v.div_ceil(pow10((-k) as u32)?),
+        (false, false) => v / pow10((-k) as u32)?,
+    })
 }
 
 // ---------------------------------------------------------------- token accounts and mints
@@ -661,21 +688,35 @@ fn create_pda<'a>(payer: &AccountInfo<'a>, target: &AccountInfo<'a>, system: &Ac
     if *system.key != SYSTEM_PROGRAM {
         return Err(ProgramError::IncorrectProgramId);
     }
-    if target.lamports() != 0 || !target.data_is_empty() {
+    if !target.data_is_empty() || (target.lamports() != 0 && *target.owner != SYSTEM_PROGRAM) {
         return Err(ProgramError::AccountAlreadyInitialized);
     }
     let lamports = Rent::get()?.minimum_balance(space);
-    let mut data = Vec::with_capacity(52);
-    data.extend_from_slice(&0u32.to_le_bytes()); // CreateAccount
-    data.extend_from_slice(&lamports.to_le_bytes());
+    let system_ix = |data: Vec<u8>, accounts: Vec<AccountMeta>| Instruction { program_id: SYSTEM_PROGRAM, accounts, data };
+    if target.lamports() == 0 {
+        let mut data = Vec::with_capacity(52);
+        data.extend_from_slice(&0u32.to_le_bytes()); // CreateAccount
+        data.extend_from_slice(&lamports.to_le_bytes());
+        data.extend_from_slice(&(space as u64).to_le_bytes());
+        data.extend_from_slice(owner.as_ref());
+        let ix = system_ix(data, vec![AccountMeta::new(*payer.key, true), AccountMeta::new(*target.key, true)]);
+        return invoke_signed(&ix, &[payer.clone(), target.clone(), system.clone()], &[seeds]);
+    }
+    // M02: someone sent SOL to the address first. CreateAccount would fail on it forever; top it up to
+    // rent, then allocate and assign, as the ATA program does.
+    let missing = lamports.saturating_sub(target.lamports());
+    if missing > 0 {
+        let mut data = 2u32.to_le_bytes().to_vec(); // Transfer
+        data.extend_from_slice(&missing.to_le_bytes());
+        let ix = system_ix(data, vec![AccountMeta::new(*payer.key, true), AccountMeta::new(*target.key, false)]);
+        invoke(&ix, &[payer.clone(), target.clone(), system.clone()])?;
+    }
+    let mut data = 8u32.to_le_bytes().to_vec(); // Allocate
     data.extend_from_slice(&(space as u64).to_le_bytes());
+    invoke_signed(&system_ix(data, vec![AccountMeta::new(*target.key, true)]), &[target.clone(), system.clone()], &[seeds])?;
+    let mut data = 1u32.to_le_bytes().to_vec(); // Assign
     data.extend_from_slice(owner.as_ref());
-    let ix = Instruction {
-        program_id: SYSTEM_PROGRAM,
-        accounts: vec![AccountMeta::new(*payer.key, true), AccountMeta::new(*target.key, true)],
-        data,
-    };
-    invoke_signed(&ix, &[payer.clone(), target.clone(), system.clone()], &[seeds])
+    invoke_signed(&system_ix(data, vec![AccountMeta::new(*target.key, true)]), &[target.clone(), system.clone()], &[seeds])
 }
 
 /// `InitPolicy`: [owner (signer, writable), policy (writable), system program]
@@ -958,7 +999,7 @@ fn pull(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramRe
         .iter_mut()
         .find(|l| l.mint == *mint_in.key && l.mint != Pubkey::default())
         .ok_or_else(|| fail(GuardError::MintNotAllowed, "the input mint is not allowed"))?;
-    if amount > limit.max_per_swap {
+    if total > limit.max_per_swap {
         return Err(fail(GuardError::OverSwapLimit, "above the owner's limit per swap"));
     }
     if limit.day != day {
@@ -1008,6 +1049,7 @@ fn pull(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramRe
         feed_out,
         loss_grant: if tracks_loss { *grant_info.key } else { Pubkey::default() },
         fee,
+        in_before: src.amount,
     };
     policy.write(&mut policy_info.try_borrow_mut_data()?);
     grant.write(&mut grant_info.try_borrow_mut_data()?);
@@ -1082,8 +1124,16 @@ fn settle(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Program
     }
     let leftover = hop_now - p.hopper_before;
 
-    // I11: charge this swap's loss (what the owner paid less what arrived, by Pyth's prices) to the
-    // agent's budget; gains are not credited. Crossing the cap refuses the swap that crosses it.
+    if leftover > 0 {
+        let decimals = checked_mint(mint_in, token_in.key)?;
+        let ix = transfer_checked(token_in.key, hopper.key, mint_in.key, owner_in.key, agent.key, leftover, decimals);
+        invoke(&ix, &[hopper.clone(), mint_in.clone(), owner_in.clone(), agent.clone(), token_in.clone()])?;
+    }
+
+    // I11: charge this swap's loss (what left the owner's input account, refund in, less what arrived,
+    // by Pyth's prices) to the agent's budget; gains are not credited. Measured, not computed: a
+    // Token-2022 transfer fee on the way in or back is the owner's loss too (H01). Crossing the cap
+    // refuses the swap that crosses it.
     if p.loss_grant != Pubkey::default() {
         let (price_in, price_out) = prices.ok_or(GuardError::Unpriced)?;
         let grant_info = account(accounts, 9)?;
@@ -1091,9 +1141,9 @@ fn settle(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Program
             return Err(fail(GuardError::MismatchedSettle, "settle names another grant than pull"));
         }
         let mut grant = Grant::read(&grant_info.try_borrow_data()?)?;
-        let paid = p.amount.checked_sub(leftover).and_then(|x| x.checked_add(p.fee)).ok_or(GuardError::Math)?;
-        let value_in = usd_micro(paid, p.decimals_in, &price_in)?;
-        let value_out = usd_micro(arrived, p.decimals_out, &price_out)?;
+        let paid = p.in_before.saturating_sub(amount_of(owner_in)?);
+        let value_in = usd_micro(paid, p.decimals_in, &price_in, true)?;
+        let value_out = usd_micro(arrived, p.decimals_out, &price_out, false)?;
         let lost = u64::try_from(value_in.saturating_sub(value_out)).map_err(|_| GuardError::Math)?;
         let day = now.div_euclid(SECONDS_PER_DAY);
         if grant.loss_day != day {
@@ -1107,11 +1157,6 @@ fn settle(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Program
             return Err(GuardError::LossBudgetSpent.into());
         }
         grant.write(&mut grant_info.try_borrow_mut_data()?);
-    }
-    if leftover > 0 {
-        let decimals = checked_mint(mint_in, token_in.key)?;
-        let ix = transfer_checked(token_in.key, hopper.key, mint_in.key, owner_in.key, agent.key, leftover, decimals);
-        invoke(&ix, &[hopper.clone(), mint_in.clone(), owner_in.clone(), agent.clone(), token_in.clone()])?;
     }
 
     policy.pending = Pending::default();
@@ -1177,6 +1222,8 @@ mod tests {
         assert_eq!(parse_price(&ok, &feed, 1030).unwrap().price, 150_00000000);
         assert!(parse_price(&ok, &Pubkey::new_unique(), 1030).is_err()); // another feed
         assert!(parse_price(&ok, &feed, 1061).is_err()); // stale
+        assert!(parse_price(&ok, &feed, 970).is_ok()); // 30 s ahead of the clock
+        assert!(parse_price(&ok, &feed, 969).is_err()); // L02: further ahead
         assert!(parse_price(&price_data(&feed, 150_00000000, 5000000, -8, 1000, 0), &feed, 1030).is_err()); // partial
         assert!(parse_price(&price_data(&feed, 100, 3, -8, 1000, 1), &feed, 1030).is_err()); // conf 3% wide
         assert!(parse_price(&price_data(&feed, -1, 0, -8, 1000, 1), &feed, 1030).is_err());
@@ -1192,9 +1239,34 @@ mod tests {
         // and back: 150 USDC is 1 SOL.
         assert_eq!(oracle_floor(150_000_000, 6, 9, &usdc, &sol, 0).unwrap(), 1_000_000_000);
         assert!(oracle_floor(u64::MAX, 0, 30, &sol, &usdc, 0).is_err());
+        // M03: 1 unit at 19 for an output at 10, both 0 decimals, less 1%, is 1.881: at least 2, never 0.
+        let p = |price| Price { price, conf: 0, expo: 0, publish_time: 0 };
+        assert_eq!(oracle_floor(1, 0, 0, &p(19), &p(10), 100).unwrap(), 2);
+        assert_eq!(oracle_floor(1, 0, 0, &p(1), &p(10), 0).unwrap(), 1);
+        assert_eq!(oracle_floor(10, 0, 0, &p(1), &p(10), 0).unwrap(), 1);
+        assert_eq!(oracle_floor(1, 0, 0, &p(1), &p(10), 5_000).unwrap(), 1);
+        // and the floor is the least whole output not below the exact value, on a sweep.
+        for amount in [1u64, 2, 3, 7, 399, 400, 401, 12_345, 1_000_000] {
+            for (pi, po) in [(19i64, 10i64), (3, 7), (150_00000000, 1_00000000), (1, 1_000_000)] {
+                for (di, dout) in [(0u8, 0u8), (0, 6), (6, 0), (9, 6), (6, 9)] {
+                    for slip in [0u16, 1, 50, 100, 4_999] {
+                        let f = oracle_floor(amount, di, dout, &p(pi), &p(po), slip).unwrap();
+                        // f ≥ exact ⇔ f × po × 10^di × 10,000 ≥ amount × pi × 10^dout × (10,000 − slip),
+                        // and f − 1 < exact.
+                        let lhs = |f: u128| f * po as u128 * 10u128.pow(di as u32) * 10_000;
+                        let rhs = amount as u128 * pi as u128 * 10u128.pow(dout as u32) * (10_000 - slip as u128);
+                        assert!(lhs(f) >= rhs, "{amount} {pi} {po} {di} {dout} {slip}: {f}");
+                        assert!(f == 0 || lhs(f - 1) < rhs, "{amount} {pi} {po} {di} {dout} {slip}: {f}");
+                    }
+                }
+            }
+        }
         // 2 SOL at $150 = $300 = 300,000,000 micro-USD; 150 USDC = $150.
-        assert_eq!(usd_micro(2_000_000_000, 9, &sol).unwrap(), 300_000_000);
-        assert_eq!(usd_micro(150_000_000, 6, &usdc).unwrap(), 150_000_000);
+        assert_eq!(usd_micro(2_000_000_000, 9, &sol, false).unwrap(), 300_000_000);
+        assert_eq!(usd_micro(150_000_000, 6, &usdc, false).unwrap(), 150_000_000);
+        // 1 base unit of a 9-decimal token at $150 is 0.15 micro-USD: 1 when paid, 0 when received.
+        assert_eq!(usd_micro(1, 9, &sol, true).unwrap(), 1);
+        assert_eq!(usd_micro(1, 9, &sol, false).unwrap(), 0);
     }
 
     #[test]

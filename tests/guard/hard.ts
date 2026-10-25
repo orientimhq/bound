@@ -312,11 +312,11 @@ for (const [i, [kIn, kOut]] of ([['spl6', 'hook'], ['hook', 'spl6'], ['spl6', 'd
 }
 {
   const big = 10n ** 18n;
-  const m = await market('spl9', 'spl9', { perSwap: big, perDay: 4n * big, budget: 4n * big, ownerHas: 4n * big, poolHas: 10n ** 19n });
+  const m = await market('spl9', 'spl9', { perSwap: big + feeOf(big), perDay: 4n * big, budget: 4n * big, ownerHas: 4n * big, poolHas: 10n ** 19n });
   const s = await honestSwap(m, big);
   check('H2-06', 'a billion whole tokens in one swap (10^18 base units)', s.ok, s.detail);
   const r = await m.swap(big + 1n);
-  check('H2-07', 'one base unit above the per-swap limit: refused before sending', !r.ok && r.stage === 'rules', describe(r));
+  check('H2-07', 'one base unit above the per-swap limit (the fee included): refused before sending', !r.ok && r.stage === 'rules', describe(r));
 }
 {
   const m = await market('spl6', 'spl9', { budget: 150n * 1_000_000n });
@@ -331,7 +331,7 @@ for (const [i, [kIn, kOut]] of ([['spl6', 'hook'], ['hook', 'spl6'], ['spl6', 'd
 
 {
   const unit = 1_000_000n;
-  const m = await market('spl6', 'spl9', { perSwap: 100n * unit, perDay: 150n * unit });
+  const m = await market('spl6', 'spl9', { perSwap: 101n * unit, perDay: 150n * unit });
   const before = await balance(m.ownerIn);
   const rs = await Promise.all([m.swap(100n * unit), m.swap(99n * unit)]); // two different transactions
   const paid = before - (await balance(m.ownerIn));
@@ -341,7 +341,7 @@ for (const [i, [kIn, kOut]] of ([['spl6', 'hook'], ['hook', 'spl6'], ['spl6', 'd
 }
 {
   const unit = 1_000_000n;
-  const m = await market('spl6', 'spl9', { perSwap: 100n * unit, perDay: 10n ** 15n, budget: 150n * unit, agents: 4 });
+  const m = await market('spl6', 'spl9', { perSwap: 101n * unit, perDay: 10n ** 15n, budget: 150n * unit, agents: 4 });
   const before = await balance(m.ownerIn);
   const rs = await Promise.all(m.agents.map(a => m.clientOf(a).swap({ mintIn: m.mintIn, mintOut: m.mintOut, amount: 100n * unit })));
   const paid = before - (await balance(m.ownerIn));

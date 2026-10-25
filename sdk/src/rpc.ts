@@ -8,7 +8,6 @@ const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export function rpcChain(url: string, o: { commitment?: 'confirmed' | 'finalized'; pollMs?: number } = {}): Chain {
   const rpc = createSolanaRpc(url);
   const commitment = o.commitment ?? 'confirmed';
-  let validUntil = 0n;
   return {
     async getAccounts(addresses: Address[]): Promise<AccountData[]> {
       const out: AccountData[] = [];
@@ -20,7 +19,6 @@ export function rpcChain(url: string, o: { commitment?: 'confirmed' | 'finalized
     },
     async latestBlockhash() {
       const { value } = await rpc.getLatestBlockhash({ commitment }).send();
-      validUntil = value.lastValidBlockHeight;
       return value;
     },
     async now() {
@@ -30,13 +28,19 @@ export function rpcChain(url: string, o: { commitment?: 'confirmed' | 'finalized
     },
     async send(tx: Transaction) {
       const signature = getSignatureFromTransaction(tx);
+      // This transaction's own lifetime: until its blockhash expires it may still land.
+      const lifetime = 'lifetimeConstraint' in tx ? (tx.lifetimeConstraint as { lastValidBlockHeight?: bigint }) : {};
+      const validUntil = lifetime.lastValidBlockHeight ?? 0n;
       try {
         await rpc.sendTransaction(getBase64EncodedWireTransaction(tx), { encoding: 'base64', preflightCommitment: commitment }).send();
       } catch (e) {
-        // Refused in the node's own simulation (preflight): it never reached the chain.
+        // Refused in the node's own simulation (preflight, with its logs): it never reached the chain.
+        // Any other error (a timeout, a dropped connection) says nothing: the node may have taken it, so
+        // the signature is watched until the blockhash expires, and a retry never makes a second swap.
         const err = e as Error & { context?: { logs?: string[] } };
         const logs = err.context?.logs ?? [];
-        return { ok: false, error: [...logs].reverse().find(l => /failed|error/i.test(l)) ?? err.message };
+        if (logs.length) return { ok: false, error: [...logs].reverse().find(l => /failed|error/i.test(l)) ?? err.message };
+        if (!validUntil) return { ok: false, error: `unknown whether the transaction reached the chain: ${err.message}` };
       }
       for (;;) {
         const { value } = await rpc.getSignatureStatuses([signature]).send();
@@ -46,6 +50,19 @@ export function rpcChain(url: string, o: { commitment?: 'confirmed' | 'finalized
         if (validUntil && (await rpc.getBlockHeight({ commitment }).send()) > validUntil) return { ok: false, error: 'the transaction expired before it landed' };
         await pause(o.pollMs ?? 800);
       }
+    },
+    async received(signature: string, account: Address) {
+      const tx = await rpc
+        .getTransaction(signature as Parameters<typeof rpc.getTransaction>[0], { commitment, encoding: 'json', maxSupportedTransactionVersion: 0 })
+        .send()
+        .catch(() => null);
+      if (!tx?.meta) return null;
+      const keys = [...tx.transaction.message.accountKeys, ...(tx.meta.loadedAddresses?.writable ?? []), ...(tx.meta.loadedAddresses?.readonly ?? [])];
+      const at = keys.indexOf(account);
+      if (at < 0) return null;
+      const of = (list: readonly { accountIndex: number; uiTokenAmount: { amount: string } }[] | undefined) =>
+        BigInt(list?.find(b => b.accountIndex === at)?.uiTokenAmount.amount ?? '0');
+      return of(tx.meta.postTokenBalances) - of(tx.meta.preTokenBalances);
     },
   };
 }

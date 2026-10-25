@@ -34,15 +34,15 @@ slippage against Pyth with each mint's feed) and an SPL
 | Rule | What |
 | --- | --- |
 | I1 | `Pull` needs the agent of an active, unexpired grant and a verifier named in the policy; with threshold 2, a second, different verifier of the policy signs too (Orientim and the owner's own); the policy is not paused |
-| I2 | The amount is within the grant's limit per swap and per day (fee included); the mints are allowed; the input and output accounts are the owner's; the hopper is the agent's account for the input mint; the fee goes to the treasury's ATA |
+| I2 | The amount and its fee together are within the grant's limit per swap and per day; the mints are allowed; the input and output accounts are the owner's; the hopper is the agent's account for the input mint; the fee goes to the treasury's ATA |
 | I3 | `[ComputeBudget*] Pull (allowed | ATA | ComputeBudget)* Settle`: one pull, settle last and naming the same policy; pull and settle are top-level instructions |
 | I4 | `Settle`: the output account grew by at least `min_out`, measured from the balance `Pull` recorded, inside the transaction |
 | I5 | `Settle`: the hopper ends with the balance it had before `Pull`; the surplus goes back to the owner; less than before is refused |
 | I6 | The fee is 25 bps of the amount, rounded up (at least one base unit, so no swap is free), fixed in the program, to the treasury |
 | I7 | The authority PDA signs only the two `TransferChecked` of `Pull`; its signature never reaches another program |
 | I8 | Nothing moves the owner's tokens elsewhere; only the owner changes the policy and grants |
-| I10 | When the grant sets a slippage, `Settle` reads Pyth's price of both mints (a fully verified `PriceUpdateV2` of the grant's feed, at most 60 s old, confidence within 2%) and refuses unless the output is worth at least the input less that slippage. A pair without a feed is refused, unless the owner allows unpriced pairs. Even a verifier and an agent that agree on a minimum of 1 cannot sell below the price |
-| I11 | When the grant sets a loss budget (micro-USD per day and in all), `Settle` charges each swap's loss by Pyth's prices (what the owner paid, fee included, less what arrived) to the grant; gains are never credited. The swap that would cross a cap is refused, and `Pull` refuses once a cap is spent. This stops an agent that churns many swaps each just inside the slippage (the sawtooth). A loss budget needs prices for both mints |
+| I10 | When the grant sets a slippage, `Settle` reads Pyth's price of both mints (a fully verified `PriceUpdateV2` of the grant's feed, at most 60 s old and at most 30 s ahead of the chain's clock, confidence within 2%) and refuses unless the output is worth at least the input less that slippage, the least whole output not below that value (rounded up, so a tiny swap cannot pass with nothing). A pair without a feed is refused, unless the owner allows unpriced pairs. Even a verifier and an agent that agree on a minimum of 1 cannot sell below the price |
+| I11 | When the grant sets a loss budget (micro-USD per day and in all), `Settle` charges each swap's loss by Pyth's prices to the grant: what actually left the owner's input account (measured after the refund, so a Token-2022 transfer fee on the way in or back counts, fee included), valued rounded up, less what arrived, valued rounded down; gains are never credited. The swap that would cross a cap is refused, and `Pull` refuses once a cap is spent. This stops an agent that churns many swaps each just inside the slippage (the sawtooth). A loss budget needs prices for both mints |
 | I9 | Token-2022 mints may carry only: transfer fee, mint close authority, default account state, a transfer hook with no program, metadata and group extensions. A permanent delegate, non-transferable, pausable and every other extension are refused |
 
 Error codes: `GuardError` in `programs/guard/src/lib.rs`. The numbers are part of the interface.
@@ -65,13 +65,13 @@ untouched.
 | G-T02 | The agent transfers from the owner's account directly |
 | G-T07a–c | The route signs as the authority, burns, or takes another token of the owner |
 | G-T05a–f | No settle; an instruction after settle; two pulls; a program not allowed; pull through CPI; settle alone |
-| G-T03b–g | Limit per swap; input or output mint not allowed; output not the owner's; fee not to the treasury; hopper not the agent's |
+| G-T03b–i | Limit per swap; input or output mint not allowed; output not the owner's; fee not to the treasury; hopper not the agent's; the limit per swap includes the fee (at the limit refused, amount + fee at the limit passes) |
 | G-T08a, G-T08b | Daily limit crossed; the next day |
 | G-T09a–e | Paused; grant revoked; grant expired; SPL `Revoke`; budget spent |
 | G-T11a, G-T11b | The agent changes the policy; the agent raises its own limits |
 | G-T12a–e | Threshold 2: both sign; only Orientim; the same verifier twice; a second key not in the policy; threshold 2 with one verifier named |
 | G-T13a–j | Pyth: within 1%; minimum 1 but 10% below the price; stale; not Pyth's account; feeds swapped; partially verified; wide confidence; no prices passed; unpriced pair refused; unpriced pair allowed |
-| G-T14a–g | Loss budget: one losing swap fits; the second of the day crosses it (sawtooth); the next day; the total cap across days; a gain buys no room; settle without the grant; an unpriced pair refused |
+| G-T14a–i | Loss budget: one losing swap fits; the second of the day crosses it (sawtooth); the next day; the total cap across days; a gain buys no room; settle without the grant; an unpriced pair refused; an input with a 10% transfer fee, where the fee lost on the refund crosses the cap, and where it does not |
 | G-T10a, G-T10b | Token-2022 honest swap; permanent delegate refused |
 
 `node tests/guard/fuzz.ts` sends random transactions through the Guard (1,000 per CI run, seeded by the
@@ -97,7 +97,8 @@ alone and not through the Guard; a route that has gone stale in the copy fails b
 The verifier (`verifier/`, tested by `tests/guard/verifier.ts`) co-signs only a transaction of the
 shape above in which its key is nothing but a verifier of the one `Pull` (never the fee payer, never
 writable, never in another instruction), with a recent blockhash (so a co-signed swap expires within
-about 90 s), within a rate per agent (30 a minute by default), and after the whole swap succeeds in a
-simulation against the chain. It adds no rule the program does not already enforce; it refuses early,
+about 90 s), already signed by the agent (so no one else can spend the agent's rate or make it simulate),
+within a rate per agent (30 a minute by default) and a bound on simulations at once, and after the whole
+swap succeeds in a simulation against the chain. It adds no rule the program does not already enforce; it refuses early,
 with a reason, and keeps its signature from authorising anything but a `Pull`. CI requires its tests
 to catch a verifier that lets its key be used outside `Pull` (M6).

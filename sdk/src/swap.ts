@@ -83,7 +83,9 @@ export type GuardedSwap = { instructions: Instruction[]; tables: Record<Address,
 
 /**
  * The guarded swap's instructions: the compute budget, Pull for `amount` with the route's own
- * minimum (or a higher one), Jupiter's instructions, Settle last.
+ * minimum (or a higher one), Jupiter's instructions, Settle last. The compute budget is the agent's
+ * alone: the route's own compute budget instructions are dropped, so a route cannot set a priority
+ * fee above the agent's cap (M05).
  */
 export function guardedSwap(a: {
   accounts: SwapAccounts; amount: bigint; route: JupiterRoute; minOut?: bigint;
@@ -96,7 +98,9 @@ export function guardedSwap(a: {
     computeUnitLimit(a.computeUnits ?? 600_000),
     ...(a.microLamportsPerUnit ? [computeUnitPrice(a.microLamportsPerUnit)] : []),
     pull(a.accounts, a.amount, minOut),
-    ...[...r.setupInstructions, r.swapInstruction, ...(r.cleanupInstruction ? [r.cleanupInstruction] : []), ...r.otherInstructions].map(toInstruction),
+    ...[...r.setupInstructions, r.swapInstruction, ...(r.cleanupInstruction ? [r.cleanupInstruction] : []), ...r.otherInstructions]
+      .map(toInstruction)
+      .filter(i => i.programAddress !== COMPUTE_BUDGET),
     settle(a.accounts),
   ];
   const tables: Record<Address, Address[]> = Object.fromEntries(

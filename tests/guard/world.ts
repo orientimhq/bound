@@ -135,12 +135,14 @@ export type GuardOptions = {
   /** As chain.ts's `setup`: the mints' decimals, and funds for many swaps of any size. */
   decimals?: [number, number];
   large?: boolean;
+  /** A Token-2022 transfer fee on the input mint (with `tokenProgram` Token-2022). */
+  inTransferFeeBps?: number;
   rules?: (g: GuardWorld) => GrantRules;
 };
 
 /** The chain, the Guard deployed, the owner's policy, grant and approval in place. */
 export async function guardSetup(opts: GuardOptions = {}): Promise<GuardWorld> {
-  const w = await setup(opts.tokenProgram, opts.issuer, { decimals: opts.decimals, large: opts.large });
+  const w = await setup(opts.tokenProgram, opts.issuer, { decimals: opts.decimals, large: opts.large, inTransferFeeBps: opts.inTransferFeeBps });
   const guardKey = await generateKeyPairSigner();
   w.svm.addProgramFromFile(guardKey.address, GUARD_SO);
   const clock = w.svm.getClock();
@@ -199,7 +201,8 @@ export const guardBalances = (g: GuardWorld): GuardBalances => ({
  * exactly the fee to the treasury, delivers at least the minimum, leaves the hopper where it was and
  * never touches the owner's other tokens.
  */
-export function guardInvariants(before: GuardBalances, after: GuardBalances, ok: boolean, amount: bigint, minOut: bigint): string[] {
+/** `treasuryGets`: what reaches the treasury of the fee, less a transfer fee of the input mint (default: the fee). */
+export function guardInvariants(before: GuardBalances, after: GuardBalances, ok: boolean, amount: bigint, minOut: bigint, treasuryGets?: bigint): string[] {
   const broken: string[] = [];
   if (after.ownerOther !== before.ownerOther) broken.push('another token of the owner moved');
   if (!ok) {
@@ -211,7 +214,8 @@ export function guardInvariants(before: GuardBalances, after: GuardBalances, ok:
   const fee = feeOf(amount);
   const spent = before.ownerIn - after.ownerIn;
   if (spent > amount + fee) broken.push(`the owner paid ${spent}, above amount + fee ${amount + fee}`);
-  if (after.treasury - before.treasury !== fee) broken.push(`the treasury received ${after.treasury - before.treasury}, not ${fee}`);
+  const toTreasury = treasuryGets ?? fee;
+  if (after.treasury - before.treasury !== toTreasury) broken.push(`the treasury received ${after.treasury - before.treasury}, not ${toTreasury}`);
   if (after.ownerOut - before.ownerOut < minOut) broken.push(`${after.ownerOut - before.ownerOut} arrived, below ${minOut}`);
   if (after.hopper !== before.hopper) broken.push('the hopper did not end where it started');
   return broken;

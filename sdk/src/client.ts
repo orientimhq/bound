@@ -32,6 +32,12 @@ export type Chain = {
   now: () => Promise<bigint>;
   /** Sends the signed transaction and waits until it is confirmed or has failed. */
   send: (tx: Transaction) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * How much `account`'s balance changed in the confirmed transaction `signature`, from the
+   * transaction's own token balances: what `swap()` reports as arrived. Without it, `swap()` reads
+   * the balance before and after, which also counts anything else that arrived in between (L01).
+   */
+  received?: (signature: string, account: Address) => Promise<bigint | null>;
 };
 
 export type RouteRequest = { inputMint: Address; outputMint: Address; amount: bigint; taker: Address; destination: Address; slippageBps: number; maxAccounts: number };
@@ -88,8 +94,8 @@ export function wouldRefuse(
   if (s.amount <= 0n) return 'nothing to swap';
   const limit = grant.limits.find(l => l.mint === s.mintIn);
   if (!limit) return 'the owner does not allow this input mint';
-  if (s.amount > limit.perSwap) return `above the owner's limit per swap (${limit.perSwap})`;
   const total = s.amount + feeOf(s.amount);
+  if (total > limit.perSwap) return `above the owner's limit per swap (${limit.perSwap}, the fee included)`;
   const day = now >= 0n ? now / DAY : -((-now + DAY - 1n) / DAY);
   const used = (limit.day === day ? limit.usedToday : 0n) + total;
   if (used > limit.perDay) return `above the owner's daily limit (${limit.perDay}, ${limit.day === day ? limit.usedToday : 0n} used today, the fee included)`;
@@ -206,16 +212,18 @@ export function createGuardClient(c: GuardClient) {
     }
     if (!tx) return { ok: false, stage: 'route', reason: `no route fits in one transaction: ${why}` };
 
-    const cosigned = await cosign(tx);
-    if (typeof cosigned === 'string') return { ok: false, stage: 'verifier', reason: cosigned };
-    const signed = await partiallySignTransaction([c.agent.keyPair], cosigned);
+    // The agent signs first: a verifier co-signs only what the agent asked for (M04).
+    const signed = await cosign(await partiallySignTransaction([c.agent.keyPair], tx));
+    if (typeof signed === 'string') return { ok: false, stage: 'verifier', reason: signed };
     const sent = await c.chain.send(signed);
     if (!sent.ok) return { ok: false, stage: 'chain', reason: sent.error ?? 'the transaction failed' };
-    const [after] = await c.chain.getAccounts([accounts.ownerOut]);
-    return {
-      ok: true, signature: getSignatureFromTransaction(signed), amount: s.amount, fee: feeOf(s.amount), minOut,
-      arrived: (after ? decodeTokenAccount(after.data).amount : before) - before,
-    };
+    const signature = getSignatureFromTransaction(signed);
+    let arrived = c.chain.received ? await c.chain.received(signature, accounts.ownerOut) : null;
+    if (arrived === null) {
+      const [after] = await c.chain.getAccounts([accounts.ownerOut]);
+      arrived = (after ? decodeTokenAccount(after.data).amount : before) - before;
+    }
+    return { ok: true, signature, amount: s.amount, fee: feeOf(s.amount), minOut, arrived };
   }
 
   return { swap, rules };

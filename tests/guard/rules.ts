@@ -64,20 +64,24 @@ const checked = (v: bigint) => {
   return v;
 };
 type Price = { price: bigint; conf: bigint; expo: number; time: bigint };
-/** What `amount` base units are worth in micro-USD: amount × price × 10^(expo + 6 − decimals), rounded down. */
-const usd = (amount: bigint, decimals: number, p: Price) => {
+const ceil = (a: bigint, b: bigint) => (a + b - 1n) / b;
+/** What `amount` base units are worth in micro-USD: amount × price × 10^(expo + 6 − decimals); a loss
+ * counts what the owner paid rounded up and what arrived rounded down. */
+const usd = (amount: bigint, decimals: number, p: Price, up: boolean) => {
   const k = p.expo + 6 - decimals;
   const v = checked(amount * p.price);
-  return k >= 0 ? checked(v * 10n ** BigInt(k)) : v / 10n ** BigInt(-k);
+  if (k >= 0) return checked(v * 10n ** BigInt(k));
+  return up ? ceil(v, 10n ** BigInt(-k)) : v / 10n ** BigInt(-k);
 };
-/** The least output the input is worth by the two prices, less the slippage, rounded down. */
+/** The least whole output not below what the input is worth by the two prices, less the slippage:
+ * the exact fraction, rounded up once. */
 const floorOf = (amount: bigint, dIn: number, dOut: number, pIn: Price, pOut: Price, bps: number) => {
   const k = pIn.expo - pOut.expo + dOut - dIn;
   const num = checked(amount * pIn.price);
-  const expected = k >= 0 ? checked(num * 10n ** BigInt(k)) / pOut.price : num / checked(pOut.price * 10n ** BigInt(-k));
-  return checked(expected * BigInt(10_000 - bps)) / 10_000n;
+  const [n, d] = k >= 0 ? [checked(num * 10n ** BigInt(k)), pOut.price] : [num, checked(pOut.price * 10n ** BigInt(-k))];
+  return ceil(n * BigInt(10_000 - bps), d * 10_000n);
 };
-const priceUsable = (p: Price, now: bigint) => now - p.time <= 60n && p.conf * 50n <= p.price;
+const priceUsable = (p: Price, now: bigint) => now - p.time <= 60n && p.time - now <= 30n && p.conf * 50n <= p.price;
 
 type Model = {
   paused: boolean; threshold: number; status: number; expiresAt: bigint;
@@ -103,7 +107,7 @@ function judge(m: Model, s: Swap, now: bigint, dIn: number, dOut: number): { ok:
   if (m.status !== STATUS.active || (m.expiresAt !== 0n && now >= m.expiresAt)) return no('grant not active');
   const fee = feeOf(s.amount);
   const total = s.amount + fee;
-  if (s.amount > m.perSwap) return no('above the limit per swap');
+  if (total > m.perSwap) return no('above the limit per swap (the fee included)');
   const usedToday = m.usedDay === day ? m.used : 0n;
   if (usedToday + total > m.perDay) return no('above the daily limit');
   const tracks = m.lossPerDay > 0n || m.lossTotal > 0n;
@@ -122,7 +126,7 @@ function judge(m: Model, s: Swap, now: bigint, dIn: number, dOut: number): { ok:
     if (pricesUsed && m.slippage > 0 && arrived < floorOf(s.amount, dIn, dOut, s.pIn, s.pOut, m.slippage)) return no('below the oracle floor');
     if (tracks) {
       const paid = s.take + fee;
-      const lost = usd(paid, dIn, s.pIn) - usd(arrived, dOut, s.pOut);
+      const lost = usd(paid, dIn, s.pIn, true) - usd(arrived, dOut, s.pOut, false);
       if (lost > 0n) {
         lossTodayNext += lost;
         lossAllNext += lost;
@@ -146,7 +150,7 @@ function judge(m: Model, s: Swap, now: bigint, dIn: number, dOut: number): { ok:
 const counts = { allowed: 0, refused: 0, ownerActions: 0, days: 0, sdkRefused: 0 };
 /** The model's reasons the SDK's swap() can see before sending (the rest depend on the route or the prices at Settle). */
 const VISIBLE = new Set([
-  'paused', 'grant not active', 'above the limit per swap', 'above the daily limit', 'approval spent', 'unpriced', 'loss budget spent',
+  'paused', 'grant not active', 'above the limit per swap (the fee included)', 'above the daily limit', 'approval spent', 'unpriced', 'loss budget spent',
   'no verifier of the policy signed', 'threshold 2 without a second, different verifier',
 ]);
 const reasons = new Map<string, number>();
@@ -272,9 +276,9 @@ for (let i = 0; i < RUNS; i++) {
   // Now and then exactly at an edge: the amount whose total with the fee just fits, or just does not
   // fit, what is left of today's limit or of the approval (where forgetting the fee would show).
   const day = now / DAY;
-  const edges = [r.m.perDay - (r.m.usedDay === day ? r.m.used : 0n), r.m.delegated]
+  const edges = [r.m.perDay - (r.m.usedDay === day ? r.m.used : 0n), r.m.delegated, r.m.perSwap]
     .map(left => (left * 10_000n) / 10_025n + BigInt(int(-2, 3)))
-    .filter(a => a > 0n && a <= r.m.perSwap);
+    .filter(a => a > 0n && a <= r.m.perSwap + 3n);
   const amount = chance(0.2) && edges.length ? pick(edges)
     : chance(0.5) ? between(1n, r.m.perSwap > 1n ? r.m.perSwap : 2n) : between(1n, 10n ** BigInt(int(1, 13)));
   let fair = 1n;

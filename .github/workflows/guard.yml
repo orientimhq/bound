@@ -78,7 +78,7 @@ jobs:
       # check of Settle (I4), M2 the check that the output account is the owner's (I2). rules.ts: M3
       # drops the daily limit (I2), M4 the daily loss cap (I11), M5 the oracle's floor (I10).
       # verifier.ts: M6 lets the verifier's key be used outside Pull. rules.ts: M7 makes swap() forget the fee
-      # when it reads the daily limit and the approval.
+      # when it reads the daily limit and the approval; M8 leaves the fee out of the limit per swap (I2).
       - name: Broken copies the fuzzers must catch
         run: |
           mutant() {
@@ -105,6 +105,7 @@ jobs:
           mutant m3 rules 'if used > limit.max_per_day {' 'if false && used > limit.max_per_day {'
           mutant m4 rules 'grant.loss_today > grant.max_loss_per_day) ||' 'grant.loss_today > u64::MAX) ||'
           mutant m5 rules 'if (arrived as u128) < floor {' 'if false && (arrived as u128) < floor {'
+          mutant m8 rules 'if total > limit.max_per_swap {' 'if amount > limit.max_per_swap {'
 
           # M6: the verifier signs a transaction that uses its key outside Pull. verifier.ts must fail.
           cp verifier/src/cosign.ts "$RUNNER_TEMP/cosign.ts"

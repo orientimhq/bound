@@ -207,6 +207,35 @@ await refusedBefore('S09', 'a verifier the owner never named', client({ verifier
     `${txs.length} transactions of ${sizes.join(', ')} bytes; ${outcomes.every(o => o.ok) ? 'all confirmed' : outcomes.find(o => !o.ok)?.error}; policy and grant ${made ? 'made' : 'missing'}`);
 }
 
+// S14 (M02): someone sends SOL to a new owner's policy and grant addresses before the owner's set-up (both
+// addresses are public). The set-up still makes them: the program tops the accounts up and takes them over.
+{
+  const owner4 = await generateKeyPairSigner();
+  const agent4 = await generateKeyPairSigner();
+  g.svm.airdrop(owner4.address, lamports(SOL));
+  const policy4 = await policyOf(g.guard, owner4.address);
+  const grant4 = await grantOf(g.guard, owner4.address, agent4.address);
+  g.svm.airdrop(policy4, lamports(1_000_000n));
+  g.svm.airdrop(grant4, lamports(5_000_000_000n));
+  const ownerIn4 = await ataOf(owner4.address, g.mintIn, g.tokenProgram);
+  const ixs = [
+    createAtaIdempotent(owner4.address, ownerIn4, owner4.address, g.mintIn, g.tokenProgram),
+    ...await ownerSetup({
+      program: g.guard, owner: owner4.address, agent: agent4.address, verifiers: [g.verifier.address], programs: [g.attackerProgram],
+      rules: { limits: [{ mint: g.mintIn, perSwap: 200_000_000n, perDay: 500_000_000n }], outputs: [g.mintOut] },
+      budgets: [{ mint: g.mintIn, amount: 300_000_000n, tokenProgram: g.tokenProgram }],
+      outputTokenPrograms: { [g.mintOut]: g.tokenProgram },
+    }),
+  ];
+  const outcomes = [];
+  for (const tx of ownerSetupTransactions(ixs, owner4.address, lifetimeOf(g.svm))) outcomes.push(send(g.svm, await signTransaction([owner4.keyPair], tx)));
+  const policy = accountOf(g.svm, policy4);
+  const grant = accountOf(g.svm, grant4);
+  const taken = policy?.owner === g.guard && grant?.owner === g.guard && !!policy.data.length && !!grant.data.length;
+  check('S14', 'SOL sent to the policy and grant addresses first does not block the owner\'s set-up', outcomes.every(o => o.ok) && taken,
+    `${outcomes.every(o => o.ok) ? 'all confirmed' : outcomes.find(o => !o.ok)?.error}; policy and grant ${taken ? 'owned by the Guard' : 'not made'}`);
+}
+
 console.log(results.join('\n'));
 console.log(failed ? `${failed} of ${results.length} swap() cases failed` : `all ${results.length} swap() cases passed`);
 process.exit(failed ? 1 : 0);

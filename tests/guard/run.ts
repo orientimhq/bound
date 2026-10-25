@@ -53,6 +53,8 @@ type Case = {
   because?: number | string;
   /** For a success: what the owner's input must lose exactly (default: amount + fee). */
   ownerPays?: bigint;
+  /** What reaches the treasury, where the input mint takes a transfer fee (default: the fee). */
+  treasuryGets?: bigint;
 };
 
 const swap = (g: GuardWorld, routeIx: Instruction, amount = AMOUNT, minOut = MIN): Plan => ({
@@ -73,14 +75,14 @@ const twoOfTwo = async (g: GuardWorld) => {
  */
 type Priced = {
   input?: PriceOptions; output?: PriceOptions; noOutputFeed?: boolean; allowUnpriced?: boolean; swapFeeds?: boolean;
-  maxLossPerDay?: bigint; maxLossTotal?: bigint;
+  maxLossPerDay?: bigint; maxLossTotal?: bigint; slippageBps?: number;
 };
 const priced = (o: Priced = {}) => async (g: GuardWorld) => {
   const [feedIn, feedOut] = await Promise.all([generateKeyPairSigner(), generateKeyPairSigner()]).then(k => k.map(x => x.address));
   const feeds = [{ mint: g.mintIn, feed: feedIn }, ...(o.noOutputFeed ? [] : [{ mint: g.mintOut, feed: feedOut }])];
   const r = send(g.svm, await sign(g.svm, [ix.setGrant(g, g.W.address, g.grant, g.agent.address, {
     limits: [{ mint: g.mintIn, perSwap: 200n * 1_000_000n, perDay: 500n * 1_000_000n }], outputs: [g.mintOut],
-    maxSlippageBps: 100, allowUnpriced: o.allowUnpriced, feeds, maxLossPerDay: o.maxLossPerDay, maxLossTotal: o.maxLossTotal,
+    maxSlippageBps: o.slippageBps ?? 100, allowUnpriced: o.allowUnpriced, feeds, maxLossPerDay: o.maxLossPerDay, maxLossTotal: o.maxLossTotal,
   })], g.W));
   if (!r.ok) throw new Error(r.error);
   const prices = [await setPrice(g, feedIn, 1_00000000n, o.input), await setPrice(g, feedOut, 10_00000000n, o.output)];
@@ -257,6 +259,16 @@ const CASES: Case[] = [
   {
     id: 'G-T03b', name: 'above the owner\'s limit per swap',
     plan: g => swap(g, honest(g, 201_000_000n, MIN), 201_000_000n), expect: 'fails', because: ERR.OverSwapLimit,
+  },
+  {
+    id: 'G-T03h', name: 'the limit per swap includes the fee: an amount equal to the limit is refused (M01)',
+    opts: { rules: g => ({ limits: [{ mint: g.mintIn, perSwap: AMOUNT, perDay: AMOUNT * 4n }], outputs: [g.mintOut] }) },
+    plan: g => swap(g, honest(g, AMOUNT, MIN)), expect: 'fails', because: ERR.OverSwapLimit,
+  },
+  {
+    id: 'G-T03i', name: 'the limit per swap includes the fee: amount + fee exactly at the limit passes',
+    opts: { rules: g => ({ limits: [{ mint: g.mintIn, perSwap: AMOUNT + feeOf(AMOUNT), perDay: AMOUNT * 4n }], outputs: [g.mintOut] }) },
+    plan: g => swap(g, honest(g, AMOUNT, MIN)), expect: 'succeeds',
   },
   {
     id: 'G-T08a', name: 'daily limit: the second swap of the day crosses it',
@@ -472,6 +484,23 @@ const CASES: Case[] = [
     },
     plan: sawtooth, expect: 'fails', because: ERR.LossBudgetSpent,
   },
+  // H01: an input with a 10% Token-2022 transfer fee. Pull moves 100 IN (90 reach the hopper) and the fee
+  // (0.25, 0.225 reach the treasury); the route takes 10; 80 go back and 72 arrive. The owner paid
+  // 100.25 − 72 = 28.25 IN ($28.25), not the 20.25 the amounts alone say. With $5 a day and no slippage
+  // check: 2 OUT ($20) loses $8.25 and is refused; 2.4 OUT ($24) loses $4.25 and passes.
+  {
+    id: 'G-T14h', name: 'loss budget with a transfer-fee input: the fee lost on the refund counts (H01)',
+    opts: { tokenProgram: TOKEN_2022_PROGRAM, inTransferFeeBps: 1_000 },
+    before: priced({ maxLossPerDay: 5_000_000n, slippageBps: 0 }),
+    plan: g => swap(g, honest(g, 10_000_000n, 2_000_000_000n), AMOUNT, 1n), expect: 'fails', because: ERR.LossBudgetSpent,
+  },
+  {
+    id: 'G-T14i', name: 'loss budget with a transfer-fee input: a loss under the cap passes, the owner paying the real debit',
+    opts: { tokenProgram: TOKEN_2022_PROGRAM, inTransferFeeBps: 1_000 },
+    before: priced({ maxLossPerDay: 5_000_000n, slippageBps: 0 }),
+    plan: g => swap(g, honest(g, 10_000_000n, 2_400_000_000n), AMOUNT, 1n), expect: 'succeeds',
+    ownerPays: 28_250_000n, treasuryGets: 225_000n,
+  },
   {
     id: 'G-T14e', name: 'loss budget: a gain does not buy room for losses',
     before: async g => {
@@ -530,7 +559,7 @@ for (const c of CASES) {
   const before = guardBalances(g);
   const result = send(g.svm, await sign(g.svm, plan.ixs, g.agent, plan.signers ?? [g.verifier]), { viaLookupTable: plan.viaLookupTable });
   const after = guardBalances(g);
-  const broken = guardInvariants(before, after, result.ok, amount, minOut);
+  const broken = guardInvariants(before, after, result.ok, amount, minOut, c.treasuryGets);
   if (result.ok && c.expect === 'succeeds') {
     const paid = before.ownerIn - after.ownerIn;
     const want = c.ownerPays ?? amount + feeOf(amount);

@@ -103,12 +103,12 @@ await send([
 
 // ---------------------------------------------------------------- the owner's one set-up transaction
 
-const PER_SWAP = 100n * UNIT_IN;
+const PER_SWAP = 100n * UNIT_IN; // the swap; the owner's limit per swap is this and its fee
 const PER_DAY = 250n * UNIT_IN;
 await fresh();
 const setupTxs = ownerSetupTransactions(await ownerSetup({
   program: GUARD, owner: owner.address, agent: agent.address, verifiers: [verifier.address], programs: [SWAP],
-  rules: { limits: [{ mint: mintIn, perSwap: PER_SWAP, perDay: PER_DAY }], outputs: [mintOut] },
+  rules: { limits: [{ mint: mintIn, perSwap: PER_SWAP + (PER_SWAP * 25n + 9_999n) / 10_000n, perDay: PER_DAY }], outputs: [mintOut] },
   budgets: [{ mint: mintIn, amount: 1_000n * UNIT_IN }], agentLamports: 20_000_000n,
 }), owner.address, lifetime);
 // One wallet approval signs them all (signAllTransactions); they are sent in order.

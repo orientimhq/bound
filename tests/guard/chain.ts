@@ -215,6 +215,16 @@ export const initializePermanentDelegate = (mint: Address, delegate: Address): I
 });
 /** A mint with one 32-byte extension: padded to an account's size, a type byte, then the entry. */
 export const MINT_WITH_DELEGATE_SIZE = 165 + 1 + 4 + 32;
+/** A mint with a transfer fee (TransferFeeConfig, 108 bytes). */
+export const MINT_WITH_TRANSFER_FEE_SIZE = 165 + 1 + 4 + 108;
+/** InitializeTransferFeeConfig (Token-2022 26/0), before the mint is initialized: `bps`, no maximum to speak of. */
+export const initializeTransferFee = (mint: Address, authority: Address, bps: number): Instruction => ({
+  programAddress: TOKEN_2022_PROGRAM,
+  accounts: [{ address: mint, role: AccountRole.WRITABLE }],
+  data: Uint8Array.from([26, 0, 1, ...encoder.encode(authority), 1, ...encoder.encode(authority), bps & 0xff, bps >> 8, ...u64(10n ** 18n)]),
+});
+/** What Token-2022 withholds of a transfer of `amount` at `bps`: rounded up. */
+export const transferFeeOf = (amount: bigint, bps: number) => (amount * BigInt(bps) + 9_999n) / 10_000n;
 
 /** A fresh chain with the wallet, the attacker's pool and three tokens. */
 /**
@@ -222,7 +232,7 @@ export const MINT_WITH_DELEGATE_SIZE = 165 + 1 + 4 + 32;
  * attacker's pools for many swaps of any size, as the fuzzer runs one world for many cases.
  */
 export async function setup(
-  tokenProgram: Address = TOKEN_PROGRAM, issuer?: IssuerDelegate, opts: { decimals?: [number, number]; large?: boolean } = {},
+  tokenProgram: Address = TOKEN_PROGRAM, issuer?: IssuerDelegate, opts: { decimals?: [number, number]; large?: boolean; inTransferFeeBps?: number } = {},
 ): Promise<World> {
   const [inDecimals, outDecimals] = opts.decimals ?? [IN_DECIMALS, OUT_DECIMALS];
   const big = opts.large ?? false;
@@ -258,17 +268,20 @@ export async function setup(
     ], payer, [multisig]), 'creating the issuer multisig');
   }
   const delegate = issuer === 'key' ? attackerWallet.address : issuer === 'program' ? vaultAuthority : multisig?.address ?? null;
-  const mints: [KeyPairSigner, number, boolean][] = [
-    [mintInKey, inDecimals, !!delegate], [mintOutKey, outDecimals, !!delegate], [mintOtherKey, 6, false],
+  // The input mint may take a Token-2022 transfer fee on every transfer.
+  const feeBps = opts.inTransferFeeBps ?? 0;
+  const mints: [KeyPairSigner, number, boolean, number][] = [
+    [mintInKey, inDecimals, !!delegate, feeBps], [mintOutKey, outDecimals, !!delegate, 0], [mintOtherKey, 6, false, 0],
   ];
-  sendOrThrow(svm, await sign(svm, mints.flatMap(([mint, decimals, withDelegate]) => {
-    const space = withDelegate ? MINT_WITH_DELEGATE_SIZE : MINT_SIZE;
+  sendOrThrow(svm, await sign(svm, mints.flatMap(([mint, decimals, withDelegate, bps]) => {
+    const space = withDelegate ? MINT_WITH_DELEGATE_SIZE : bps ? MINT_WITH_TRANSFER_FEE_SIZE : MINT_SIZE;
     return [
       getCreateAccountInstruction({
         payer, newAccount: mint, lamports: lamports(svm.minimumBalanceForRentExemption(BigInt(space))),
         space: BigInt(space), programAddress: tokenProgram,
       }),
       ...(withDelegate ? [initializePermanentDelegate(mint.address, delegate!)] : []),
+      ...(bps ? [initializeTransferFee(mint.address, payer.address, bps)] : []),
       getInitializeMint2Instruction(
         { mint: mint.address, decimals, mintAuthority: payer.address, freezeAuthority: null },
         { programAddress: tokenProgram },
