@@ -1,0 +1,76 @@
+name: Guard on a local chain
+
+# Orientim Guard end to end on a real Solana validator (solana-test-validator) on the runner:
+# tests/guard/devnet.ts over its RPC, with real deploys, blockhashes and confirmations. The public devnet
+# faucets refuse GitHub's machines; a local validator has the same runtime and SOL without limit.
+on:
+  push:
+    branches: [guard-poc]
+    paths:
+      - 'tests/guard/devnet.ts'
+      - 'sdk/src/**'
+      - 'verifier/src/**'
+      - 'programs/guard/src/**'
+      - '.github/workflows/guard-local-chain.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 23 September 2026
+      - name: Install the Solana toolchain
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - id: solana
+        run: echo "version=$(solana --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache the SBF platform tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/solana
+          key: platform-tools-${{ runner.os }}-${{ steps.solana.outputs.version }}
+      - name: Build the Guard and the test swap program
+        run: |
+          (cd programs/guard && cargo build-sbf -- --locked)
+          (cd tests/guard/attacker && cargo build-sbf)
+          ls -l programs/guard/target/deploy/*.so tests/guard/attacker/target/deploy/*.so
+
+      - name: Start the validator
+        run: |
+          solana-test-validator --reset --quiet --ledger "$RUNNER_TEMP/ledger" > "$RUNNER_TEMP/validator.log" 2>&1 &
+          for i in $(seq 1 60); do solana cluster-version -u http://127.0.0.1:8899 > /dev/null 2>&1 && break; sleep 1; done
+          solana cluster-version -u http://127.0.0.1:8899
+          echo "RPC_URL=http://127.0.0.1:8899" >> "$GITHUB_ENV"
+          solana-keygen new --no-bip39-passphrase --silent -o "$RUNNER_TEMP/payer.json"
+          echo "PAYER_KEYPAIR=$RUNNER_TEMP/payer.json" >> "$GITHUB_ENV"
+          solana airdrop 100 -u http://127.0.0.1:8899 -k "$RUNNER_TEMP/payer.json"
+
+      - name: Deploy both programs
+        run: |
+          solana program deploy -u "$RPC_URL" -k "$PAYER_KEYPAIR" programs/guard/target/deploy/orientim_guard.so \
+            --program-id programs/guard/target/deploy/orientim_guard-keypair.json
+          solana program deploy -u "$RPC_URL" -k "$PAYER_KEYPAIR" tests/guard/attacker/target/deploy/orientim_attacker.so \
+            --program-id tests/guard/attacker/target/deploy/orientim_attacker-keypair.json
+          echo "GUARD_PROGRAM=$(solana-keygen pubkey programs/guard/target/deploy/orientim_guard-keypair.json)" >> "$GITHUB_ENV"
+          echo "SWAP_PROGRAM=$(solana-keygen pubkey tests/guard/attacker/target/deploy/orientim_attacker-keypair.json)" >> "$GITHUB_ENV"
+
+      - name: End to end
+        run: CHAIN_NAME="a local validator" node tests/guard/devnet.ts
+
+      - name: The report
+        if: always()
+        run: |
+          cat tests/guard/results/devnet.md >> "$GITHUB_STEP_SUMMARY" || true
+          tail -n 40 "$RUNNER_TEMP/validator.log" || true

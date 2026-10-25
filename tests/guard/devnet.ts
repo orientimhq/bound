@@ -1,6 +1,7 @@
 /**
- * Orientim Guard end to end on Solana's devnet: the program and a test swap program deployed by hand
- * (with a funded devnet key; no workflow runs this), test tokens, the owner's one set-up transaction from the
+ * Orientim Guard end to end on a real chain (a local solana-test-validator in CI, by
+ * .github/workflows/guard-local-chain.yml, or devnet by hand with a funded key): the program and a test
+ * swap program deployed, test tokens, the owner's one set-up transaction from the
  * SDK, Orientim's verifier serving over HTTP and simulating against devnet, and the agent's swaps
  * through `swap()` and an RPC node, with real confirmations and blockhashes. Then the refusals, each
  * both ways: `swap()` refuses before sending, and the chain refuses the same swap sent anyway.
@@ -42,7 +43,8 @@ const GUARD = need('GUARD_PROGRAM');
 const SWAP = need('SWAP_PROGRAM');
 const rpc = createSolanaRpc(RPC_URL);
 const chain = rpcChain(RPC_URL);
-const explorer = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
+const NET = process.env.CHAIN_NAME ?? 'devnet';
+const explorer = (sig: string) => (NET === 'devnet' ? `https://explorer.solana.com/tx/${sig}?cluster=devnet` : sig);
 
 const payer = await createKeyPairSignerFromBytes(Uint8Array.from(JSON.parse(readFileSync(need('PAYER_KEYPAIR'), 'utf8'))));
 const [owner, agent, verifier, pool, mintInKey, mintOutKey] = await Promise.all(Array.from({ length: 6 }, () => generateKeyPairSigner()));
@@ -166,7 +168,7 @@ const chainRefuses = async (amount: bigint, code: string) => {
   const before = await balance(ownerIn);
   const r = await swap(PER_SWAP);
   const after = await balance(ownerIn);
-  check('D02', 'swap() on devnet: route, Pull/Settle, the verifier over HTTP, the agent\'s signature, confirmed', r.ok && r.arrived === rate(PER_SWAP) && before - after === PER_SWAP + r.fee,
+  check('D02', `swap() on ${NET}: route, Pull/Settle, the verifier over HTTP, the agent's signature, confirmed`, r.ok && r.arrived === rate(PER_SWAP) && before - after === PER_SWAP + r.fee,
     `${describe(r)}; the owner paid ${before - after}`);
 }
 {
@@ -199,7 +201,7 @@ const chainRefuses = async (amount: bigint, code: string) => {
 server.close();
 
 const summary = [
-  '# Orientim Guard on devnet',
+  `# Orientim Guard on ${NET}`,
   '',
   `The Guard \`${GUARD}\`, the test swap program \`${SWAP}\`, the owner \`${owner.address}\`, the agent \`${agent.address}\`.`,
   '',
@@ -207,7 +209,7 @@ const summary = [
   '| --- | --- | --- | --- |',
   ...lines,
   '',
-  failed ? `**${failed} of ${lines.length} cases failed.**` : `All ${lines.length} cases passed on devnet.`,
+  failed ? `**${failed} of ${lines.length} cases failed.**` : `All ${lines.length} cases passed on ${NET}.`,
   '',
 ].join('\n');
 mkdirSync('tests/guard/results', { recursive: true });
