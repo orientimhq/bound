@@ -197,7 +197,7 @@ const CASES: Case[] = [
   },
   {
     id: 'G-T05f', name: 'settle alone, with no pull before it',
-    plan: g => ({ ixs: [ix.settle(g)] }), expect: 'fails', because: ERR.NoSwapInProgress,
+    plan: g => ({ ixs: [ix.settle(g)], signers: [] }), expect: 'fails', because: ERR.NoSwapInProgress,
   },
 
   // ---- GRD-03 / GRD-08: limits
