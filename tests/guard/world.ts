@@ -174,12 +174,12 @@ export async function guardSetup(opts: GuardOptions = {}): Promise<GuardWorld> {
     limits: [{ mint: w.mintIn, perSwap: 200n * 1_000_000n, perDay: 500n * 1_000_000n }],
     outputs: [w.mintOut],
   };
-  // Two transactions, as on the network: the policy and the grant together pass 1232 bytes.
+  // Three transactions, as on the network: together they pass 1232 bytes.
   sendOrThrow(w.svm, await sign(w.svm, [ix.initPolicy(g, owner, [verifier.address], [w.attackerProgram])], w.W), 'the owner\'s policy');
+  sendOrThrow(w.svm, await sign(w.svm, [ix.setGrant(g, owner, g.grant, agent.address, rules)], w.W), 'the agent\'s grant');
   sendOrThrow(w.svm, await sign(w.svm, [
-    ix.setGrant(g, owner, g.grant, agent.address, rules),
     { programAddress: w.tokenProgram, accounts: [wr(w.wIn), r(g.authority), sr(owner)], data: approve(opts.budget ?? 1000n * 1_000_000n) },
-  ], w.W), 'the owner\'s set-up');
+  ], w.W), 'the owner\'s approval');
   return g;
 }
 
