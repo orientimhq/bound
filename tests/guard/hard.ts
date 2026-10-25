@@ -28,7 +28,7 @@ import {
 } from '../../sdk/src/index.ts';
 import type { GuardClient, JupiterRoute, RouteRequest, SwapResult } from '../../sdk/src/index.ts';
 import { createCosigner } from '../../verifier/src/cosign.ts';
-import { handler, rpcSimulator } from '../../verifier/src/server.ts';
+import { handler } from '../../verifier/src/server.ts';
 import { attackerData, transferChecked, TOKEN_2022_PROGRAM, u64 } from './chain.ts';
 import type { Inner } from './chain.ts';
 
@@ -84,7 +84,6 @@ const verifier = await generateKeyPairSigner();
 const cosign = createCosigner({
   program: GUARD, key: verifier.keyPair, address: verifier.address, perMinute: 100_000,
   loadTables: tables => fetchAddressesForLookupTables(tables, rpc, { commitment: 'confirmed' }),
-  simulate: rpcSimulator(rpc),
 });
 const server = createServer(handler(cosign));
 await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));

@@ -3,30 +3,22 @@
  *
  *   POST /v1/cosign  {"transaction": "<base64 wire transaction>"}
  *     200 {"transaction": "<base64, co-signed>"}   the agent adds its own signature and sends it
- *     4xx {"error": "<why>", "logs"?: [...]}
+ *     4xx {"error": "<why>"}
  *   GET  /health
  *
- * Environment: VERIFIER_KEY (the key pair's 64 bytes, base64), RPC_URL, GUARD_PROGRAM, PORT (8080),
+ * Environment: VERIFIER_KEY (the key pair's 64 bytes, base64), RPC_URL (only to read the lookup tables a
+ * transaction names; nothing is simulated), GUARD_PROGRAM, PORT (8080),
  * VERIFIER_PER_MINUTE (30). The key never leaves the process; nothing is logged but the outcome.
  */
 import { address, createKeyPairFromBytes, createSolanaRpc, fetchAddressesForLookupTables, getAddressFromPublicKey } from '@solana/kit';
-import type { Transaction } from '@solana/kit';
 import { createServer } from 'node:http';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createCosigner, encodeTransaction } from './cosign.ts';
-import type { Simulation } from './cosign.ts';
 
 const need = (name: string) => {
   const v = process.env[name];
   if (!v) throw new Error(`${name} is not set`);
   return v;
-};
-
-/** Simulation through an RPC node, without checking signatures (the agent has not signed yet). */
-export const rpcSimulator = (rpc: ReturnType<typeof createSolanaRpc>) => async (tx: Transaction): Promise<Simulation> => {
-  const wire = Buffer.from(encodeTransaction(tx)).toString('base64') as Parameters<typeof rpc.simulateTransaction>[0];
-  const { value } = await rpc.simulateTransaction(wire, { encoding: 'base64', sigVerify: false, replaceRecentBlockhash: false, commitment: 'confirmed' }).send();
-  return { ok: value.err === null, error: value.err ? JSON.stringify(value.err, (_, v) => (typeof v === 'bigint' ? String(v) : v)) : undefined, logs: value.logs ?? [] };
 };
 
 const MAX_BODY = 8 * 1024;
@@ -64,7 +56,7 @@ export function handler(cosign: ReturnType<typeof createCosigner>) {
     try {
       const v = await cosign(wire);
       console.log(JSON.stringify({ at: new Date().toISOString(), ok: v.ok, ...(v.ok ? { agent: v.agent } : { reason: v.reason }) }));
-      if (!v.ok) return reply(res, v.status, { error: v.reason, ...(v.logs ? { logs: v.logs } : {}) });
+      if (!v.ok) return reply(res, v.status, { error: v.reason });
       return reply(res, 200, { transaction: Buffer.from(encodeTransaction(v.transaction)).toString('base64') });
     } catch (e) {
       console.error('cosign failed', e instanceof Error ? e.message : e);
@@ -81,7 +73,6 @@ if (import.meta.main) {
     key,
     address: await getAddressFromPublicKey(key.publicKey),
     loadTables: tables => fetchAddressesForLookupTables(tables, rpc, { commitment: 'confirmed' }),
-    simulate: rpcSimulator(rpc),
     perMinute: Number(process.env.VERIFIER_PER_MINUTE ?? 30),
   });
   const port = Number(process.env.PORT ?? 8080);

@@ -75,6 +75,8 @@ if (!r.ok) console.log(r.stage, r.reason); // 'rules' | 'route' | 'verifier' | '
 ```
 
 The route's own compute budget instructions are dropped: the priority fee is the agent's alone.
+`rpcChain(url, { skipPreflight: true })` sends without the RPC node's own simulation: faster, and a
+swap that would fail then costs the agent its network fee.
 `fromJupiter` turns Jupiter's `/swap/v2/build` answer into a `GuardRoute`, and is the default route.
 
 ## 3. A transaction you build yourself
@@ -101,7 +103,8 @@ POST /v1/cosign   {"transaction": "<base64 wire transaction, signed by the agent
 ```
 
 It co-signs only `[ComputeBudget*] Pull, the route, Settle`, where its key is nothing but Pull's
-verifier, the agent pays and has already signed, the blockhash is recent, and the whole swap
-succeeds in a simulation. 401: the agent has not signed; 422: the swap fails on chain (the logs
-say why); 429: too many swaps from this agent in a minute; 503: busy. The verifier adds no rule
+verifier, the agent pays and has already signed, and the blockhash is recent. It answers at once: it
+does not simulate the swap (the program checks everything that protects the owner when the swap
+lands). 400: not the Guard's shape; 401: the agent has not signed; 429: too many swaps from this
+agent in a minute; 503: the verifier could not check it now. The verifier adds no rule
 of its own: the Guard program enforces the owner's rules on chain whatever the verifier does.

@@ -1,8 +1,10 @@
 /**
  * The verifier's decision: whether to co-sign an agent's guarded swap. The Guard program enforces the
- * owner's rules on chain whatever the verifier does; the verifier adds what a program cannot see
- * before the transaction lands (a simulation of the whole swap, a rate per agent) and refuses early,
- * with a reason, anything the program would refuse.
+ * owner's rules on chain whatever the verifier does; the verifier only checks, at once and without
+ * asking an RPC node, that the transaction has the Guard's shape, and keeps a rate per agent. It does
+ * not simulate the swap: a simulation protects nothing the program does not, adds a round trip to an
+ * RPC node (latency, in which a fast-moving price can turn a good swap into a refused one, and one more
+ * service to be down) and is work a stranger could make it do.
  *
  * It signs only a transaction of the Guard's shape (rule I3), in which its key appears nowhere but as
  * a verifier of the one Pull, never as the fee payer and never writable, so its signature cannot
@@ -10,8 +12,7 @@
  * within about a minute and a half.
  *
  * It only looks at a transaction the agent has already signed (M04): without the agent's key no one can
- * spend the agent's rate or make it simulate, and at most `maxConcurrent` simulations run at once, each
- * for at most `simulateMs`.
+ * spend the agent's rate.
  */
 import {
   AccountRole, decompileTransactionMessage, getCompiledTransactionMessageDecoder, getPublicKeyFromAddress, getTransactionDecoder,
@@ -26,8 +27,6 @@ const SETTLE = 4;
 /** Pull's verifier accounts: the first (always) and the second (a policy with threshold 2). */
 const VERIFIER_SLOTS = [1, 14];
 
-export type Simulation = { ok: boolean; error?: string; logs?: string[] };
-
 export type CosignConfig = {
   /** The Guard program. */
   program: Address;
@@ -37,29 +36,20 @@ export type CosignConfig = {
   address: Address;
   /** The addresses each lookup table the transaction names holds. */
   loadTables: (tables: Address[]) => Promise<AddressesByLookupTableAddress>;
-  /** Runs the transaction (without checking signatures) against the chain as it is now. */
-  simulate: (tx: Transaction) => Promise<Simulation>;
   /** Co-signed swaps one agent may have per minute (30 by default). */
   perMinute?: number;
-  /** Simulations at once, over all agents (16 by default); more are refused with 503. */
-  maxConcurrent?: number;
-  /** How long a simulation may take, in milliseconds (10,000 by default). */
-  simulateMs?: number;
   now?: () => number;
 };
 
 export type Verdict =
   | { ok: true; transaction: Transaction; agent: Address }
-  | { ok: false; status: number; reason: string; logs?: string[] };
+  | { ok: false; status: number; reason: string };
 
-const refuse = (reason: string, status = 400, logs?: string[]): Verdict => ({ ok: false, status, reason, logs });
+const refuse = (reason: string, status = 400): Verdict => ({ ok: false, status, reason });
 
 export function createCosigner(c: CosignConfig) {
   const perMinute = c.perMinute ?? 30;
-  const maxConcurrent = c.maxConcurrent ?? 16;
-  const simulateMs = c.simulateMs ?? 10_000;
   const now = c.now ?? Date.now;
-  let running = 0;
   const recent = new Map<Address, number[]>();
 
   /** Whether `agent` may have another co-signed swap now; counts it if so. */
@@ -129,20 +119,7 @@ export function createCosigner(c: CosignConfig) {
       signedByAgent = false;
     }
     if (!signedByAgent) return refuse('the agent named in Pull must sign the transaction first', 401);
-    if (running >= maxConcurrent) return refuse('the verifier is busy; try again', 503);
     if (!withinRate(agent)) return refuse('too many swaps from this agent in the last minute', 429);
-
-    running++;
-    let simulation: Simulation;
-    try {
-      simulation = await Promise.race([
-        c.simulate(tx),
-        new Promise<Simulation>(resolve => setTimeout(() => resolve({ ok: false, error: 'the simulation timed out' }), simulateMs).unref?.()),
-      ]);
-    } finally {
-      running--;
-    }
-    if (!simulation.ok) return refuse(`the swap fails on chain: ${simulation.error ?? 'unknown error'}`, 422, simulation.logs);
 
     try {
       return { ok: true, transaction: await partiallySignTransaction([c.key], tx), agent };

@@ -60,15 +60,6 @@ const routeOf = (w: GuardWorld, amount: bigint, out: bigint, extra = 0): Jupiter
 
 const verifier = createCosigner({
   program: g.guard, key: g.verifier.keyPair, address: g.verifier.address, loadTables: async () => ({}), perMinute: 1_000,
-  simulate: async tx => {
-    g.svm.withSigverify(false);
-    try {
-      const r = g.svm.simulateTransaction(tx) as { err?: () => unknown };
-      return typeof r.err === 'function' ? { ok: false, error: String(r.err()) } : { ok: true };
-    } finally {
-      g.svm.withSigverify(true);
-    }
-  },
 });
 const honestVerifier = async (tx: Transaction) => {
   const v = await verifier(new Uint8Array(getTransactionEncoder().encode(tx)));

@@ -97,8 +97,9 @@ alone and not through the Guard; a route that has gone stale in the copy fails b
 The verifier (`verifier/`, tested by `tests/guard/verifier.ts`) co-signs only a transaction of the
 shape above in which its key is nothing but a verifier of the one `Pull` (never the fee payer, never
 writable, never in another instruction), with a recent blockhash (so a co-signed swap expires within
-about 90 s), already signed by the agent (so no one else can spend the agent's rate or make it simulate),
-within a rate per agent (30 a minute by default) and a bound on simulations at once, and after the whole
-swap succeeds in a simulation against the chain. It adds no rule the program does not already enforce; it refuses early,
+about 90 s), already signed by the agent (so no one else can spend the agent's rate), within a rate per
+agent (30 a minute by default). It does not simulate the swap: a simulation would protect nothing the
+program does not, and would add an RPC round trip in which a fast-moving price can turn a good swap into
+a refused one. It adds no rule the program does not already enforce; it refuses early,
 with a reason, and keeps its signature from authorising anything but a `Pull`. CI requires its tests
 to catch a verifier that lets its key be used outside `Pull` (M6).

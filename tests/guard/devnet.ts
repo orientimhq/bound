@@ -2,7 +2,7 @@
  * Orientim Guard end to end on a real chain (a local solana-test-validator in CI, by
  * .github/workflows/guard-local-chain.yml, or devnet by hand with a funded key): the program and a test
  * swap program deployed, test tokens, the owner's one set-up transaction from the
- * SDK, Orientim's verifier serving over HTTP and simulating against devnet, and the agent's swaps
+ * SDK, Orientim's verifier serving over HTTP, and the agent's swaps
  * through `swap()` and an RPC node, with real confirmations and blockhashes. Then the refusals, each
  * both ways: `swap()` refuses before sending, and the chain refuses the same swap sent anyway.
  *
@@ -30,7 +30,7 @@ import {
 } from '../../sdk/src/index.ts';
 import type { JupiterRoute, RouteRequest, SwapResult } from '../../sdk/src/index.ts';
 import { createCosigner } from '../../verifier/src/cosign.ts';
-import { handler, rpcSimulator } from '../../verifier/src/server.ts';
+import { handler } from '../../verifier/src/server.ts';
 import { attackerData, deliver, takeFrom } from './chain.ts';
 
 const need = (name: string) => {
@@ -121,7 +121,6 @@ check('D01', 'the owner\'s set-up (ownerSetup), signed at once: policy, grant, a
 const cosign = createCosigner({
   program: GUARD, key: verifier.keyPair, address: verifier.address,
   loadTables: tables => fetchAddressesForLookupTables(tables, rpc, { commitment: 'confirmed' }),
-  simulate: rpcSimulator(rpc),
 });
 const server = createServer(handler(cosign));
 await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));

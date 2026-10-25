@@ -5,7 +5,12 @@ import type { AccountData, Chain } from './client.ts';
 
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export function rpcChain(url: string, o: { commitment?: 'confirmed' | 'finalized'; pollMs?: number } = {}): Chain {
+/**
+ * `skipPreflight`: send without the node's own simulation first. Faster, for bots where every
+ * hundred milliseconds count; a swap that would fail then fails on chain and the agent pays its
+ * network fee. Off by default. The owner's rules hold either way: the program enforces them.
+ */
+export function rpcChain(url: string, o: { commitment?: 'confirmed' | 'finalized'; pollMs?: number; skipPreflight?: boolean } = {}): Chain {
   const rpc = createSolanaRpc(url);
   const commitment = o.commitment ?? 'confirmed';
   return {
@@ -32,7 +37,7 @@ export function rpcChain(url: string, o: { commitment?: 'confirmed' | 'finalized
       const lifetime = 'lifetimeConstraint' in tx ? (tx.lifetimeConstraint as { lastValidBlockHeight?: bigint }) : {};
       const validUntil = lifetime.lastValidBlockHeight ?? 0n;
       try {
-        await rpc.sendTransaction(getBase64EncodedWireTransaction(tx), { encoding: 'base64', preflightCommitment: commitment }).send();
+        await rpc.sendTransaction(getBase64EncodedWireTransaction(tx), { encoding: 'base64', preflightCommitment: commitment, skipPreflight: o.skipPreflight ?? false }).send();
       } catch (e) {
         // Refused in the node's own simulation (preflight, with its logs): it never reached the chain.
         // Any other error (a timeout, a dropped connection) says nothing: the node may have taken it, so

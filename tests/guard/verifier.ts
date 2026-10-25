@@ -15,7 +15,6 @@ import { createCosigner } from '../../verifier/src/cosign.ts';
 import { handler } from '../../verifier/src/server.ts';
 import { deliver, lifetimeOf, requireProgram, send, takeFrom } from './chain.ts';
 import { guardBalances, guardInvariants, guardSetup, honest, ix, pullAccounts, requireGuard, route } from './world.ts';
-import type { GuardWorld } from './world.ts';
 
 requireProgram();
 requireGuard();
@@ -26,20 +25,10 @@ const MIN_OUT = 10_000_000_000n;
 const g = await guardSetup();
 const stranger = await generateKeyPairSigner();
 
-const simulate = (w: GuardWorld) => async (tx: Transaction) => {
-  w.svm.withSigverify(false);
-  try {
-    const r = w.svm.simulateTransaction(tx) as { err?: () => unknown; meta?: () => { logs: () => string[] } };
-    if (typeof r.err !== 'function') return { ok: true };
-    return { ok: false, error: String(r.err()), logs: r.meta?.().logs() ?? [] };
-  } finally {
-    w.svm.withSigverify(true);
-  }
-};
 let clock = 0;
 const cosigner = (perMinute = 1_000) => createCosigner({
   program: g.guard, key: g.verifier.keyPair, address: g.verifier.address,
-  loadTables: async () => ({}), simulate: simulate(g), perMinute, now: () => clock,
+  loadTables: async () => ({}), perMinute, now: () => clock,
 });
 const cosign = cosigner();
 
@@ -79,7 +68,16 @@ const refused = async (id: string, what: string, tx: Uint8Array | Promise<Uint8A
 }
 
 g.svm.expireBlockhash();
-await refused('V02', 'the route delivers less than the minimum: the simulation fails', wire(byAgent(swap(honest(g, AMOUNT, MIN_OUT - 1n)))), /fails on chain/, 422);
+// V02: the verifier does not simulate. A swap that delivers less than the minimum has the right shape,
+// so it is co-signed; the chain refuses it and nothing moves.
+{
+  const v = await cosign(await wire(byAgent(swap(honest(g, AMOUNT, MIN_OUT - 1n)))));
+  const before = guardBalances(g);
+  const r = v.ok ? send(g.svm, v.transaction) : null;
+  const broken = r ? guardInvariants(before, guardBalances(g), r.ok, AMOUNT, MIN_OUT) : [];
+  check('V02', 'below the minimum: co-signed without a simulation, refused by the chain, nothing moves', v.ok && !!r && !r.ok && !broken.length,
+    v.ok ? (r?.ok ? 'the chain took it' : `the chain refused: ${r?.error}${broken.length ? `; ${broken.join('; ')}` : ''}`) : `${v.status} ${v.reason}`);
+}
 await refused('V03', 'pull without settle', wire(byAgent([ix.pull(g, AMOUNT, MIN_OUT), honest(g, AMOUNT, MIN_OUT)])), /Settle/);
 await refused('V04', 'something after settle', wire(byAgent([...swap(), route(g, [takeFrom(1n)])])), /Settle/);
 await refused('V05', 'something before pull', wire(byAgent([route(g, [deliver(1n)]), ...swap()])), /Pull/);
@@ -106,7 +104,7 @@ await refused('V12', 'larger than 1232 bytes', new Uint8Array(1300), /1232/);
 }
 
 // V17 and V18 (M04): a transaction the agent has not signed is refused before the rate, so a stranger
-// who knows the agent's address can neither spend its rate nor make the verifier simulate.
+// who knows the agent's address cannot spend its rate.
 {
   const limited = cosigner(1);
   const notSigned = await wire(unsigned(swap()));
