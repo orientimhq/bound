@@ -16,11 +16,13 @@ Guard::Pull    the agent and a verifier (Orientim) sign; the authority PDA moves
                treasury's account; the output account's balance is recorded
 [the swap]     only programs the owner allowed (and the ATA program, ComputeBudget)
 Guard::Settle  the last instruction: at least `min_out` arrived in the owner's output account during
-               this transaction; anything left in the hopper goes back to the owner
+               this transaction (and, if the owner set a slippage, at least Pyth's price less it);
+               anything left in the hopper goes back to the owner
 ```
 
 The owner sets up once: `InitPolicy` (verifiers and how many must sign, 1 or 2; allowed swap programs), `SetGrant` (the agent, its
-input mints with limits per swap and per day, its output mints, status and expiry) and an SPL
+input mints with limits per swap and per day, its output mints, status and expiry, and optionally a
+slippage against Pyth with each mint's feed) and an SPL
 `Approve` of the authority PDA `["auth", owner]` over each input account, for a budget.
 
 ## Rules the program enforces
@@ -35,6 +37,7 @@ input mints with limits per swap and per day, its output mints, status and expir
 | I6 | The fee is 25 bps of the amount, fixed in the program, to the treasury |
 | I7 | The authority PDA signs only the two `TransferChecked` of `Pull`; its signature never reaches another program |
 | I8 | Nothing moves the owner's tokens elsewhere; only the owner changes the policy and grants |
+| I10 | When the grant sets a slippage, `Settle` reads Pyth's price of both mints (a fully verified `PriceUpdateV2` of the grant's feed, at most 60 s old, confidence within 2%) and refuses unless the output is worth at least the input less that slippage. A pair without a feed is refused, unless the owner allows unpriced pairs. Even a verifier and an agent that agree on a minimum of 1 cannot sell below the price |
 | I9 | Token-2022 mints may carry only: transfer fee, mint close authority, default account state, a transfer hook with no program, metadata and group extensions. A permanent delegate, non-transferable, pausable and every other extension are refused |
 
 Error codes: `GuardError` in `programs/guard/src/lib.rs`. The numbers are part of the interface.
@@ -62,6 +65,7 @@ untouched.
 | G-T09a–e | Paused; grant revoked; grant expired; SPL `Revoke`; budget spent |
 | G-T11a, G-T11b | The agent changes the policy; the agent raises its own limits |
 | G-T12a–e | Threshold 2: both sign; only Orientim; the same verifier twice; a second key not in the policy; threshold 2 with one verifier named |
+| G-T13a–j | Pyth: within 1%; minimum 1 but 10% below the price; stale; not Pyth's account; feeds swapped; partially verified; wide confidence; no prices passed; unpriced pair refused; unpriced pair allowed |
 | G-T10a, G-T10b | Token-2022 honest swap; permanent delegate refused |
 
 `node tests/guard/fuzz.ts` sends random transactions through the Guard (1,000 per CI run, seeded by the

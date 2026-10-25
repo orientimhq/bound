@@ -62,6 +62,17 @@ pub const MAX_VERIFIERS: usize = 2;
 pub const MAX_PROGRAMS: usize = 4;
 pub const MAX_LIMITS: usize = 4;
 pub const MAX_OUTPUTS: usize = 4;
+pub const MAX_FEEDS: usize = 8;
+
+/// Pyth's Solana receiver program, owner of every `PriceUpdateV2` account.
+pub const PYTH_RECEIVER: Pubkey = pubkey!("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ");
+const PRICE_UPDATE_DISCRIMINATOR: [u8; 8] = [34, 241, 35, 99, 157, 126, 244, 205];
+/// A price older than this (seconds) is refused.
+pub const MAX_PRICE_AGE: i64 = 60;
+/// A price whose confidence interval is wider than 1/this of the price (2%) is refused.
+const MAX_CONF_DIVISOR: u128 = 50;
+/// The owner may allow at most this much below the oracle's price (50%).
+const MAX_SLIPPAGE_BPS: u16 = 5_000;
 
 const SECONDS_PER_DAY: i64 = 86_400;
 
@@ -97,6 +108,11 @@ pub enum GuardError {
     BadAmount = 22,
     Math = 23,
     SecondVerifierMissing = 24,
+    BadOracle = 25,
+    StalePrice = 26,
+    PriceUncertain = 27,
+    BelowOracle = 28,
+    Unpriced = 29,
 }
 
 impl From<GuardError> for ProgramError {
@@ -133,6 +149,12 @@ impl<'a> Reader<'a> {
     fn i64(&mut self) -> Result<i64, ProgramError> {
         Ok(i64::from_le_bytes(self.take(8)?.try_into().unwrap()))
     }
+    fn u16(&mut self) -> Result<u16, ProgramError> {
+        Ok(u16::from_le_bytes(self.take(2)?.try_into().unwrap()))
+    }
+    fn i32(&mut self) -> Result<i32, ProgramError> {
+        Ok(i32::from_le_bytes(self.take(4)?.try_into().unwrap()))
+    }
     fn key(&mut self) -> Result<Pubkey, ProgramError> {
         Ok(Pubkey::new_from_array(self.take(32)?.try_into().unwrap()))
     }
@@ -160,6 +182,9 @@ impl<'a> Writer<'a> {
     fn i64(&mut self, v: i64) {
         self.put(&v.to_le_bytes());
     }
+    fn u16(&mut self, v: u16) {
+        self.put(&v.to_le_bytes());
+    }
     fn key(&mut self, k: &Pubkey) {
         self.put(k.as_ref());
     }
@@ -181,9 +206,16 @@ pub struct Pending {
     pub min_out: u64,
     pub mint_in: Pubkey,
     pub token_program_in: Pubkey,
+    /// The oracle check for `Settle`: 0 when the grant sets none (or allows this pair unpriced).
+    pub slippage_bps: u16,
+    pub amount: u64,
+    pub decimals_in: u8,
+    pub decimals_out: u8,
+    pub feed_in: Pubkey,
+    pub feed_out: Pubkey,
 }
 
-const PENDING_SIZE: usize = 1 + 32 * 6 + 8 * 3;
+const PENDING_SIZE: usize = 1 + 32 * 6 + 8 * 3 + 2 + 8 + 2 + 32 * 2;
 
 /// The owner's rules. PDA `["policy", owner]`.
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
@@ -226,6 +258,12 @@ impl Policy {
             min_out: r.u64()?,
             mint_in: r.key()?,
             token_program_in: r.key()?,
+            slippage_bps: r.u16()?,
+            amount: r.u64()?,
+            decimals_in: r.u8()?,
+            decimals_out: r.u8()?,
+            feed_in: r.key()?,
+            feed_out: r.key()?,
         };
         Ok(p)
     }
@@ -255,6 +293,12 @@ impl Policy {
         w.u64(q.min_out);
         w.key(&q.mint_in);
         w.key(&q.token_program_in);
+        w.u16(q.slippage_bps);
+        w.u64(q.amount);
+        w.u8(q.decimals_in);
+        w.u8(q.decimals_out);
+        w.key(&q.feed_in);
+        w.key(&q.feed_out);
     }
 }
 
@@ -282,10 +326,23 @@ pub struct Grant {
     pub agent: Pubkey,
     pub limits: [Limit; MAX_LIMITS],
     pub outputs: [Pubkey; MAX_OUTPUTS],
+    /// The least the output may be worth, by Pyth's prices, below the input's worth (bps); 0: no check.
+    pub max_slippage_bps: u16,
+    /// With a slippage set: whether a pair without a feed may still swap (unchecked) or is refused.
+    pub allow_unpriced: bool,
+    /// The Pyth feed of each priced mint.
+    pub feeds: [Feed; MAX_FEEDS],
+}
+
+/// A mint and its Pyth price feed id (the feed's 32 bytes, held as a `Pubkey`).
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct Feed {
+    pub mint: Pubkey,
+    pub feed: Pubkey,
 }
 
 const GRANT_TAG: u8 = 2;
-pub const GRANT_SIZE: usize = 1 + 2 + 8 + 32 * 2 + (32 + 8 * 4) * MAX_LIMITS + 32 * MAX_OUTPUTS;
+pub const GRANT_SIZE: usize = 1 + 2 + 8 + 32 * 2 + (32 + 8 * 4) * MAX_LIMITS + 32 * MAX_OUTPUTS + 2 + 1 + 64 * MAX_FEEDS;
 
 impl Grant {
     fn read(data: &[u8]) -> Result<Self, ProgramError> {
@@ -299,6 +356,11 @@ impl Grant {
         }
         for o in g.outputs.iter_mut() {
             *o = r.key()?;
+        }
+        g.max_slippage_bps = r.u16()?;
+        g.allow_unpriced = r.u8()? != 0;
+        for f in g.feeds.iter_mut() {
+            *f = Feed { mint: r.key()?, feed: r.key()? };
         }
         Ok(g)
     }
@@ -321,7 +383,76 @@ impl Grant {
         for o in &self.outputs {
             w.key(o);
         }
+        w.u16(self.max_slippage_bps);
+        w.u8(self.allow_unpriced as u8);
+        for f in &self.feeds {
+            w.key(&f.mint);
+            w.key(&f.feed);
+        }
     }
+}
+
+// ---------------------------------------------------------------- Pyth prices
+
+/// The fields of a Pyth `PriceUpdateV2` this program reads.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Price {
+    pub price: i64,
+    pub conf: u64,
+    pub expo: i32,
+    pub publish_time: i64,
+}
+
+/// A fully verified, fresh and tight price of `feed`, from an account Pyth's receiver owns.
+fn read_price(info: &AccountInfo, feed: &Pubkey, now: i64) -> Result<Price, ProgramError> {
+    if *info.owner != PYTH_RECEIVER {
+        return Err(fail(GuardError::BadOracle, "price account not owned by Pyth's receiver"));
+    }
+    let data = info.try_borrow_data()?;
+    parse_price(&data, feed, now)
+}
+
+fn parse_price(data: &[u8], feed: &Pubkey, now: i64) -> Result<Price, ProgramError> {
+    let bad = || fail(GuardError::BadOracle, "not a verified price update of this feed");
+    if data.get(..8) != Some(&PRICE_UPDATE_DISCRIMINATOR[..]) {
+        return Err(bad());
+    }
+    // discriminator, write authority, then the verification level: 1 = Full (one byte); Partial is refused.
+    let mut r = Reader { data, at: 8 + 32 };
+    if r.u8().map_err(|_| bad())? != 1 {
+        return Err(bad());
+    }
+    if r.key().map_err(|_| bad())? != *feed {
+        return Err(bad());
+    }
+    let p = Price { price: r.i64()?, conf: r.u64()?, expo: r.i32()?, publish_time: r.i64()? };
+    if p.price <= 0 {
+        return Err(bad());
+    }
+    if now.saturating_sub(p.publish_time) > MAX_PRICE_AGE {
+        return Err(fail(GuardError::StalePrice, "the price is older than a minute"));
+    }
+    if (p.conf as u128) * MAX_CONF_DIVISOR > p.price as u128 {
+        return Err(fail(GuardError::PriceUncertain, "the price's confidence interval is too wide"));
+    }
+    Ok(p)
+}
+
+fn pow10(e: u32) -> Result<u128, ProgramError> {
+    10u128.checked_pow(e).ok_or_else(|| GuardError::Math.into())
+}
+
+/// The least output (in its base units) that `amount` of the input is worth by these prices, less
+/// `slippage_bps`: amount × price_in × 10^(expo_in − expo_out + decimals_out − decimals_in) / price_out.
+fn oracle_floor(amount: u64, decimals_in: u8, decimals_out: u8, p_in: &Price, p_out: &Price, slippage_bps: u16) -> Result<u128, ProgramError> {
+    let k = (p_in.expo as i64) - (p_out.expo as i64) + (decimals_out as i64) - (decimals_in as i64);
+    let num = (amount as u128).checked_mul(p_in.price as u128).ok_or(GuardError::Math)?;
+    let expected = if k >= 0 {
+        num.checked_mul(pow10(k as u32)?).ok_or(GuardError::Math)? / p_out.price as u128
+    } else {
+        num / (p_out.price as u128).checked_mul(pow10((-k) as u32)?).ok_or(GuardError::Math)?
+    };
+    Ok(expected.checked_mul(10_000 - slippage_bps as u128).ok_or(GuardError::Math)? / 10_000)
 }
 
 // ---------------------------------------------------------------- token accounts and mints
@@ -564,7 +695,8 @@ fn update_policy(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> 
 }
 
 /// `SetGrant`: [owner (signer, writable), policy, grant (writable), system program]
-/// data: agent [32], status u8, expires_at i64, 4 × (mint [32], max_per_swap u64, max_per_day u64), outputs [32; 4]
+/// data: agent [32], status u8, expires_at i64, 4 × (mint [32], max_per_swap u64, max_per_day u64), outputs [32; 4],
+/// max_slippage_bps u16, allow_unpriced u8, 8 × (mint [32], Pyth feed id [32])
 fn set_grant(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     let owner = account(accounts, 0)?;
     let policy_info = account(accounts, 1)?;
@@ -587,7 +719,16 @@ fn set_grant(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Prog
         *l = Limit { mint: r.key()?, max_per_swap: r.u64()?, max_per_day: r.u64()?, used_today: 0, day: 0 };
     }
     let outputs = read_keys::<MAX_OUTPUTS>(&mut r)?;
+    let max_slippage_bps = r.u16()?;
+    let allow_unpriced = r.u8()? != 0;
+    let mut feeds = [Feed::default(); MAX_FEEDS];
+    for f in feeds.iter_mut() {
+        *f = Feed { mint: r.key()?, feed: r.key()? };
+    }
     r.done()?;
+    if max_slippage_bps > MAX_SLIPPAGE_BPS {
+        return Err(fail(GuardError::BadGrant, "slippage above 50%"));
+    }
 
     let (expected, bump) = Pubkey::find_program_address(&[GRANT_SEED, owner.key.as_ref(), agent.as_ref()], program_id);
     if expected != *grant_info.key {
@@ -608,7 +749,7 @@ fn set_grant(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Prog
             }
         }
     }
-    let grant = Grant { bump, status, expires_at, owner: *owner.key, agent, limits, outputs };
+    let grant = Grant { bump, status, expires_at, owner: *owner.key, agent, limits, outputs, max_slippage_bps, allow_unpriced, feeds };
     grant.write(&mut grant_info.try_borrow_mut_data()?);
     Ok(())
 }
@@ -727,7 +868,7 @@ fn pull(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramRe
         return Err(fail(GuardError::MintNotAllowed, "input and output mints are the same"));
     }
     let decimals_in = checked_mint(mint_in, token_in.key)?;
-    checked_mint(mint_out, token_out.key)?;
+    let decimals_out = checked_mint(mint_out, token_out.key)?;
 
     let src = token_account(owner_in)?;
     if src.owner != policy.owner || src.mint != *mint_in.key {
@@ -776,6 +917,15 @@ fn pull(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramRe
     }
     limit.used_today = used;
 
+    // I10: the oracle check Settle will make, if the owner set one.
+    let feed_of = |m: &Pubkey| grant.feeds.iter().find(|f| f.mint == *m && f.mint != Pubkey::default()).map(|f| f.feed);
+    let (slippage_bps, feed_in, feed_out) = match (grant.max_slippage_bps, feed_of(mint_in.key), feed_of(mint_out.key)) {
+        (0, _, _) => (0, Pubkey::default(), Pubkey::default()),
+        (bps, Some(a), Some(b)) => (bps, a, b),
+        _ if grant.allow_unpriced => (0, Pubkey::default(), Pubkey::default()),
+        _ => return Err(fail(GuardError::Unpriced, "the owner requires a price for both mints, and one has no feed")),
+    };
+
     // Record, then move: the hopper's balance before, the output's balance before.
     policy.pending = Pending {
         active: true,
@@ -788,6 +938,12 @@ fn pull(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramRe
         min_out,
         mint_in: *mint_in.key,
         token_program_in: *token_in.key,
+        slippage_bps,
+        amount,
+        decimals_in,
+        decimals_out,
+        feed_in,
+        feed_out,
     };
     policy.write(&mut policy_info.try_borrow_mut_data()?);
     grant.write(&mut grant_info.try_borrow_mut_data()?);
@@ -804,7 +960,8 @@ fn pull(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramRe
 
 /// `Settle`:
 /// 0 agent (signer), 1 policy (writable), 2 hopper (writable), 3 owner_in (writable), 4 mint_in,
-/// 5 token program of the input, 6 owner_out
+/// 5 token program of the input, 6 owner_out, and when the grant sets a slippage:
+/// 7 Pyth price update of the input mint, 8 Pyth price update of the output mint
 fn settle(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     if get_stack_height() != TRANSACTION_LEVEL_STACK_HEIGHT {
         return Err(fail(GuardError::MustBeTopLevel, "settle must be a top-level instruction"));
@@ -838,6 +995,18 @@ fn settle(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Program
     if arrived < p.min_out {
         msg!("guard: {} arrived, minimum {}", arrived, p.min_out);
         return Err(GuardError::BelowMinimum.into());
+    }
+
+    // I10: by Pyth's prices, the output is worth at least the input less the owner's slippage.
+    if p.slippage_bps > 0 {
+        let now = Clock::get()?.unix_timestamp;
+        let price_in = read_price(account(accounts, 7)?, &p.feed_in, now)?;
+        let price_out = read_price(account(accounts, 8)?, &p.feed_out, now)?;
+        let floor = oracle_floor(p.amount, p.decimals_in, p.decimals_out, &price_in, &price_out, p.slippage_bps)?;
+        if (arrived as u128) < floor {
+            msg!("guard: {} arrived, the oracle's floor is {}", arrived, floor);
+            return Err(GuardError::BelowOracle.into());
+        }
     }
 
     // I5: the hopper ends where it started; what the route left goes back to the owner.
@@ -880,6 +1049,46 @@ mod tests {
         let mut data = vec![0u8; GRANT_SIZE];
         g.write(&mut data);
         assert_eq!(Grant::read(&data).unwrap(), g);
+    }
+
+    fn price_data(feed: &Pubkey, price: i64, conf: u64, expo: i32, publish_time: i64, level: u8) -> Vec<u8> {
+        let mut d = PRICE_UPDATE_DISCRIMINATOR.to_vec();
+        d.extend_from_slice(&[0u8; 32]);
+        d.push(level);
+        if level == 0 {
+            d.push(5);
+        }
+        d.extend_from_slice(feed.as_ref());
+        d.extend_from_slice(&price.to_le_bytes());
+        d.extend_from_slice(&conf.to_le_bytes());
+        d.extend_from_slice(&expo.to_le_bytes());
+        d.extend_from_slice(&publish_time.to_le_bytes());
+        d.resize(134, 0);
+        d
+    }
+
+    #[test]
+    fn prices() {
+        let feed = Pubkey::new_unique();
+        let ok = price_data(&feed, 150_00000000, 5000000, -8, 1000, 1);
+        assert_eq!(parse_price(&ok, &feed, 1030).unwrap().price, 150_00000000);
+        assert!(parse_price(&ok, &Pubkey::new_unique(), 1030).is_err()); // another feed
+        assert!(parse_price(&ok, &feed, 1061).is_err()); // stale
+        assert!(parse_price(&price_data(&feed, 150_00000000, 5000000, -8, 1000, 0), &feed, 1030).is_err()); // partial
+        assert!(parse_price(&price_data(&feed, 100, 3, -8, 1000, 1), &feed, 1030).is_err()); // conf 3% wide
+        assert!(parse_price(&price_data(&feed, -1, 0, -8, 1000, 1), &feed, 1030).is_err());
+    }
+
+    #[test]
+    fn floors() {
+        let sol = Price { price: 150_00000000, conf: 0, expo: -8, publish_time: 0 };
+        let usdc = Price { price: 1_00000000, conf: 0, expo: -8, publish_time: 0 };
+        // 1 SOL (9 decimals) at $150 is 150 USDC (6 decimals); less 1%.
+        assert_eq!(oracle_floor(1_000_000_000, 9, 6, &sol, &usdc, 0).unwrap(), 150_000_000);
+        assert_eq!(oracle_floor(1_000_000_000, 9, 6, &sol, &usdc, 100).unwrap(), 148_500_000);
+        // and back: 150 USDC is 1 SOL.
+        assert_eq!(oracle_floor(150_000_000, 6, 9, &usdc, &sol, 0).unwrap(), 1_000_000_000);
+        assert!(oracle_floor(u64::MAX, 0, 30, &sol, &usdc, 0).is_err());
     }
 
     #[test]

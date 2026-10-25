@@ -18,9 +18,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { TOKEN_2022_PROGRAM } from '@orientimhq/swap/core';
 import { deliver, IX, MIN_OUT, requireProgram, send, sign, takeFrom, transfer, transferChecked, u64 } from '../cpi/world.ts';
 import {
-  DAY, ERR, feeOf, guardBalances, guardInvariants, guardSetup, honest, ix, requireGuard, route, START, STATUS,
+  DAY, ERR, feeOf, guardBalances, guardInvariants, guardSetup, honest, ix, requireGuard, route, setPrice, START, STATUS,
 } from './world.ts';
-import type { GuardOptions, GuardWorld } from './world.ts';
+import type { GuardOptions, GuardWorld, PriceOptions } from './world.ts';
 
 const OUT_DIR = 'tests/guard/results';
 const log = (...a: unknown[]) => console.log(...a);
@@ -64,6 +64,25 @@ const twoOfTwo = async (g: GuardWorld) => {
   const r = send(g.svm, await sign(g.svm, [ix.updatePolicy(g, g.W.address, false, [g.verifier.address, g.ownerVerifier.address], [g.attackerProgram], 2)], g.W));
   if (!r.ok) throw new Error(r.error);
 };
+
+/**
+ * Pyth: the input is worth $1 and the output $10 (so 100 IN are worth 10 OUT, the minimum), the owner
+ * allows 1% below that. `input`/`output` change one price update; `noOutputFeed` leaves the output
+ * mint without a feed, refused unless `allowUnpriced`.
+ */
+type Priced = { input?: PriceOptions; output?: PriceOptions; noOutputFeed?: boolean; allowUnpriced?: boolean; swapFeeds?: boolean };
+const priced = (o: Priced = {}) => async (g: GuardWorld) => {
+  const [feedIn, feedOut] = await Promise.all([generateKeyPairSigner(), generateKeyPairSigner()]).then(k => k.map(x => x.address));
+  const feeds = [{ mint: g.mintIn, feed: feedIn }, ...(o.noOutputFeed ? [] : [{ mint: g.mintOut, feed: feedOut }])];
+  const r = send(g.svm, await sign(g.svm, [ix.setGrant(g, g.W.address, g.grant, g.agent.address, {
+    limits: [{ mint: g.mintIn, perSwap: 200n * 1_000_000n, perDay: 500n * 1_000_000n }], outputs: [g.mintOut],
+    maxSlippageBps: 100, allowUnpriced: o.allowUnpriced, feeds,
+  })], g.W));
+  if (!r.ok) throw new Error(r.error);
+  const prices = [await setPrice(g, feedIn, 1_00000000n, o.input), await setPrice(g, feedOut, 10_00000000n, o.output)];
+  g.prices = o.swapFeeds ? [prices[1], prices[0]] : prices;
+};
+const OUT_9 = 9_000_000_000n; // 9 OUT: above a minimum of 1, below the oracle's floor of 9.9
 
 /** Sends one complete honest swap of `amount` first, so that the case's own transaction is the second. */
 const oneSwapFirst = (amount: bigint) => async (g: GuardWorld) => {
@@ -342,6 +361,56 @@ const CASES: Case[] = [
     id: 'G-T12e', name: 'the owner sets threshold 2 with only one verifier named',
     plan: g => ({ ixs: [ix.updatePolicy(g, g.W.address, false, [g.verifier.address], [g.attackerProgram], 2)], signers: [g.W] }),
     expect: 'fails', because: ERR.BadPolicy,
+  },
+
+  // ---- I10: Pyth prices
+  {
+    id: 'G-T13a', name: 'Pyth: the output is worth the input, within the owner\'s 1%',
+    before: priced(), plan: g => swap(g, honest(g, AMOUNT, MIN)), expect: 'succeeds',
+  },
+  {
+    id: 'G-T13b', name: 'Pyth: the agent and the verifier set a minimum of 1, the route pays 10% less than the price',
+    before: priced(), plan: g => swap(g, honest(g, AMOUNT, OUT_9), AMOUNT, 1n), expect: 'fails', because: ERR.BelowOracle,
+  },
+  {
+    id: 'G-T13c', name: 'Pyth: a price older than a minute',
+    before: priced({ output: { publishTime: START - 61n } }), plan: g => swap(g, honest(g, AMOUNT, MIN)), expect: 'fails', because: ERR.StalePrice,
+  },
+  {
+    id: 'G-T13d', name: 'Pyth: a price account Pyth\'s receiver does not own',
+    before: priced({ input: { owner: TOKEN_2022_PROGRAM } }), plan: g => swap(g, honest(g, AMOUNT, MIN)), expect: 'fails', because: ERR.BadOracle,
+  },
+  {
+    id: 'G-T13e', name: 'Pyth: the two price updates swapped (another feed)',
+    before: priced({ swapFeeds: true }), plan: g => swap(g, honest(g, AMOUNT, MIN)), expect: 'fails', because: ERR.BadOracle,
+  },
+  {
+    id: 'G-T13f', name: 'Pyth: a partially verified price update',
+    before: priced({ input: { partial: true } }), plan: g => swap(g, honest(g, AMOUNT, MIN)), expect: 'fails', because: ERR.BadOracle,
+  },
+  {
+    id: 'G-T13g', name: 'Pyth: a price with a confidence interval of 5%',
+    before: priced({ output: { conf: 50_000000n } }), plan: g => swap(g, honest(g, AMOUNT, MIN)), expect: 'fails', because: ERR.PriceUncertain,
+  },
+  {
+    id: 'G-T13h', name: 'Pyth: no price updates passed to settle',
+    before: async g => {
+      await priced()(g);
+      g.prices = undefined;
+    },
+    plan: g => swap(g, honest(g, AMOUNT, MIN)), expect: 'fails', because: 'insufficient account keys',
+  },
+  {
+    id: 'G-T13i', name: 'Pyth: the output mint has no feed and the owner refuses unpriced pairs',
+    before: priced({ noOutputFeed: true }), plan: g => swap(g, honest(g, AMOUNT, MIN)), expect: 'fails', because: ERR.Unpriced,
+  },
+  {
+    id: 'G-T13j', name: 'Pyth: the output mint has no feed and the owner allows unpriced pairs',
+    before: async g => {
+      await priced({ noOutputFeed: true, allowUnpriced: true })(g);
+      g.prices = undefined;
+    },
+    plan: g => swap(g, honest(g, AMOUNT, OUT_9), AMOUNT, 1n), expect: 'succeeds',
   },
 
   // ---- GRD-10: Token-2022
