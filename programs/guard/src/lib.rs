@@ -943,7 +943,8 @@ fn pull(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramRe
     if amount == 0 {
         return Err(fail(GuardError::BadAmount, "nothing to swap"));
     }
-    let fee = amount.checked_mul(FEE_BPS).ok_or(GuardError::Math)? / 10_000;
+    // Rounded up: every swap pays at least one base unit, whatever the decimals.
+    let fee = amount.checked_mul(FEE_BPS).and_then(|f| f.checked_add(9_999)).ok_or(GuardError::Math)? / 10_000;
     let total = amount.checked_add(fee).ok_or(GuardError::Math)?;
     let day = now.div_euclid(SECONDS_PER_DAY);
     let limit = grant
@@ -1009,9 +1010,7 @@ fn pull(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramRe
     let seeds: &[&[u8]] = &[AUTHORITY_SEED, policy.owner.as_ref(), &[policy.authority_bump]];
     let infos = [owner_in.clone(), mint_in.clone(), hopper.clone(), treasury_in.clone(), authority.clone(), token_in.clone()];
     invoke_signed(&transfer_checked(token_in.key, owner_in.key, mint_in.key, hopper.key, &authority_key, amount, decimals_in), &infos, &[seeds])?;
-    if fee > 0 {
-        invoke_signed(&transfer_checked(token_in.key, owner_in.key, mint_in.key, treasury_in.key, &authority_key, fee, decimals_in), &infos, &[seeds])?;
-    }
+    invoke_signed(&transfer_checked(token_in.key, owner_in.key, mint_in.key, treasury_in.key, &authority_key, fee, decimals_in), &infos, &[seeds])?;
     Ok(())
 }
 

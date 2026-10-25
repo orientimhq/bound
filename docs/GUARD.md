@@ -38,7 +38,7 @@ slippage against Pyth with each mint's feed) and an SPL
 | I3 | `[ComputeBudget*] Pull (allowed | ATA | ComputeBudget)* Settle`: one pull, settle last and naming the same policy; pull and settle are top-level instructions |
 | I4 | `Settle`: the output account grew by at least `min_out`, measured from the balance `Pull` recorded, inside the transaction |
 | I5 | `Settle`: the hopper ends with the balance it had before `Pull`; the surplus goes back to the owner; less than before is refused |
-| I6 | The fee is 25 bps of the amount, fixed in the program, to the treasury |
+| I6 | The fee is 25 bps of the amount, rounded up (at least one base unit, so no swap is free), fixed in the program, to the treasury |
 | I7 | The authority PDA signs only the two `TransferChecked` of `Pull`; its signature never reaches another program |
 | I8 | Nothing moves the owner's tokens elsewhere; only the owner changes the policy and grants |
 | I10 | When the grant sets a slippage, `Settle` reads Pyth's price of both mints (a fully verified `PriceUpdateV2` of the grant's feed, at most 60 s old, confidence within 2%) and refuses unless the output is worth at least the input less that slippage. A pair without a feed is refused, unless the owner allows unpriced pairs. Even a verifier and an agent that agree on a minimum of 1 cannot sell below the price |

@@ -17,7 +17,8 @@ export const JUPITER_PROGRAM = 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4' as 
 export const TREASURY = 'syQjBykbfYCGSSeLZSyEb2vJ2XMbHDfXoKsrVwCsDDq' as Address;
 /** Orientim's fee on the input, fixed in the program. */
 export const FEE_BPS = 25n;
-export const feeOf = (amount: bigint) => (amount * FEE_BPS) / 10_000n;
+/** Rounded up, as the program does: every swap pays at least one base unit. */
+export const feeOf = (amount: bigint) => (amount * FEE_BPS + 9_999n) / 10_000n;
 
 /** The program's custom error codes (`GuardError`); the numbers are part of the interface. */
 export const ERR = {

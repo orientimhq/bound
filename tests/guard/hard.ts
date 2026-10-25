@@ -266,7 +266,7 @@ for (const [i, [kIn, kOut]] of pairs.entries()) {
   try {
     const m = await market(kIn, kOut);
     const s = await honestSwap(m, 100n * UNIT(kIn));
-    check(id, `a swap ${m.name}`, s.ok, s.detail);
+    check(id, `a swap ${m.name}`, s.ok && s.r.ok && s.r.fee > 0n, s.detail);
   } catch (e) {
     check(id, `a swap ${kIn} → ${kOut}`, false, (e as Error).message);
   }
@@ -291,11 +291,11 @@ for (const [i, [kIn, kOut]] of ([['spl6', 'hook'], ['hook', 'spl6'], ['spl6', 'd
 {
   const m = await market('spl6', 'spl9', { perSwap: 10n ** 15n, perDay: 250n * 1_000_000n });
   const s1 = await honestSwap(m, 1n);
-  check('H2-01', 'one base unit (the fee rounds to 0)', s1.ok, s1.detail);
-  const s2 = await honestSwap(m, 399n);
-  check('H2-02', '399 base units (the fee still 0)', s2.ok, s2.detail);
-  const s3 = await honestSwap(m, 400n);
-  check('H2-03', '400 base units (the fee becomes 1)', s3.ok, s3.detail);
+  check('H2-01', 'one base unit: the fee rounds up to 1, never 0', s1.ok && s1.r.ok && s1.r.fee === 1n, s1.detail);
+  const s2 = await honestSwap(m, 400n);
+  check('H2-02', '400 base units: the fee is exactly 1', s2.ok && s2.r.ok && s2.r.fee === 1n, s2.detail);
+  const s3 = await honestSwap(m, 401n);
+  check('H2-03', '401 base units: the fee rounds up to 2', s3.ok && s3.r.ok && s3.r.fee === 2n, s3.detail);
   // What is left of the day, exactly, the fee included.
   const grant = decodeGrant((await chain.getAccounts([await grantOf(GUARD, m.owner.address, m.agent.address)]))[0]!.data);
   const used = grant.limits[0].usedToday;
