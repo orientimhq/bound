@@ -265,13 +265,27 @@ async function honestSwap(m: Market, amount: bigint) {
 
 /** The same swap sent straight to the chain, signed by the verifier's key: for what `swap()` would never send. */
 async function direct(m: Market, amount: bigint, agent = m.agent, lifetime?: { blockhash: Blockhash; lastValidBlockHeight: bigint }) {
+  if (!lifetime) await fresh();
+  return send(await directSwap(m, amount, agent), agent, [verifier], '', lifetime);
+}
+/** The instructions of `direct`'s swap, to sign and send as a test needs. */
+async function directSwap(m: Market, amount: bigint, agent = m.agent) {
   const accounts = await accountsFor({
     program: GUARD, owner: m.owner.address, agent: agent.address, verifier: verifier.address,
     mintIn: m.mintIn, mintOut: m.mintOut, tokenIn: programOf(m.kIn), tokenOut: programOf(m.kOut),
   });
-  if (!lifetime) await fresh();
-  return send([pull(accounts, amount, m.arrives(amount)), await m.routeFor(agent)(amount), settle(accounts)], agent, [verifier], '', lifetime);
+  return [pull(accounts, amount, m.arrives(amount)), await m.routeFor(agent)(amount), settle(accounts)];
 }
+/** Signed by `feePayer` and `others` with the latest blockhash, not sent. */
+const signed = async (ixs: Instruction[], feePayer: KeyPairSigner, others: KeyPairSigner[] = []) => signTransaction(
+  [feePayer.keyPair, ...others.map(o => o.keyPair)],
+  compileTransaction(pipe(
+    createTransactionMessage({ version: 0 }),
+    m => setTransactionMessageFeePayer(feePayer.address, m),
+    m => setTransactionMessageLifetimeUsingBlockhash(latest, m),
+    m => appendTransactionMessageInstructions(ixs, m),
+  )),
+);
 
 // ---------------------------------------------------------------- H1: every kind of token
 
@@ -400,7 +414,8 @@ const costOf = (rs: SwapResult[]) => rs.reduce((t, r) => t + (r.ok ? r.amount + 
     && eachExact(m, rs) && paid === 2n * (100n * unit + feeOf(100n * unit)) && counted === paid,
     `${landed} landed; the owner paid ${paid}, the grants count ${counted}`);
 }
-// The owner stops the agent while its swaps are in flight: whatever landed before the stop is exact and
+// The owner stops the agent while its swaps are in flight: three swaps, signed ahead, and the stop are
+// sent at the same moment, so the chain orders them. Whatever landed before the stop is exact and
 // counted, nothing lands after it, and the next swap is refused.
 for (const [id, how] of [['H3-05', 'pauses the policy'], ['H3-06', 'revokes the approval in the wallet']] as const) {
   const unit = 1_000_000n;
@@ -409,13 +424,20 @@ for (const [id, how] of [['H3-05', 'pauses the policy'], ['H3-06', 'revokes the 
     ? updatePolicy({ program: GUARD, owner: m.owner.address, policy: await policyOf(GUARD, m.owner.address), verifiers: [verifier.address], programs: [SWAP], paused: true })
     : revoke(m.ownerIn, m.owner.address, TOKEN_PROGRAM);
   const before = await balance(m.ownerIn);
+  const outBefore = await balance(m.ownerOut);
   await fresh();
-  const [stopped, ...rs] = await Promise.all([send([stop], m.owner), m.swap(10n * unit), m.swap(9n * unit), m.swap(8n * unit)]);
+  const amounts = [10n * unit, 9n * unit, 8n * unit];
+  const swaps = await Promise.all(amounts.map(async a => signed(await directSwap(m, a), m.agent, [verifier])));
+  const stopTx = await signed([stop], m.owner);
+  const [stopped, ...sent] = await Promise.all([chain.send(stopTx), ...swaps.map(tx => chain.send(tx))]);
   const paid = before - (await balance(m.ownerIn));
-  const landed = rs.filter(r => r.ok).length;
+  const got = (await balance(m.ownerOut)) - outBefore;
+  const landedAmounts = amounts.filter((_, i) => sent[i].ok);
+  const landed = landedAmounts.length;
+  const cost = landedAmounts.reduce((t, a) => t + a + feeOf(a), 0n);
   const after = await m.swap(7n * unit);
   check(id, `the owner ${how} while three swaps are in flight: what landed is exact, the next is refused`,
-    stopped.ok && eachExact(m, rs) && paid === costOf(rs) && (await usedToday(m)) === paid && !after.ok,
+    stopped.ok && paid === cost && got === landedAmounts.reduce((t, a) => t + m.arrives(a), 0n) && (await usedToday(m)) === paid && !after.ok,
     `${landed} landed before the stop; the owner paid ${paid}; then ${describe(after)}`);
 }
 
