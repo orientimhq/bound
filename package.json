@@ -1,45 +1,29 @@
 {
-  "name": "orientim",
+  "name": "orientim-guard",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "packages/*",
-    "apps/*"
-  ],
   "scripts": {
-    "test": "vitest run",
-    "test:fuzz": "vitest run packages/jupiter/test/slippage.property.test.ts apps/web/test/agents.property.test.ts apps/web/test/pure.property.test.ts packages/jupiter/test/price.property.test.ts apps/web/test/agents.limits.property.test.ts packages/certificate/test/wallet.property.test.ts apps/web/test/agents.load.property.test.ts apps/web/test/agents.ceilings.property.test.ts apps/web/test/agents.routes.property.test.ts apps/web/test/agents.restart.property.test.ts packages/jupiter/test/curveRoute.property.test.ts packages/builder/test/verifier/property.test.ts packages/builder/test/verifier/mutation.property.test.ts packages/builder/test/verifier/slippage.property.test.ts packages/builder/test/verifier/extremes.property.test.ts packages/builder/test/verifier/extensions.test.ts packages/builder/test/verifier/combinations.test.ts --mode fuzz",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/web/tsconfig.json --noEmit && tsc -p tools/sim/tsconfig.json --noEmit",
+    "build": "cargo build-sbf --manifest-path programs/guard/Cargo.toml && cargo build-sbf --manifest-path tests/guard/attacker/Cargo.toml",
+    "fuzz": "node tests/guard/fuzz.ts",
+    "jupiter": "node tests/guard/jupiter.ts",
     "lint": "ultracite check",
-    "integration": "node tests/integration/mainnet.ts",
-    "thresholds": "node tests/integration/thresholds.ts",
-    "cpi": "cargo build-sbf --manifest-path tests/cpi/attacker/Cargo.toml && node tests/cpi/run.ts",
-    "dev": "npm run dev -w @orientim/web",
-    "build": "npm run build -w @orientim/web",
-    "build:digest": "node tools/build-digest.ts --write",
-    "sim": "vitest run --config tools/sim/vitest.config.ts"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "2.5.15",
-    "@types/node": "^26.6.1",
-    "fast-check": "^4.10.1",
-    "litesvm": "^1.4.1",
-    "rolldown": "1.2.9",
-    "typescript": "^7.0.2",
-    "ultracite": "8.0.1",
-    "vitest": "^4.1.12"
+    "test": "node tests/guard/run.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@orientimhq/swap": "3.0.0",
     "@solana-program/compute-budget": "^0.18.1",
     "@solana-program/system": "^0.14.1",
     "@solana-program/token": "^0.16.1",
     "@solana/kit": "^8.3.0"
   },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "^26.6.1",
+    "litesvm": "^1.4.1",
+    "typescript": "^7.0.2",
+    "ultracite": "8.0.1"
+  },
   "engines": {
     "node": ">=22.18"
-  },
-  "overrides": {
-    "zod": "^4.6.6"
   }
 }

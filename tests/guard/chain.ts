@@ -1,13 +1,13 @@
 /**
- * The world T6 runs in, shared by the fixed cases (run.ts) and the fuzzer (fuzz.ts): a Solana VM
- * (litesvm) with the wallet, three tokens, the malicious swap program (tests/cpi/attacker) and its
- * pools; Orientim's protected transaction around that program; and the promise checked on the
- * chain after every case.
+ * The chain the Guard's tests run in, shared by the fixed cases (run.ts), the fuzzer (fuzz.ts) and the
+ * Jupiter run (jupiter.ts): a Solana VM (litesvm) with the owner's wallet, three tokens, and a
+ * malicious swap program (tests/guard/attacker) with its pools, which plays the route between Pull
+ * and Settle and attempts whatever a case tells it to.
  */
 import {
-  AccountRole, appendTransactionMessageInstructions, compileTransaction, createTransactionMessage,
-  generateKeyPairSigner, getAddressEncoder, getCompiledTransactionMessageDecoder, getProgramDerivedAddress,
-  lamports, pipe, setTransactionMessageFeePayer, setTransactionMessageLifetimeUsingBlockhash, signTransaction,
+  AccountRole, address, appendTransactionMessageInstructions, compileTransaction, createTransactionMessage,
+  generateKeyPairSigner, getAddressEncoder, getProgramDerivedAddress, lamports, pipe, setTransactionMessageFeePayer,
+  setTransactionMessageLifetimeUsingBlockhash, signTransaction,
 } from '@solana/kit';
 import type { Address, Instruction, KeyPairSigner, Transaction } from '@solana/kit';
 import { getCreateAccountInstruction, getTransferSolInstruction } from '@solana-program/system';
@@ -16,31 +16,42 @@ import {
 } from '@solana-program/token';
 import { LiteSVM } from 'litesvm';
 import { existsSync } from 'node:fs';
-import { MINT_SIZE, SYSTEM_PROGRAM, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, WSOL_MINT } from '@orientimhq/swap/core';
-import { ataOf, tokenAmountOf } from '@orientim/builder';
-import { buildPolicy, compileProtectedSwap, withTakerRent } from '@orientim/builder';
-import type { AccountState, ChainSnapshot, Policy } from '@orientimhq/swap/core';
-import { verify } from '@orientimhq/swap/verifier';
 
-export const SO = 'tests/cpi/attacker/target/deploy/orientim_attacker.so';
+export const SO = 'tests/guard/attacker/target/deploy/orientim_attacker.so';
+
+export const SYSTEM_PROGRAM = address('11111111111111111111111111111111');
+export const TOKEN_PROGRAM = address('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+export const TOKEN_2022_PROGRAM = address('TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb');
+export const ATA_PROGRAM = address('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+export const JUPITER_PROGRAM = address('JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4');
+export const WSOL_MINT = address('So11111111111111111111111111111111111111112');
+export const MINT_SIZE = 82;
+
+/** The associated token account of `owner` for `mint`. */
+export async function ataOf(owner: Address, mint: Address, tokenProgram: Address = TOKEN_PROGRAM): Promise<Address> {
+  const e = getAddressEncoder();
+  const [ata] = await getProgramDerivedAddress({ programAddress: ATA_PROGRAM, seeds: [e.encode(owner), e.encode(tokenProgram), e.encode(mint)] });
+  return ata;
+}
+
+/** A token account's amount, or 0 when there is no account. */
+export const tokenAmountOf = (data: Uint8Array | undefined): bigint =>
+  data && data.length >= 72 ? new DataView(data.buffer, data.byteOffset, data.byteLength).getBigUint64(64, true) : 0n;
+
+/** An account as the chain holds it. */
+export type AccountState = { owner: Address; lamports: bigint; data: Uint8Array };
 
 export const SOL = 1_000_000_000n;
 
-// The swap under test: 100 IN (6 decimals) for at least 10 OUT (9 decimals), Orientim fee 0.25%.
-export const AMOUNT_IN = 100_000_000n;
-export const FEE_BPS = 25n; // Orientim's fee; the verifier refuses one above 30
-export const FEE = (AMOUNT_IN * FEE_BPS) / 10_000n;
-export const SWAP_AMOUNT = AMOUNT_IN - FEE;
+// The fixed cases' swap: 100 IN (6 decimals) for at least 10 OUT (9 decimals).
 export const MIN_OUT = 10_000_000_000n;
-export const MIN_OUT_SOL = SOL;
 export const IN_DECIMALS = 6;
 export const OUT_DECIMALS = 9;
-export const MAX_NETWORK_FEE = 20_000n; // two signatures at 5000 lamports, with room to spare
 
 /** Stops with the command that builds the program when it is missing. */
 export function requireProgram() {
   if (!existsSync(SO)) {
-    console.error(`Missing ${SO}. Build it first:\n  (in tests/cpi/attacker) cargo build-sbf`);
+    console.error(`Missing ${SO}. Build it first:\n  (in tests/guard/attacker) cargo build-sbf`);
     process.exit(2);
   }
 }
@@ -95,10 +106,10 @@ export function attackerData(inners: Inner[]): Uint8Array {
   return Uint8Array.from(out);
 }
 
-/** Index of an account in the external instruction (see `externalInstruction`). */
+/** Index of an account in the route's instruction: the Guard's tests place the agent at E and its hopper at eIn. */
 export const IX = { token: 0, system: 1, E: 2, eIn: 3, output: 4, attackerIn: 5, pool: 6, poolAuthority: 7 } as const;
 
-/** E_in → the attacker's own account, authority E: the one move Orientim's design allows. */
+/** The hopper → the attacker's own account, signed by the agent: what an honest route does with the input. */
 export const takeFrom = (amount: bigint): Inner => ({
   program: IX.token,
   metas: [{ key: IX.eIn, w: true }, { key: IX.attackerIn, w: true }, { key: IX.E, s: true }],
@@ -184,7 +195,7 @@ export function sendOrThrow(svm: LiteSVM, tx: Transaction, what: string) {
  * Who holds the permanent delegate of the swap's two Token-2022 mints, when one is set: an ordinary
  * key (the attacker's own wallet, which never signs the swap), an address the attacker's program can
  * sign for itself (its pool authority), or a Token multisig at an ordinary address whose one signer
- * is that program address: R7 sees an ordinary key, and the program can still act as the delegate.
+ * is that program address: an ordinary key at first sight, while the program can still act as the delegate.
  */
 export type IssuerDelegate = 'key' | 'program' | 'multisig';
 /** A Token multisig account: m, n, initialized, then eleven signer slots. */
@@ -219,7 +230,6 @@ export async function setup(
   svm.airdrop(payer.address, lamports(1000n * SOL));
   svm.airdrop(W.address, lamports(10n * SOL));
   svm.airdrop(attackerWallet.address, lamports((big ? 10_000n : 100n) * SOL));
-  // E is deliberately left non-existent: rule R3 requires it.
 
   const [vaultAuthority] = await getProgramDerivedAddress({
     programAddress: program.address,
@@ -305,149 +315,3 @@ export async function setup(
 
   return world;
 }
-
-/** A new one-time key for the next swap in the same world, as every protected swap has its own. */
-export async function freshKey(w: World): Promise<void> {
-  w.E = await generateKeyPairSigner();
-  w.eIn = await ataOf(w.E.address, w.mintIn, w.tokenProgram);
-  w.eOut = await ataOf(w.E.address, WSOL_MINT);
-  w.svm.expireBlockhash();
-}
-
-// ---------------------------------------------------------------- the protected transaction
-
-export type Variant = 'C' | 'A';
-
-/**
- * The external instruction exactly as Orientim hands it over: the attacker's program, and only the
- * accounts the design allows it to see. `extra` is for the case where the route also demands an
- * account it must never get.
- */
-export function externalInstruction(w: World, variant: Variant, inners: Inner[], extra: Address[] = [], takerPays = false): Instruction {
-  return {
-    programAddress: w.attackerProgram,
-    accounts: [
-      { address: w.tokenProgram, role: AccountRole.READONLY },
-      { address: SYSTEM_PROGRAM, role: AccountRole.READONLY },
-      // A route that makes the taker pay rent (PumpSwap) needs E writable, as Jupiter lists it then.
-      { address: w.E.address, role: takerPays ? AccountRole.WRITABLE_SIGNER : AccountRole.READONLY_SIGNER },
-      { address: w.eIn, role: AccountRole.WRITABLE },
-      { address: variant === 'A' ? w.eOut : w.wOut, role: AccountRole.WRITABLE },
-      { address: w.attackerIn, role: AccountRole.WRITABLE },
-      { address: variant === 'A' ? w.vaultWsol : w.vaultOut, role: AccountRole.WRITABLE },
-      { address: w.vaultAuthority, role: AccountRole.READONLY },
-      { address: w.mintIn, role: AccountRole.READONLY },
-      { address: variant === 'A' ? WSOL_MINT : w.mintOut, role: AccountRole.READONLY },
-      ...extra.map(address => ({ address, role: AccountRole.WRITABLE })),
-    ],
-    data: attackerData(inners),
-  };
-}
-
-/** `swap`: the amount and the minimum, when not the fixed cases' own (100 IN for 10 OUT, or 1 SOL). */
-export async function protectedSwap(
-  w: World, variant: Variant, inners: Inner[], extra: Address[] = [], takerRent = 0n, swap?: { amountIn: bigint; minOut: bigint },
-) {
-  const built = await buildPolicy({
-    intent: { owner: w.W.address, inputMint: w.mintIn, outputMint: variant === 'A' ? WSOL_MINT : w.mintOut, amountIn: swap?.amountIn ?? AMOUNT_IN },
-    ephemeral: w.E.address,
-    inputDecimals: w.inDecimals,
-    outputDecimals: variant === 'A' ? 9 : w.outDecimals,
-    inputTokenProgram: w.tokenProgram,
-    outputTokenProgram: variant === 'A' ? TOKEN_PROGRAM : w.tokenProgram,
-    minOut: swap?.minOut ?? (variant === 'A' ? MIN_OUT_SOL : MIN_OUT),
-    config: { feeBps: FEE_BPS, treasury: w.treasury, maxNetworkFeeLamports: 200_000n, jupiterProgram: w.attackerProgram },
-    feeAccountExists: true,
-    // T6 measures the fee in the input token's account, which is what it isolates; the treasury
-    // wallet is not funded in this VM, so a fee on a SOL output is covered by the unit tests instead.
-    treasuryWalletReady: false,
-  });
-  const policy = withTakerRent(built, takerRent);
-  if (!swap && policy.swapAmount !== SWAP_AMOUNT) throw new Error(`swap amount ${policy.swapAmount}, expected ${SWAP_AMOUNT}`);
-  const swapInstruction = externalInstruction(w, variant, inners, extra, takerRent > 0n);
-  const outputBalanceBefore = policy.accounts.wOut ? tokensOf(w.svm, policy.accounts.wOut) : 0n;
-  const { transaction } = compileProtectedSwap({
-    policy, swapInstruction, intermediates: [], version: 0, lifetime: lifetimeOf(w.svm),
-    computeUnitLimit: 400_000, microLamportsPerComputeUnit: 0n, outputBalanceBefore,
-  });
-  const addresses = [
-    w.W.address, w.E.address, w.mintIn, w.mintOut, WSOL_MINT, policy.accounts.eIn, policy.accounts.feeDestination!,
-    ...(policy.accounts.eOut ? [policy.accounts.eOut] : []),
-    ...(policy.accounts.wIn ? [policy.accounts.wIn] : []),
-    ...(policy.accounts.wOut ? [policy.accounts.wOut] : []),
-    ...swapInstruction.accounts!.map(a => a.address),
-  ];
-  const snapshot: ChainSnapshot = { accounts: new Map(addresses.map(a => [a, accountOf(w.svm, a)])), lookupTables: {} };
-  // Where the untrusted instruction sits, so the report can say what stopped an attack.
-  const compiled = getCompiledTransactionMessageDecoder().decode(transaction.messageBytes) as unknown as {
-    staticAccounts: Address[];
-    instructions: readonly { programAddressIndex: number }[];
-  };
-  const swapIndex = compiled.instructions.findIndex(
-    i => compiled.staticAccounts[i.programAddressIndex] === w.attackerProgram,
-  );
-  // The verifier accepts only Jupiter's own program, so it refuses this one for that alone. T6 asks
-  // what the chain allows a hostile program that gets past that rule, so the verdict is every other.
-  const verdict = await verify(transaction, policy, snapshot);
-  const violations = verdict.violations.filter(v => !(v.rule === 'R2' && v.detail === `external program ${w.attackerProgram} is not Jupiter`));
-  return { policy, transaction, swapIndex, verdict: { ...verdict, ok: violations.length === 0, violations } };
-}
-
-// ---------------------------------------------------------------- what must never change
-
-export type Balances = { wIn: bigint; wOut: bigint; wOther: bigint; wSol: bigint; attackerIn: bigint; treasury: bigint };
-
-export const balancesOf = (w: World): Balances => ({
-  wIn: tokensOf(w.svm, w.wIn),
-  wOut: tokensOf(w.svm, w.wOut),
-  wOther: tokensOf(w.svm, w.wOther),
-  wSol: solOf(w.svm, w.W.address),
-  attackerIn: tokensOf(w.svm, w.attackerIn),
-  treasury: tokensOf(w.svm, w.treasuryIn),
-});
-
-/** Orientim's promise, checked against the chain after every case. */
-export function invariants(w: World, policy: Policy, before: Balances, after: Balances, succeeded: boolean): string[] {
-  const bad: string[] = [];
-  const same = (what: string, a: bigint, b: bigint) => {
-    if (a !== b) bad.push(`${what} changed by ${b - a}`);
-  };
-  const variantA = policy.outputMint === WSOL_MINT;
-  same("the wallet's other token", before.wOther, after.wOther);
-
-  if (!succeeded) {
-    same("the wallet's input", before.wIn, after.wIn);
-    same("the wallet's output", before.wOut, after.wOut);
-    same("the attacker's account", before.attackerIn, after.attackerIn);
-    same("Orientim's fee account", before.treasury, after.treasury);
-    if (before.wSol - after.wSol > MAX_NETWORK_FEE) bad.push(`the wallet lost ${before.wSol - after.wSol} lamports`);
-    return bad;
-  }
-
-  if (before.wIn - after.wIn !== policy.amountIn) bad.push(`the wallet paid ${before.wIn - after.wIn}, approved ${policy.amountIn}`);
-  if (after.treasury - before.treasury !== policy.fee) bad.push(`the fee was ${after.treasury - before.treasury}, expected ${policy.fee}`);
-  if (after.attackerIn - before.attackerIn > policy.swapAmount) {
-    bad.push(`the attacker took ${after.attackerIn - before.attackerIn}, above the approved ${policy.swapAmount}`);
-  }
-  if (variantA) {
-    if (after.wSol - before.wSol < policy.minOut - MAX_NETWORK_FEE - policy.takerRent) bad.push(`the wallet received ${after.wSol - before.wSol} lamports, below the minimum`);
-    same("the wallet's token output account", before.wOut, after.wOut);
-  } else {
-    if (after.wOut - before.wOut < policy.minOut) bad.push(`the wallet received ${after.wOut - before.wOut}, below the minimum ${policy.minOut}`);
-    // The rent Orientim sends E for the route's account is the one SOL the route may take besides the
-    // network fee; it is stated in the certificate before the wallet signs.
-    if (before.wSol - after.wSol > MAX_NETWORK_FEE + policy.takerRent) {
-      bad.push(`the wallet lost ${before.wSol - after.wSol} lamports beyond the network fee and the stated route rent`);
-    }
-  }
-  // No temporary account and no permission may outlive the transaction.
-  for (const [what, a] of [['E_in', policy.accounts.eIn], ['E_out', policy.accounts.eOut], ['E', w.E.address]] as const) {
-    if (a && accountOf(w.svm, a)) bad.push(`${what} still exists after the swap`);
-  }
-  const out = accountOf(w.svm, w.wOut);
-  if (out && out.data.length >= 76 && new DataView(out.data.buffer, out.data.byteOffset, out.data.byteLength).getUint32(72, true) === 1) {
-    bad.push('a delegate is set on the output account after the swap');
-  }
-  return bad;
-}
-

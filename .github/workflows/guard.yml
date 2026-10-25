@@ -1,24 +1,13 @@
 name: Guard
 
-# Orientim Guard (programs/guard): build the program and T6's malicious swap program, run the
-# program's own unit tests, every fixed case of tests/guard/run.ts and the fuzzer tests/guard/fuzz.ts
-# inside a real Solana VM (litesvm), then build two deliberately broken copies of the program and
-# require the fuzzer to catch each. Separate from CI because it needs the Rust and Solana toolchains; it runs only when the
-# Guard, its tests or the attacker change.
+# Orientim Guard (programs/guard): typecheck and lint the tests, build the program and the malicious
+# swap program the tests use as the route, run the program's own unit tests, every fixed case of
+# tests/guard/run.ts and the fuzzer tests/guard/fuzz.ts inside a real Solana VM (litesvm), then build
+# two deliberately broken copies of the program and require the fuzzer to catch each.
 on:
   push:
     branches: [main, guard-poc]
-    paths:
-      - 'programs/guard/**'
-      - 'tests/guard/**'
-      - 'tests/cpi/**'
-      - '.github/workflows/guard.yml'
   pull_request:
-    paths:
-      - 'programs/guard/**'
-      - 'tests/guard/**'
-      - 'tests/cpi/**'
-      - '.github/workflows/guard.yml'
   workflow_dispatch:
 
 # Read only: no step here publishes or writes, and install scripts never run.
@@ -38,6 +27,8 @@ jobs:
       - run: npm ci --ignore-scripts
       # The lockfile is written on Windows, where litesvm has no binary; make sure the Linux one is here.
       - run: npm install --no-save --ignore-scripts litesvm@1.4.1
+      - run: npm run typecheck
+      - run: npm run lint
 
       - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 23 September 2026
       - name: Install the Solana toolchain
@@ -62,7 +53,7 @@ jobs:
         working-directory: programs/guard
         run: cargo build-sbf -- --locked
       - name: Build the malicious swap program
-        working-directory: tests/cpi/attacker
+        working-directory: tests/guard/attacker
         run: cargo build-sbf
 
       - name: The fixed cases

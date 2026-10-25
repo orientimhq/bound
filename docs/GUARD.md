@@ -4,7 +4,7 @@ An agent trades from the owner's own token accounts, but only with Orientim's co
 within limits the owner wrote on chain. The owner never signs a swap and can stop everything from
 their wallet (SPL `Revoke`) without Orientim.
 
-Status: proof of concept on the `guard-poc` branch. Not deployed, not audited, no real funds.
+Status: proof of concept. Not deployed, not audited, no real funds.
 Research is still open: the design (fee level and tiers, referral share, the hopper or a one-time key
 E, the verifier's role) may change as studies and tests go on. Decisions so far: the agent's hopper
 (E optional later), optional 2 of 2 chosen by the owner, Pyth price floor per grant; fee 25 bps with
@@ -49,8 +49,8 @@ Error codes: `GuardError` in `programs/guard/src/lib.rs`. The numbers are part o
 
 ## Tests
 
-`node tests/guard/run.ts` after `cargo build-sbf` in `programs/guard` and `tests/cpi/attacker`
-(CI: `.github/workflows/guard.yml`). The swap program in every case is T6's malicious program. Each
+`node tests/guard/run.ts` after `cargo build-sbf` in `programs/guard` and `tests/guard/attacker`
+(CI: `.github/workflows/guard.yml`). The swap program in every case is the malicious program in `tests/guard/attacker`. Each
 case checks its outcome and the program's reason, and the promise from balances alone: a refused
 transaction moves nothing; a passed one takes from the owner at most the amount and the fee, pays
 exactly the fee, delivers at least the minimum and leaves the hopper and the owner's other tokens
@@ -85,5 +85,13 @@ The workflow then builds two broken copies of the program and requires the fuzze
 drops the minimum check of `Settle` (I4), M2 drops the check that the output account is the owner's
 (I2).
 
-Still to come in this proof of concept: a real Jupiter route captured from mainnet with its compute and
-size, and the off-chain verifier.
+`node tests/guard/jupiter.ts` (CI: `.github/workflows/guard-jupiter.yml`, one job per Jupiter
+`maxAccounts`: 64, 40, 28) asks Jupiter's Swap API for real routes, copies every account and program
+they name from mainnet into litesvm, and runs Pull → the route → Settle with Pyth's real price
+accounts, the price floor and a loss budget; the same route also runs alone as the baseline. Measured
+so far: the Guard adds about 400 bytes to a transaction, or about 155 with the owner's own lookup
+table (its policy, grant, authority and token accounts), and 22,000–37,000 compute units. Routes of one
+or two hops fit in 1,232 bytes with room; routes of four may not. The job fails only when a route works
+alone and not through the Guard; a route that has gone stale in the copy fails both ways and is reported.
+
+Still to come: the off-chain verifier.

@@ -18,7 +18,7 @@
  *   GUARD_JUP_OUT     the report's file name in tests/guard/results (default jupiter.md)
  */
 import {
-  address, appendTransactionMessageInstructions, compileTransaction, compressTransactionMessageUsingAddressLookupTables,
+  AccountRole, address, appendTransactionMessageInstructions, createSolanaRpc, compileTransaction, compressTransactionMessageUsingAddressLookupTables,
   createTransactionMessage, generateKeyPairSigner, getAddressEncoder, getBase64EncodedWireTransaction,
   getProgramDerivedAddress, lamports, pipe, setTransactionMessageFeePayer, setTransactionMessageLifetimeUsingBlockhash,
   signTransaction,
@@ -27,12 +27,8 @@ import type { Address, Instruction, KeyPairSigner, Transaction } from '@solana/k
 import { getSetComputeUnitLimitInstruction } from '@solana-program/compute-budget';
 import { LiteSVM } from 'litesvm';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { JUPITER_PROGRAM, TOKEN_PROGRAM } from '@orientimhq/swap/core';
-import { createRetryingRpc, fetchAccounts } from '@orientimhq/swap/solana';
-import { ataOf } from '@orientim/builder';
-import { createJupiterClient, toKitInstruction } from '@orientim/jupiter';
-import type { BuildResponse } from '@orientim/jupiter';
-import { send } from '../cpi/world.ts';
+import { ataOf, JUPITER_PROGRAM, send, TOKEN_PROGRAM } from './chain.ts';
+import type { AccountState } from './chain.ts';
 import { feeOf, GUARD_SO, ix, requireGuard, TREASURY } from './world.ts';
 import type { GuardWorld } from './world.ts';
 
@@ -67,10 +63,71 @@ const KEEP = new Set([
   'Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo', ...LOADERS,
 ]);
 
-const rpc = createRetryingRpc(RPC_URL, 8);
-const jupiter = createJupiterClient({
-  buildUrl: 'https://api.jup.ag/swap/v2/build', tokensUrl: 'https://api.jup.ag/tokens/v2/search',
-  labelsUrl: 'https://api.jup.ag/swap/v2/program-id-to-label', apiKey: JUPITER_API_KEY, minIntervalMs: 1100, timeoutMs: 20_000,
+const rpc = createSolanaRpc(RPC_URL);
+
+/** Retries what the network refuses for a moment (rate limits, timeouts), up to five times. */
+async function retrying<T>(what: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await what();
+    } catch (e) {
+      if (attempt >= 4) throw e;
+      await new Promise(r => setTimeout(r, 500 * 2 ** attempt));
+    }
+  }
+}
+
+/** Mainnet's accounts, a hundred per request; a missing one is null. */
+async function fetchAccounts(list: Address[]): Promise<Map<Address, AccountState | null>> {
+  const out = new Map<Address, AccountState | null>();
+  for (let i = 0; i < list.length; i += 100) {
+    const chunk = list.slice(i, i + 100);
+    const { value } = await retrying(() => rpc.getMultipleAccounts(chunk, { encoding: 'base64' }).send());
+    value.forEach((a, j) => out.set(chunk[j], a ? { owner: a.owner, lamports: BigInt(a.lamports), data: Buffer.from(a.data[0], 'base64') } : null));
+  }
+  return out;
+}
+
+type ApiInstruction = { programId: string; accounts: { pubkey: string; isSigner: boolean; isWritable: boolean }[]; data: string };
+type BuildResponse = {
+  otherAmountThreshold: string;
+  routePlan: { swapInfo: { label: string } }[];
+  setupInstructions: ApiInstruction[];
+  swapInstruction: ApiInstruction;
+  cleanupInstruction: ApiInstruction | null;
+  otherInstructions: ApiInstruction[];
+  addressesByLookupTableAddress: Record<string, string[]> | null;
+};
+type BuildParams = { inputMint: Address; outputMint: Address; amount: bigint; taker: Address; slippageBps: number; maxAccounts: number; destinationTokenAccount: Address };
+
+/** Jupiter's Swap API: the route as instructions for `taker`, delivering to `destinationTokenAccount`. */
+let lastCall = 0;
+async function buildRoute(p: BuildParams): Promise<BuildResponse> {
+  const qs = new URLSearchParams({
+    inputMint: p.inputMint, outputMint: p.outputMint, amount: p.amount.toString(), taker: p.taker,
+    slippageBps: String(p.slippageBps), maxAccounts: String(p.maxAccounts), wrapAndUnwrapSol: 'false',
+    destinationTokenAccount: p.destinationTokenAccount,
+  });
+  return retrying(async () => {
+    await new Promise(r => setTimeout(r, Math.max(0, lastCall + 1100 - Date.now()))); // one request a second
+    lastCall = Date.now();
+    const res = await fetch(`https://api.jup.ag/swap/v2/build?${qs}`, {
+      headers: JUPITER_API_KEY ? { 'x-api-key': JUPITER_API_KEY } : {}, signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) throw new Error(`Jupiter answered ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    return (await res.json()) as BuildResponse;
+  });
+}
+
+const toKitInstruction = (i: ApiInstruction): Instruction => ({
+  programAddress: address(i.programId),
+  accounts: i.accounts.map(a => ({
+    address: address(a.pubkey),
+    role: a.isSigner
+      ? (a.isWritable ? AccountRole.WRITABLE_SIGNER : AccountRole.READONLY_SIGNER)
+      : (a.isWritable ? AccountRole.WRITABLE : AccountRole.READONLY),
+  })),
+  data: Buffer.from(i.data, 'base64'),
 });
 
 const enc = getAddressEncoder();
@@ -117,13 +174,13 @@ type Case = {
 async function mainnetCopy(r: BuildResponse, extra: Address[]): Promise<() => LiteSVM> {
   const want = [...new Set([...ixAddresses(r), ...Object.keys(r.addressesByLookupTableAddress ?? {}), ...extra])]
     .filter(a => !KEEP.has(a)).map(a => address(a));
-  const got = await fetchAccounts(rpc, want);
+  const got = await fetchAccounts(want);
   const programData: Address[] = [];
   for (const [a, acc] of got) {
     if (acc && acc.owner === UPGRADEABLE && acc.data[0] === 2) programData.push(address(base58(acc.data.slice(4, 36))));
     void a;
   }
-  const pd = programData.length ? await fetchAccounts(rpc, programData) : new Map();
+  const pd = programData.length ? await fetchAccounts(programData) : new Map();
   // A finalized slot has its block time; a fresh one may not yet. The wall clock is close enough then.
   const slot = await rpc.getSlot({ commitment: 'finalized' }).send();
   const time = await rpc.getBlockTime(slot).send().catch(() => null);
@@ -221,7 +278,7 @@ async function runCase(spec: string): Promise<Case> {
   const IN = MINTS[inName];
   const OUT = MINTS[outName];
   if (!IN || !OUT) throw new Error(`unknown pair ${spec}`);
-  const mints = await fetchAccounts(rpc, [IN.mint, OUT.mint]);
+  const mints = await fetchAccounts([IN.mint, OUT.mint]);
   const mi = mints.get(IN.mint);
   const mo = mints.get(OUT.mint);
   if (!mi || !mo) throw new Error(`mint missing for ${spec}`);
@@ -243,7 +300,7 @@ async function runCase(spec: string): Promise<Case> {
     mintIn: IN.mint, mintOut: OUT.mint, tokenProgram: TOKEN_PROGRAM,
   } as unknown as GuardWorld;
 
-  const r = await jupiter.build({
+  const r = await buildRoute({
     inputMint: IN.mint, outputMint: OUT.mint, amount, taker: agent.address, slippageBps: 100, maxAccounts: MAX_ACCOUNTS,
     destinationTokenAccount: g.wOut,
   });

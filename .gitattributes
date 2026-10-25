@@ -1,3 +1,2 @@
-# Run inside the Linux image (Dockerfile): LF on every checkout, Windows included.
-*.sh text eol=lf
-Dockerfile text eol=lf
+# LF on every checkout, Windows included.
+* text=auto eol=lf

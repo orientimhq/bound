@@ -1,5 +1,5 @@
 /**
- * Orientim Guard, fuzzed (GRD-13): random swaps through the Guard with T6's malicious program as the
+ * Orientim Guard, fuzzed (GRD-13): random swaps through the Guard with the malicious program as the
  * route, in a real Solana VM, for random amounts, minimums, decimals and token programs.
  *
  * A plan is the transaction's shape (normal, no settle, something after settle, two pulls, an
@@ -17,9 +17,8 @@
 import { generateKeyPairSigner } from '@solana/kit';
 import type { Instruction } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from '@orientimhq/swap/core';
-import { deliver, IX, requireProgram, send, sign, takeFrom, transfer, u64 } from '../cpi/world.ts';
-import type { Inner } from '../cpi/world.ts';
+import { deliver, IX, requireProgram, send, sign, takeFrom, TOKEN_2022_PROGRAM, TOKEN_PROGRAM, transfer, u64 } from './chain.ts';
+import type { Inner } from './chain.ts';
 import { guardBalances, guardInvariants, guardSetup, ix, requireGuard, route } from './world.ts';
 import type { GuardWorld } from './world.ts';
 

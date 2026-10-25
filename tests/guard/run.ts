@@ -7,7 +7,7 @@
  * passed one takes from the owner at most the amount and the fee.
  *
  *   (in programs/guard) cargo build-sbf
- *   (in tests/cpi/attacker) cargo build-sbf
+ *   (in tests/guard/attacker) cargo build-sbf
  *   node tests/guard/run.ts
  *
  * CI: .github/workflows/guard.yml.
@@ -15,8 +15,7 @@
 import { AccountRole, generateKeyPairSigner } from '@solana/kit';
 import type { Address, Instruction, KeyPairSigner } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { TOKEN_2022_PROGRAM } from '@orientimhq/swap/core';
-import { deliver, IX, MIN_OUT, requireProgram, send, sign, takeFrom, transfer, transferChecked, u64 } from '../cpi/world.ts';
+import { deliver, IX, MIN_OUT, requireProgram, send, sign, takeFrom, TOKEN_2022_PROGRAM, transfer, transferChecked, u64 } from './chain.ts';
 import {
   DAY, ERR, feeOf, guardBalances, guardInvariants, guardSetup, honest, ix, requireGuard, route, setPrice, START, STATUS,
 } from './world.ts';
@@ -553,7 +552,7 @@ const failed = rows.filter(r => !r.pass).length;
 writeFileSync(`${OUT_DIR}/guard.md`, [
   '# Orientim Guard: rastet fikse',
   '',
-  `${rows.length - failed}/${rows.length} raste kaluan. Programi: \`programs/guard\`; rruga: programi sulmues i T6 (\`tests/cpi/attacker\`), në litesvm.`,
+  `${rows.length - failed}/${rows.length} raste kaluan. Programi: \`programs/guard\`; rruga: programi sulmues (\`tests/guard/attacker\`), në litesvm.`,
   '',
   '| ID | Rasti | Pritej | Ndodhi | Shkelje | CU (Guard) |',
   '| --- | --- | --- | --- | --- | --- |',

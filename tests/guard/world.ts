@@ -1,5 +1,5 @@
 /**
- * The world the Guard tests run in: T6's world (tests/cpi/world.ts: the owner W, three tokens, the
+ * The world the Guard tests run in: the chain of chain.ts (the owner W, three tokens, the
  * malicious swap program and its pools) plus the Guard program, an agent, Orientim's verifier key, the
  * owner's policy and grant, and the owner's approval of the Guard's authority over the input.
  *
@@ -11,10 +11,8 @@ import { AccountRole, generateKeyPairSigner, getAddressEncoder, getProgramDerive
 import type { Address, Instruction, KeyPairSigner } from '@solana/kit';
 import { getCreateAssociatedTokenIdempotentInstruction } from '@solana-program/token';
 import { existsSync } from 'node:fs';
-import { SYSTEM_PROGRAM } from '@orientimhq/swap/core';
-import { ataOf } from '@orientim/builder';
-import { approve, attackerData, deliver, SOL, sendOrThrow, setup, sign, takeFrom, tokensOf, u64 } from '../cpi/world.ts';
-import type { Inner, IssuerDelegate, World } from '../cpi/world.ts';
+import { approve, ataOf, attackerData, deliver, SOL, SYSTEM_PROGRAM, sendOrThrow, setup, sign, takeFrom, tokensOf, u64 } from './chain.ts';
+import type { Inner, IssuerDelegate, World } from './chain.ts';
 
 /** The built program; GUARD_SO picks another build (the workflow's deliberately broken copies). */
 export const GUARD_SO = process.env.GUARD_SO ?? 'programs/guard/target/deploy/orientim_guard.so';
@@ -162,7 +160,7 @@ export const pullAccounts = (g: GuardWorld): PullAccounts => ({
 });
 
 /**
- * The swap: the malicious program with the accounts an agent-built route gets. Indexes match T6's
+ * The swap: the malicious program with the accounts an agent-built route gets. Indexes match chain.ts's
  * `IX`: token 0, system 1, the agent (signing user) 2, the hopper 3, the owner's output 4, the
  * attacker's own input account 5, its pool 6 and the pool's authority 7.
  */
@@ -214,13 +212,13 @@ export type GuardOptions = {
   issuer?: IssuerDelegate;
   /** The owner's approval of the Guard's authority over the input (default: 1,000 tokens). */
   budget?: bigint;
-  /** As T6's `setup`: the mints' decimals, and funds for many swaps of any size. */
+  /** As chain.ts's `setup`: the mints' decimals, and funds for many swaps of any size. */
   decimals?: [number, number];
   large?: boolean;
   rules?: (g: GuardWorld) => GrantRules;
 };
 
-/** T6's world, the Guard deployed, the owner's policy, grant and approval in place. */
+/** The chain, the Guard deployed, the owner's policy, grant and approval in place. */
 export async function guardSetup(opts: GuardOptions = {}): Promise<GuardWorld> {
   const w = await setup(opts.tokenProgram, opts.issuer, { decimals: opts.decimals, large: opts.large });
   const guardKey = await generateKeyPairSigner();
