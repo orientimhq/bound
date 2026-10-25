@@ -19,7 +19,7 @@ Guard::Settle  the last instruction: at least `min_out` arrived in the owner's o
                this transaction; anything left in the hopper goes back to the owner
 ```
 
-The owner sets up once: `InitPolicy` (verifiers, allowed swap programs), `SetGrant` (the agent, its
+The owner sets up once: `InitPolicy` (verifiers and how many must sign, 1 or 2; allowed swap programs), `SetGrant` (the agent, its
 input mints with limits per swap and per day, its output mints, status and expiry) and an SPL
 `Approve` of the authority PDA `["auth", owner]` over each input account, for a budget.
 
@@ -27,7 +27,7 @@ input mints with limits per swap and per day, its output mints, status and expir
 
 | Rule | What |
 | --- | --- |
-| I1 | `Pull` needs the agent of an active, unexpired grant and a verifier named in the policy; the policy is not paused |
+| I1 | `Pull` needs the agent of an active, unexpired grant and a verifier named in the policy; with threshold 2, a second, different verifier of the policy signs too (Orientim and the owner's own); the policy is not paused |
 | I2 | The amount is within the grant's limit per swap and per day (fee included); the mints are allowed; the input and output accounts are the owner's; the hopper is the agent's account for the input mint; the fee goes to the treasury's ATA |
 | I3 | `[ComputeBudget*] Pull (allowed | ATA | ComputeBudget)* Settle`: one pull, settle last and naming the same policy; pull and settle are top-level instructions |
 | I4 | `Settle`: the output account grew by at least `min_out`, measured from the balance `Pull` recorded, inside the transaction |
@@ -61,6 +61,7 @@ untouched.
 | G-T08a, G-T08b | Daily limit crossed; the next day |
 | G-T09a–e | Paused; grant revoked; grant expired; SPL `Revoke`; budget spent |
 | G-T11a, G-T11b | The agent changes the policy; the agent raises its own limits |
+| G-T12a–e | Threshold 2: both sign; only Orientim; the same verifier twice; a second key not in the policy; threshold 2 with one verifier named |
 | G-T10a, G-T10b | Token-2022 honest swap; permanent delegate refused |
 
 `node tests/guard/fuzz.ts` sends random transactions through the Guard (1,000 per CI run, seeded by the

@@ -31,7 +31,7 @@ export const ERR = {
   NotOwner: 1, BadPolicy: 2, BadGrant: 3, Paused: 4, AgentNotActive: 5, UnknownVerifier: 6, MustBeTopLevel: 7,
   BadShape: 8, ProgramNotAllowed: 9, MintNotAllowed: 10, OverSwapLimit: 11, OverDailyLimit: 12, BadTokenAccount: 13,
   NotDelegated: 14, BadTreasury: 15, UnsafeMint: 16, SwapInProgress: 17, NoSwapInProgress: 18, MismatchedSettle: 19,
-  BelowMinimum: 20, HopperShort: 21, BadAmount: 22, Math: 23,
+  BelowMinimum: 20, HopperShort: 21, BadAmount: 22, Math: 23, SecondVerifierMissing: 24,
 } as const;
 
 export const STATUS = { active: 0, paused: 1, revoked: 2 } as const;
@@ -61,6 +61,8 @@ export type GuardWorld = World & {
   guard: Address;
   agent: KeyPairSigner;
   verifier: KeyPairSigner;
+  /** The owner's own co-signing key, for a policy with threshold 2 (not in the policy by default). */
+  ownerVerifier: KeyPairSigner;
   policy: Address;
   grant: Address;
   authority: Address;
@@ -76,15 +78,15 @@ const sr = (address: Address) => ({ address, role: AccountRole.READONLY_SIGNER }
 const ws = (address: Address) => ({ address, role: AccountRole.WRITABLE_SIGNER });
 
 export const ix = {
-  initPolicy: (g: GuardWorld, owner: Address, verifiers: Address[], programs: Address[]): Instruction => ({
+  initPolicy: (g: GuardWorld, owner: Address, verifiers: Address[], programs: Address[], threshold = 1): Instruction => ({
     programAddress: g.guard,
     accounts: [ws(owner), wr(g.policy), r(SYSTEM_PROGRAM)],
-    data: bytes([0], keys(verifiers, 2), keys(programs, 4)),
+    data: bytes([0], keys(verifiers, 2), keys(programs, 4), [threshold]),
   }),
-  updatePolicy: (g: GuardWorld, owner: Address, paused: boolean, verifiers: Address[], programs: Address[]): Instruction => ({
+  updatePolicy: (g: GuardWorld, owner: Address, paused: boolean, verifiers: Address[], programs: Address[], threshold = 1): Instruction => ({
     programAddress: g.guard,
     accounts: [sr(owner), wr(g.policy)],
-    data: bytes([1, paused ? 1 : 0], keys(verifiers, 2), keys(programs, 4)),
+    data: bytes([1, paused ? 1 : 0], keys(verifiers, 2), keys(programs, 4), [threshold]),
   }),
   setGrant: (g: GuardWorld, owner: Address, grant: Address, agent: Address, rules: GrantRules): Instruction => ({
     programAddress: g.guard,
@@ -105,7 +107,7 @@ export const ix = {
       accounts: [
         ws(a.agent), a.verifierSigns ? sr(a.verifier) : r(a.verifier), wr(a.policy), wr(a.grant), r(a.authority),
         wr(a.ownerIn), r(a.mintIn), wr(a.hopper), wr(a.treasuryIn), r(a.ownerOut), r(a.mintOut),
-        r(a.tokenIn), r(a.tokenOut), r(SYSVAR_INSTRUCTIONS),
+        r(a.tokenIn), r(a.tokenOut), r(SYSVAR_INSTRUCTIONS), ...(a.second ? [sr(a.second)] : []),
       ],
       data: bytes([3], u64(amount), u64(minOut)),
     };
@@ -124,6 +126,8 @@ export type PullAccounts = {
   agent: Address; verifier: Address; verifierSigns: boolean; policy: Address; grant: Address; authority: Address;
   ownerIn: Address; mintIn: Address; hopper: Address; treasuryIn: Address; ownerOut: Address; mintOut: Address;
   tokenIn: Address; tokenOut: Address;
+  /** A second verifier, signing, for a policy with threshold 2. */
+  second?: Address;
 };
 
 export const pullAccounts = (g: GuardWorld): PullAccounts => ({
@@ -173,7 +177,7 @@ export async function guardSetup(opts: GuardOptions = {}): Promise<GuardWorld> {
   clock.unixTimestamp = START;
   w.svm.setClock(clock);
 
-  const [agent, verifier] = await Promise.all([generateKeyPairSigner(), generateKeyPairSigner()]);
+  const [agent, verifier, ownerVerifier] = await Promise.all([generateKeyPairSigner(), generateKeyPairSigner(), generateKeyPairSigner()]);
   w.svm.airdrop(agent.address, lamports(10n * SOL));
   const owner = w.W.address;
   const text = (s: string) => new TextEncoder().encode(s);
@@ -181,7 +185,7 @@ export async function guardSetup(opts: GuardOptions = {}): Promise<GuardWorld> {
   const g: GuardWorld = {
     ...w,
     guard: guardKey.address,
-    agent, verifier,
+    agent, verifier, ownerVerifier,
     policy: await pda(text('policy'), key(owner)),
     grant: await pda(text('grant'), key(owner), key(agent.address)),
     authority: await pda(text('auth'), key(owner)),

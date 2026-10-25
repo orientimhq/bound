@@ -14,7 +14,8 @@
 //!                 goes back to the owner
 //! ```
 //!
-//! Without a verifier's signature nothing moves; without the owner's rules nothing moves either. The
+//! Without a verifier's signature nothing moves (two, Orientim's and the owner's own, when the owner
+//! sets the policy's threshold to 2); without the owner's rules nothing moves either. The
 //! authority PDA signs exactly one thing, a `TransferChecked` of the approved amount to the hopper (and
 //! of the fee to the treasury): its signature never reaches the swap program.
 //!
@@ -95,6 +96,7 @@ pub enum GuardError {
     HopperShort = 21,
     BadAmount = 22,
     Math = 23,
+    SecondVerifierMissing = 24,
 }
 
 impl From<GuardError> for ProgramError {
@@ -189,6 +191,8 @@ pub struct Policy {
     pub bump: u8,
     pub authority_bump: u8,
     pub paused: bool,
+    /// How many of the verifiers must sign each pull: 1 (Orientim) or 2 (Orientim and the owner's own).
+    pub threshold: u8,
     pub owner: Pubkey,
     pub verifiers: [Pubkey; MAX_VERIFIERS],
     pub programs: [Pubkey; MAX_PROGRAMS],
@@ -196,7 +200,7 @@ pub struct Policy {
 }
 
 const POLICY_TAG: u8 = 1;
-pub const POLICY_SIZE: usize = 1 + 3 + 32 + 32 * MAX_VERIFIERS + 32 * MAX_PROGRAMS + PENDING_SIZE;
+pub const POLICY_SIZE: usize = 1 + 4 + 32 + 32 * MAX_VERIFIERS + 32 * MAX_PROGRAMS + PENDING_SIZE;
 
 impl Policy {
     fn read(data: &[u8]) -> Result<Self, ProgramError> {
@@ -204,7 +208,7 @@ impl Policy {
             return Err(fail(GuardError::BadPolicy, "not a policy account"));
         }
         let mut r = Reader { data, at: 1 };
-        let mut p = Policy { bump: r.u8()?, authority_bump: r.u8()?, paused: r.u8()? != 0, owner: r.key()?, ..Default::default() };
+        let mut p = Policy { bump: r.u8()?, authority_bump: r.u8()?, paused: r.u8()? != 0, threshold: r.u8()?, owner: r.key()?, ..Default::default() };
         for v in p.verifiers.iter_mut() {
             *v = r.key()?;
         }
@@ -232,6 +236,7 @@ impl Policy {
         w.u8(self.bump);
         w.u8(self.authority_bump);
         w.u8(self.paused as u8);
+        w.u8(self.threshold);
         w.key(&self.owner);
         for v in &self.verifiers {
             w.key(v);
@@ -458,6 +463,15 @@ fn read_keys<const N: usize>(r: &mut Reader) -> Result<[Pubkey; N], ProgramError
 }
 
 /// The swap programs an owner may allow: never this program, a token program or the system program.
+/// 1 or 2 signatures, and never more than the distinct verifiers named.
+fn check_threshold(verifiers: &[Pubkey; MAX_VERIFIERS], threshold: u8) -> ProgramResult {
+    let named = verifiers.iter().enumerate().filter(|(i, v)| **v != Pubkey::default() && !verifiers[..*i].contains(v)).count();
+    if threshold == 0 || threshold as usize > MAX_VERIFIERS || threshold as usize > named {
+        return Err(fail(GuardError::BadPolicy, "the threshold must be 1 or 2, and at most the distinct verifiers named"));
+    }
+    Ok(())
+}
+
 fn check_programs(program_id: &Pubkey, programs: &[Pubkey]) -> ProgramResult {
     for p in programs {
         if *p == *program_id || is_token_program(p) || *p == SYSTEM_PROGRAM || *p == ATA_PROGRAM {
@@ -489,7 +503,7 @@ fn create_pda<'a>(payer: &AccountInfo<'a>, target: &AccountInfo<'a>, system: &Ac
 }
 
 /// `InitPolicy`: [owner (signer, writable), policy (writable), system program]
-/// data: verifiers [32; 2], programs [32; 4]
+/// data: verifiers [32; 2], programs [32; 4], threshold u8
 fn init_policy(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     let owner = account(accounts, 0)?;
     let policy_info = account(accounts, 1)?;
@@ -498,7 +512,9 @@ fn init_policy(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Pr
     let mut r = Reader { data, at: 0 };
     let verifiers = read_keys::<MAX_VERIFIERS>(&mut r)?;
     let programs = read_keys::<MAX_PROGRAMS>(&mut r)?;
+    let threshold = r.u8()?;
     r.done()?;
+    check_threshold(&verifiers, threshold)?;
     check_programs(program_id, &programs.iter().copied().filter(|p| *p != Pubkey::default()).collect::<Vec<_>>())?;
 
     let (expected, bump) = Pubkey::find_program_address(&[POLICY_SEED, owner.key.as_ref()], program_id);
@@ -507,7 +523,7 @@ fn init_policy(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Pr
     }
     let (_, authority_bump) = Pubkey::find_program_address(&[AUTHORITY_SEED, owner.key.as_ref()], program_id);
     create_pda(owner, policy_info, system, program_id, POLICY_SIZE, &[POLICY_SEED, owner.key.as_ref(), &[bump]])?;
-    let policy = Policy { bump, authority_bump, paused: false, owner: *owner.key, verifiers, programs, pending: Pending::default() };
+    let policy = Policy { bump, authority_bump, paused: false, threshold, owner: *owner.key, verifiers, programs, pending: Pending::default() };
     policy.write(&mut policy_info.try_borrow_mut_data()?);
     Ok(())
 }
@@ -526,7 +542,7 @@ fn load_policy(program_id: &Pubkey, info: &AccountInfo) -> Result<Policy, Progra
 }
 
 /// `UpdatePolicy`: [owner (signer), policy (writable)]
-/// data: paused u8, verifiers [32; 2], programs [32; 4]
+/// data: paused u8, verifiers [32; 2], programs [32; 4], threshold u8
 fn update_policy(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     let owner = account(accounts, 0)?;
     let policy_info = account(accounts, 1)?;
@@ -539,7 +555,9 @@ fn update_policy(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> 
     policy.paused = r.u8()? != 0;
     policy.verifiers = read_keys::<MAX_VERIFIERS>(&mut r)?;
     policy.programs = read_keys::<MAX_PROGRAMS>(&mut r)?;
+    policy.threshold = r.u8()?;
     r.done()?;
+    check_threshold(&policy.verifiers, policy.threshold)?;
     check_programs(program_id, &policy.programs.iter().copied().filter(|p| *p != Pubkey::default()).collect::<Vec<_>>())?;
     policy.write(&mut policy_info.try_borrow_mut_data()?);
     Ok(())
@@ -629,7 +647,8 @@ fn check_shape(program_id: &Pubkey, sysvar: &AccountInfo, policy_key: &Pubkey, a
 /// `Pull`:
 /// 0 agent (signer), 1 verifier (signer), 2 policy (writable), 3 grant (writable), 4 authority,
 /// 5 owner_in (writable), 6 mint_in, 7 hopper (writable), 8 treasury_in (writable), 9 owner_out,
-/// 10 mint_out, 11 token program of the input, 12 token program of the output, 13 instructions sysvar
+/// 10 mint_out, 11 token program of the input, 12 token program of the output, 13 instructions sysvar,
+/// 14 the second verifier (signer; only when the policy's threshold is 2)
 /// data: amount u64, min_out u64
 fn pull(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     if get_stack_height() != TRANSACTION_LEVEL_STACK_HEIGHT {
@@ -667,6 +686,12 @@ fn pull(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramRe
     }
     if *verifier.key == Pubkey::default() || !policy.verifiers.contains(verifier.key) {
         return Err(fail(GuardError::UnknownVerifier, "the verifier is not in the owner's policy"));
+    }
+    if policy.threshold >= 2 {
+        let second = accounts.get(14).ok_or_else(|| fail(GuardError::SecondVerifierMissing, "the policy needs a second verifier"))?;
+        if !second.is_signer || second.key == verifier.key || *second.key == Pubkey::default() || !policy.verifiers.contains(second.key) {
+            return Err(fail(GuardError::SecondVerifierMissing, "the policy needs a second, different verifier to sign"));
+        }
     }
     if grant_info.owner != program_id {
         return Err(fail(GuardError::BadGrant, "grant not owned by this program"));
@@ -838,7 +863,7 @@ mod tests {
 
     #[test]
     fn policy_round_trips() {
-        let mut p = Policy { bump: 254, authority_bump: 253, paused: true, owner: Pubkey::new_unique(), ..Default::default() };
+        let mut p = Policy { bump: 254, authority_bump: 253, paused: true, threshold: 2, owner: Pubkey::new_unique(), ..Default::default() };
         p.verifiers[0] = Pubkey::new_unique();
         p.programs[3] = Pubkey::new_unique();
         p.pending = Pending { active: true, min_out: 7, out_before: 9, hopper_before: 11, hopper: Pubkey::new_unique(), ..Default::default() };
@@ -855,6 +880,17 @@ mod tests {
         let mut data = vec![0u8; GRANT_SIZE];
         g.write(&mut data);
         assert_eq!(Grant::read(&data).unwrap(), g);
+    }
+
+    #[test]
+    fn thresholds() {
+        let (a, b) = (Pubkey::new_unique(), Pubkey::new_unique());
+        assert!(check_threshold(&[a, Pubkey::default()], 1).is_ok());
+        assert!(check_threshold(&[a, b], 2).is_ok());
+        assert!(check_threshold(&[a, Pubkey::default()], 2).is_err());
+        assert!(check_threshold(&[a, a], 2).is_err());
+        assert!(check_threshold(&[a, b], 0).is_err());
+        assert!(check_threshold(&[a, b], 3).is_err());
     }
 
     #[test]

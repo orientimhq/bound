@@ -59,6 +59,12 @@ const swap = (g: GuardWorld, routeIx: Instruction, amount = AMOUNT, minOut = MIN
   amount, minOut,
 });
 
+/** The owner names their own verifier beside Orientim's and requires both. */
+const twoOfTwo = async (g: GuardWorld) => {
+  const r = send(g.svm, await sign(g.svm, [ix.updatePolicy(g, g.W.address, false, [g.verifier.address, g.ownerVerifier.address], [g.attackerProgram], 2)], g.W));
+  if (!r.ok) throw new Error(r.error);
+};
+
 /** Sends one complete honest swap of `amount` first, so that the case's own transaction is the second. */
 const oneSwapFirst = (amount: bigint) => async (g: GuardWorld) => {
   const r = send(g.svm, await sign(g.svm, swap(g, honest(g, amount, MIN), amount).ixs, g.agent, [g.verifier]));
@@ -301,6 +307,41 @@ const CASES: Case[] = [
       signers: [],
     }),
     expect: 'fails', because: ERR.NotOwner,
+  },
+
+  // ---- 2 of 2: the owner's own verifier beside Orientim's
+  {
+    id: 'G-T12a', name: 'threshold 2: Orientim and the owner\'s own verifier both sign',
+    before: twoOfTwo,
+    plan: g => ({
+      ixs: [ix.pull(g, AMOUNT, MIN, { second: g.ownerVerifier.address }), honest(g, AMOUNT, MIN), ix.settle(g)],
+      signers: [g.verifier, g.ownerVerifier],
+    }),
+    expect: 'succeeds',
+  },
+  {
+    id: 'G-T12b', name: 'threshold 2: only Orientim signs',
+    before: twoOfTwo,
+    plan: g => swap(g, honest(g, AMOUNT, MIN)), expect: 'fails', because: ERR.SecondVerifierMissing,
+  },
+  {
+    id: 'G-T12c', name: 'threshold 2: Orientim\'s verifier passed twice',
+    before: twoOfTwo,
+    plan: g => ({ ixs: [ix.pull(g, AMOUNT, MIN, { second: g.verifier.address }), honest(g, AMOUNT, MIN), ix.settle(g)] }),
+    expect: 'fails', because: ERR.SecondVerifierMissing,
+  },
+  {
+    id: 'G-T12d', name: 'threshold 2: the second key signs but is not in the policy',
+    before: twoOfTwo,
+    plan: g => ({
+      ixs: [ix.pull(g, AMOUNT, MIN, { second: g.agent.address }), honest(g, AMOUNT, MIN), ix.settle(g)],
+    }),
+    expect: 'fails', because: ERR.SecondVerifierMissing,
+  },
+  {
+    id: 'G-T12e', name: 'the owner sets threshold 2 with only one verifier named',
+    plan: g => ({ ixs: [ix.updatePolicy(g, g.W.address, false, [g.verifier.address], [g.attackerProgram], 2)], signers: [g.W] }),
+    expect: 'fails', because: ERR.BadPolicy,
   },
 
   // ---- GRD-10: Token-2022

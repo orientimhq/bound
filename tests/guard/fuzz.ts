@@ -60,6 +60,7 @@ type Step = { what: string; inner: (g: GuardWorld) => Inner; extra?: (g: GuardWo
 const counts = { succeeded: 0, refused: 0 };
 const failures: string[] = [];
 let g: GuardWorld | null = null;
+let ran = 0;
 const started = Date.now();
 
 for (let i = 0; i < RUNS; i++) {
@@ -73,6 +74,7 @@ for (let i = 0; i < RUNS; i++) {
     });
   }
   const w = g!;
+  ran++;
   w.svm.expireBlockhash();
   const amountIn = 1n + amount(12);
   const minOut = 1n + amount(14);
@@ -165,7 +167,7 @@ const took = Math.round((Date.now() - started) / 1000);
 const summary = [
   '# Orientim Guard fuzz',
   '',
-  `Seed ${SEED}, ${RUNS} cases in ${took} s: ${counts.succeeded} went through, ${counts.refused} refused by the chain.`,
+  `Seed ${SEED}, ${ran} of ${RUNS} cases in ${took} s: ${counts.succeeded} went through, ${counts.refused} refused by the chain.`,
   '',
   failures.length ? `**${failures.length} broke the promise:**\n\n${failures.map(f => `- ${f}`).join('\n')}` : 'The promise held on the chain in every case.',
   '',
