@@ -94,4 +94,10 @@ table (its policy, grant, authority and token accounts), and 22,000–37,000 com
 or two hops fit in 1,232 bytes with room; routes of four may not. The job fails only when a route works
 alone and not through the Guard; a route that has gone stale in the copy fails both ways and is reported.
 
-Still to come: the off-chain verifier.
+The verifier (`verifier/`, tested by `tests/guard/verifier.ts`) co-signs only a transaction of the
+shape above in which its key is nothing but a verifier of the one `Pull` (never the fee payer, never
+writable, never in another instruction), with a recent blockhash (so a co-signed swap expires within
+about 90 s), within a rate per agent (30 a minute by default), and after the whole swap succeeds in a
+simulation against the chain. It adds no rule the program does not already enforce; it refuses early,
+with a reason, and keeps its signature from authorising anything but a `Pull`. CI requires its tests
+to catch a verifier that lets its key be used outside `Pull` (M6).

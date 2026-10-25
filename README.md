@@ -31,8 +31,12 @@ The full rules (I1–I11), the transaction's shape and every test case are in
 | Path | What |
 | --- | --- |
 | `programs/guard` | The Guard program (native Rust, solana-program) |
+| `sdk` | `@orientimhq/guard`: the instructions, the owner's set-up, the agent's guarded swap (Jupiter route, Pull and Settle around it, v0 with lookup tables) and the verifier client |
+| `verifier` | Orientim's verifier, an HTTP service (`POST /v1/cosign`) for Fly |
 | `tests/guard/run.ts` | The fixed cases, in litesvm |
-| `tests/guard/fuzz.ts` | The fuzzer; CI also requires it to catch two broken copies of the program |
+| `tests/guard/fuzz.ts` | The attack fuzzer; CI requires it to catch two broken copies of the program |
+| `tests/guard/rules.ts` | The owner's rules fuzzed against an independent model; CI requires it to catch three broken copies |
+| `tests/guard/verifier.ts` | The verifier against the Guard, and the agent's whole path through the SDK |
 | `tests/guard/jupiter.ts` | Real Jupiter routes from a copy of mainnet, with Pyth's real prices |
 | `tests/guard/attacker` | A malicious swap program the tests use as the route |
 
@@ -45,10 +49,28 @@ npm ci
 npm run build        # the Guard and the attacker program
 npm test             # the fixed cases
 npm run fuzz
+node tests/guard/rules.ts
+node tests/guard/verifier.ts
 RPC_URL=… JUPITER_API_KEY=… npm run jupiter
 ```
 
-The program's own unit tests: `cargo test` in `programs/guard`.
+The program's own unit tests: `cargo test` in `programs/guard`. Every night both fuzzers run a
+million cases each across 20 shards (`.github/workflows/guard-fuzz.yml`).
+
+## The agent's swap, with the SDK
+
+```ts
+import { accountsFor, compileGuardedSwap, guardedSwap, jupiterRoute, requestCosign } from '@orientimhq/guard';
+
+const accounts = await accountsFor({ program, owner, agent: agent.address, verifier, mintIn, mintOut });
+const route = await jupiterRoute({ inputMint: mintIn, outputMint: mintOut, amount, taker: agent.address,
+  destination: accounts.ownerOut, slippageBps: 50, apiKey });
+const tx = compileGuardedSwap(guardedSwap({ accounts, amount, route }), agent.address, await latestBlockhash());
+const cosigned = await requestCosign('https://verifier.orientim…', tx);
+// the agent signs `cosigned` and sends it through its own RPC
+```
+
+The owner's one set-up transaction comes from `ownerSetup(...)`; `revoke(...)` ends every approval.
 
 ## Security
 
