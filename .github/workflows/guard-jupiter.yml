@@ -1,0 +1,77 @@
+name: Guard with Jupiter
+
+# S5: Orientim Guard around real Jupiter routes. For each pair, Jupiter's Swap API builds a route for
+# a fresh agent key; tests/guard/jupiter.ts copies every account and program the route names from
+# mainnet into litesvm and runs Pull → the route → Settle, then the same route alone as the baseline.
+# It reports the wire size against 1,232 bytes, the compute and the Guard's share, one job per
+# maxAccounts. Nothing is signed for mainnet or sent to it, and no funds are involved.
+#
+# It uses the secrets CANARY_RPC_URL and CANARY_JUPITER_API_KEY. It runs by hand, and on pushes to
+# guard-poc that change this test (a workflow outside the default branch cannot be run by hand).
+on:
+  push:
+    branches: [guard-poc]
+    paths:
+      - 'tests/guard/jupiter.ts'
+      - '.github/workflows/guard-jupiter.yml'
+  workflow_dispatch:
+    inputs:
+      pairs:
+        description: 'Pairs as IN>OUT:amount, comma separated (SOL, USDC, JUP, BONK)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  jupiter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        max_accounts: [64, 40, 28]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm install --no-save --ignore-scripts litesvm@1.4.1
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable, 23 September 2026
+      - name: Install the Solana toolchain
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - id: solana
+        run: echo "version=$(solana --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache the SBF platform tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/solana
+          key: platform-tools-${{ runner.os }}-${{ steps.solana.outputs.version }}
+      - name: Build the Guard
+        working-directory: programs/guard
+        run: cargo build-sbf -- --locked
+
+      - name: Real Jupiter routes through the Guard
+        env:
+          RPC_URL: ${{ secrets.CANARY_RPC_URL }}
+          JUPITER_API_KEY: ${{ secrets.CANARY_JUPITER_API_KEY }}
+          GUARD_JUP_MAX_ACCOUNTS: ${{ matrix.max_accounts }}
+          GUARD_JUP_PAIRS: ${{ inputs.pairs }}
+          GUARD_JUP_OUT: jupiter-${{ matrix.max_accounts }}.md
+        run: node tests/guard/jupiter.ts
+
+      - name: The report
+        if: always()
+        run: cat tests/guard/results/jupiter-*.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: guard-jupiter-${{ matrix.max_accounts }}
+          path: tests/guard/results/
+          if-no-files-found: ignore
