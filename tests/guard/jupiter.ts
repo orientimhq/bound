@@ -107,7 +107,7 @@ const ixAddresses = (r: BuildResponse) => [
 type Case = {
   pair: string; amount: string; labels: string; ok: boolean; baseline: string; result: string;
   bytes: number | null; tableBytes: number | null; tableResult: string; baseBytes: number | null; cu: number | null; baseCu: number | null; guardCu: number | null;
-  minOut: bigint; arrived: bigint | null; oracle: string;
+  minOut: bigint; arrived: bigint | null; oracle: string; logs: string[]; baseLogs: string[];
 };
 
 /**
@@ -326,7 +326,7 @@ async function runCase(spec: string): Promise<Case> {
     baseline: baseResult.ok ? `ok, ${baseOut}` : baseResult.error,
     result: result.ok ? (good ? 'ok' : `promise broken: paid ${paid}, arrived ${arrived}`) : result.error,
     bytes: wireBytes(tx), tableBytes: wireBytes(tableTx), tableResult, baseBytes: wireBytes(baseTx), cu: c.total || null, baseCu: b.total || null, guardCu: c.own || null,
-    minOut, arrived, oracle: pyth ? 'Pyth, 3% and loss budget' : 'none (no sponsored feed found)',
+    logs: result.logs, baseLogs: baseResult.logs, minOut, arrived, oracle: pyth ? 'Pyth, 3% and loss budget' : 'none (no sponsored feed found)',
   };
 }
 
@@ -338,7 +338,11 @@ for (const spec of PAIRS) {
     rows.push(c);
     const tag = !c.ok ? 'FAIL' : c.result === 'ok' ? 'OK  ' : 'BOTH';
     console.log(`${tag} ${c.pair} ${c.amount} [${c.labels}] ${c.bytes} B (with the owner's table ${c.tableBytes}: ${c.tableResult}; alone ${c.baseBytes}), CU ${c.cu} (Guard ${c.guardCu}, alone ${c.baseCu}): ${c.result}`);
-    if (!c.ok) failed.push(spec);
+    if (!c.ok) {
+      failed.push(spec);
+      // Where the route works alone and not inside the Guard, both runs' logs say where they part.
+      console.log(`  baseline: ${c.baseline}, minimum ${c.minOut}\n  --- the Guard's logs\n  ${c.logs.slice(-40).join('\n  ')}\n  --- alone\n  ${c.baseLogs.slice(-40).join('\n  ')}`);
+    }
   } catch (e) {
     console.log(`SKIP ${spec}: ${(e as Error).message.split('\n')[0]}`);
     failed.push(`${spec} (${(e as Error).message.split('\n')[0].slice(0, 120)})`);
