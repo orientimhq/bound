@@ -269,7 +269,14 @@ for (let i = 0; i < RUNS; i++) {
   await setPrice(g, r.feedOut, r.pOut.price, { address: r.priceOut, conf: r.pOut.conf, expo: r.pOut.expo, publishTime: r.pOut.time });
 
   // The swap: an amount near the limits, a route that pays near the oracle's value.
-  const amount = chance(0.5) ? between(1n, r.m.perSwap > 1n ? r.m.perSwap : 2n) : between(1n, 10n ** BigInt(int(1, 13)));
+  // Now and then exactly at an edge: the amount whose total with the fee just fits, or just does not
+  // fit, what is left of today's limit or of the approval (where forgetting the fee would show).
+  const day = now / DAY;
+  const edges = [r.m.perDay - (r.m.usedDay === day ? r.m.used : 0n), r.m.delegated]
+    .map(left => (left * 10_000n) / 10_025n + BigInt(int(-2, 3)))
+    .filter(a => a > 0n && a <= r.m.perSwap);
+  const amount = chance(0.2) && edges.length ? pick(edges)
+    : chance(0.5) ? between(1n, r.m.perSwap > 1n ? r.m.perSwap : 2n) : between(1n, 10n ** BigInt(int(1, 13)));
   let fair = 1n;
   try {
     fair = floorOf(amount, g.inDecimals, g.outDecimals, r.pIn, r.pOut, 0);
