@@ -1,0 +1,23 @@
+# Orientim's verifier on Fly. Secrets (set with `fly secrets set`, never in this file):
+# VERIFIER_KEY, RPC_URL. Deploy from the repository root: fly deploy -c verifier/fly.toml
+app = 'orientim-verifier'
+primary_region = 'fra'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  GUARD_PROGRAM = '11111111111111111111111111111111' # the Guard's address, once it is deployed
+  VERIFIER_PER_MINUTE = '30'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'off'
+  min_machines_running = 2
+
+  [[http_service.checks]]
+    interval = '15s'
+    timeout = '2s'
+    method = 'GET'
+    path = '/health'

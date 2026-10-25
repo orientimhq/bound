@@ -68,11 +68,14 @@ jobs:
           GUARD_RULES_RUNS: 1000
           GUARD_RULES_SEED: ${{ github.run_number }}
         run: node tests/guard/rules.ts
+      - name: The verifier
+        run: node tests/guard/verifier.ts
 
       # A fuzzer that passes on a broken program proves nothing. Each broken copy must make its fuzzer
       # fail (exit 1), with a fixed seed so the result is repeatable. fuzz.ts: M1 drops the minimum
       # check of Settle (I4), M2 the check that the output account is the owner's (I2). rules.ts: M3
       # drops the daily limit (I2), M4 the daily loss cap (I11), M5 the oracle's floor (I10).
+      # verifier.ts: M6 lets the verifier's key be used outside Pull.
       - name: Broken copies the fuzzers must catch
         run: |
           mutant() {
@@ -99,6 +102,24 @@ jobs:
           mutant m3 rules 'if used > limit.max_per_day {' 'if false && used > limit.max_per_day {'
           mutant m4 rules 'grant.loss_today > grant.max_loss_per_day) ||' 'grant.loss_today > u64::MAX) ||'
           mutant m5 rules 'if (arrived as u128) < floor {' 'if false && (arrived as u128) < floor {'
+
+          # M6: the verifier signs a transaction that uses its key outside Pull. verifier.ts must fail.
+          cp verifier/src/cosign.ts "$RUNNER_TEMP/cosign.ts"
+          python3 - verifier/src/cosign.ts <<'PY'
+          import sys
+          path = sys.argv[1]
+          old = "if (n !== pullAt || !VERIFIER_SLOTS.includes(k) || a.role !== AccountRole.READONLY_SIGNER)"
+          text = open(path).read()
+          assert text.count(old) == 1, "the mutant's target is not in the verifier exactly once"
+          open(path, "w").write(text.replace(old, "if (false)"))
+          PY
+          set +e
+          node tests/guard/verifier.ts > /dev/null
+          code=$?
+          set -e
+          cp "$RUNNER_TEMP/cosign.ts" verifier/src/cosign.ts
+          if [ "$code" -ne 1 ]; then echo "::error::verifier.ts did not catch mutant m6 (exit $code)"; exit 1; fi
+          echo "mutant m6 caught by verifier"
 
       - name: The report
         if: always()

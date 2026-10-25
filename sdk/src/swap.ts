@@ -6,7 +6,7 @@
  */
 import {
   AccountRole, address, appendTransactionMessageInstructions, compileTransaction, compressTransactionMessageUsingAddressLookupTables,
-  createTransactionMessage, getAddressDecoder, getProgramDerivedAddress, pipe, setTransactionMessageFeePayer,
+  createTransactionMessage, getAddressDecoder, getProgramDerivedAddress, getTransactionDecoder, getTransactionEncoder, pipe, setTransactionMessageFeePayer,
   setTransactionMessageLifetimeUsingBlockhash,
 } from '@solana/kit';
 import type { Address, Blockhash, Instruction, Transaction } from '@solana/kit';
@@ -131,3 +131,16 @@ const hexBytes = (hex: string) => {
   if (id.length !== 32) throw new Error('a Pyth feed id is 32 bytes');
   return id;
 };
+
+/** Asks a verifier to co-sign the unsigned guarded swap; returns it with the verifier's signature. */
+export async function requestCosign(url: string, tx: Transaction, fetchImpl: typeof fetch = fetch): Promise<Transaction> {
+  const body = JSON.stringify({ transaction: toBase64(new Uint8Array(getTransactionEncoder().encode(tx))) });
+  const res = await fetchImpl(`${url.replace(/\/$/, '')}/v1/cosign`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: AbortSignal.timeout(30_000),
+  });
+  const answer = (await res.json().catch(() => ({}))) as { transaction?: string; error?: string };
+  if (!res.ok || !answer.transaction) throw new Error(`the verifier refused (${res.status}): ${answer.error ?? 'no answer'}`);
+  return getTransactionDecoder().decode(fromBase64(answer.transaction));
+}
+
+const toBase64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));

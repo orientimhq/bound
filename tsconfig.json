@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["tests", "sdk/src"]
+  "include": ["tests", "sdk/src", "verifier/src"]
 }
