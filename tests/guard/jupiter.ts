@@ -343,8 +343,11 @@ async function runCase(spec: string): Promise<Case> {
     const a = svm.getAccount(p);
     return a.exists && a.programAddress === PYTH_RECEIVER;
   });
+  // Two transactions, as on the network: the policy and the grant together pass 1232 bytes.
+  const policyTx = compileTransaction(compile(svm, W, [ix.initPolicy(g, W.address, [verifier.address], [JUPITER_PROGRAM])], r));
+  const policy = send(svm, await signTransaction([W.keyPair], policyTx));
+  if (!policy.ok) throw new Error(`the owner's policy failed: ${policy.error}\n${policy.logs.join('\n')}`);
   const setupTx = compileTransaction(compile(svm, W, [
-    ix.initPolicy(g, W.address, [verifier.address], [JUPITER_PROGRAM]),
     ix.setGrant(g, W.address, g.grant, agent.address, {
       limits: [{ mint: IN.mint, perSwap: amount * 2n, perDay: amount * 4n }], outputs: [OUT.mint],
       ...(pyth ? {
