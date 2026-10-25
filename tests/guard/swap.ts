@@ -132,7 +132,7 @@ await refusedBefore('S07', 'a verifier with a forged signature', client({
   verifiers: [{ address: g.verifier.address, cosign: async tx => ({ ...tx, signatures: { ...tx.signatures, [g.verifier.address]: new Uint8Array(64).fill(7) } }) as Transaction }],
 }), 'verifier', /did not sign/);
 await refusedBefore('S08', 'a priority fee above the agent\'s cap', client({ microLamportsPerUnit: 5_000_000n }), 'rules', /priority fee/);
-await refusedBefore('S09', 'a verifier the owner never named', client({ verifiers: [{ address: (await generateKeyPairSigner()).address, cosign: honestVerifier }] }), 'rules', /not in the owner's policy/);
+await refusedBefore('S09', 'a verifier the owner never named', client({ verifiers: [{ address: (await generateKeyPairSigner()).address, cosign: honestVerifier }] }), 'rules', /none of the verifiers given is in the owner's policy/);
 
 // S10: a route too large for one transaction is asked for again with fewer accounts.
 {
