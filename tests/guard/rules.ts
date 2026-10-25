@@ -214,7 +214,8 @@ for (let i = 0; i < RUNS; i++) {
   // Now and then the owner acts, or time passes.
   if (chance(0.08)) {
     counts.ownerActions++;
-    const act = pick(['pause', 'grant', 'approve', 'revoke'] as const);
+    // A paused policy is usually resumed at the owner's next action, so that most swaps meet the other rules.
+    const act = r.m.paused && chance(0.8) ? 'pause' : pick(['pause', 'grant', 'approve', 'approve', 'revoke'] as const);
     if (act === 'pause') {
       const paused = !r.m.paused;
       await owner(r, [ix.updatePolicy(g, g.W.address, paused, [g.verifier.address, g.ownerVerifier.address], [g.attackerProgram], r.m.threshold)], 'pause');
