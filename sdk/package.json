@@ -1,0 +1,13 @@
+{
+  "name": "@orientimhq/guard",
+  "version": "0.1.0",
+  "description": "Orientim Guard: the owner's set-up and the agent's guarded swaps (Pull, the route, Settle)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "peerDependencies": {
+    "@solana/kit": "^8.3.0"
+  }
+}

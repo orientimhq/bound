@@ -2,6 +2,9 @@
   "name": "orientim-guard",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "sdk"
+  ],
   "scripts": {
     "build": "cargo build-sbf --manifest-path programs/guard/Cargo.toml && cargo build-sbf --manifest-path tests/guard/attacker/Cargo.toml",
     "fuzz": "node tests/guard/fuzz.ts",

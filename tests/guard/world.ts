@@ -11,29 +11,17 @@ import { AccountRole, generateKeyPairSigner, getAddressEncoder, getProgramDerive
 import type { Address, Instruction, KeyPairSigner } from '@solana/kit';
 import { getCreateAssociatedTokenIdempotentInstruction } from '@solana-program/token';
 import { existsSync } from 'node:fs';
+import { initPolicy, pull, setGrant, settle, updatePolicy } from '@orientimhq/guard';
+import type { GrantRules, SwapAccounts } from '@orientimhq/guard';
 import { approve, ataOf, attackerData, deliver, SOL, SYSTEM_PROGRAM, sendOrThrow, setup, sign, takeFrom, tokensOf, u64 } from './chain.ts';
 import type { Inner, IssuerDelegate, World } from './chain.ts';
 
 /** The built program; GUARD_SO picks another build (the workflow's deliberately broken copies). */
 export const GUARD_SO = process.env.GUARD_SO ?? 'programs/guard/target/deploy/orientim_guard.so';
-export const SYSVAR_INSTRUCTIONS = 'Sysvar1nstructions1111111111111111111111111' as Address;
-export const COMPUTE_BUDGET = 'ComputeBudget111111111111111111111111111111' as Address;
-/** The placeholder treasury compiled into the program (`TREASURY` in programs/guard/src/lib.rs). */
-export const TREASURY = 'syQjBykbfYCGSSeLZSyEb2vJ2XMbHDfXoKsrVwCsDDq' as Address;
-export const FEE_BPS = 25n;
+export { COMPUTE_BUDGET, ERR, FEE_BPS, feeOf, STATUS, SYSVAR_INSTRUCTIONS, TREASURY } from '@orientimhq/guard';
+import { feeOf, TREASURY } from '@orientimhq/guard';
 export const DAY = 86_400n;
 export const START = 1_800_000_000n; // a fixed clock, so that "today" is the same on every run
-
-/** Custom error codes of the program (`GuardError`). */
-export const ERR = {
-  NotOwner: 1, BadPolicy: 2, BadGrant: 3, Paused: 4, AgentNotActive: 5, UnknownVerifier: 6, MustBeTopLevel: 7,
-  BadShape: 8, ProgramNotAllowed: 9, MintNotAllowed: 10, OverSwapLimit: 11, OverDailyLimit: 12, BadTokenAccount: 13,
-  NotDelegated: 14, BadTreasury: 15, UnsafeMint: 16, SwapInProgress: 17, NoSwapInProgress: 18, MismatchedSettle: 19,
-  BelowMinimum: 20, HopperShort: 21, BadAmount: 22, Math: 23, SecondVerifierMissing: 24,
-  BadOracle: 25, StalePrice: 26, PriceUncertain: 27, BelowOracle: 28, Unpriced: 29, LossBudgetSpent: 30,
-} as const;
-
-export const STATUS = { active: 0, paused: 1, revoked: 2 } as const;
 
 export function requireGuard() {
   if (!existsSync(GUARD_SO)) {
@@ -45,23 +33,9 @@ export function requireGuard() {
 const enc = getAddressEncoder();
 const key = (a: Address) => Uint8Array.from(enc.encode(a));
 const ZERO = new Uint8Array(32);
-const i64 = (v: bigint) => {
-  const b = new Uint8Array(8);
-  new DataView(b.buffer).setBigInt64(0, v, true);
-  return b;
-};
 const bytes = (...parts: (Uint8Array | number[])[]) => Uint8Array.from(parts.flatMap(p => [...p]));
-const keys = (list: Address[], n: number) => bytes(...Array.from({ length: n }, (_, i) => (list[i] ? key(list[i]) : ZERO)));
 
-export type Limit = { mint: Address; perSwap: bigint; perDay: bigint };
-export type Feed = { mint: Address; feed: Address };
-export type GrantRules = {
-  status?: number; expiresAt?: bigint; limits: Limit[]; outputs: Address[];
-  /** Pyth: the least the output may be worth below the input (bps; 0 = no check), and each mint's feed. */
-  maxSlippageBps?: number; allowUnpriced?: boolean; feeds?: Feed[];
-  /** The most the agent may lose by Pyth's prices, in micro-USD, per day and in all (0 = no cap). */
-  maxLossPerDay?: bigint; maxLossTotal?: bigint;
-};
+export type { Feed, GrantRules, Limit } from '@orientimhq/guard';
 
 export type GuardWorld = World & {
   guard: Address;
@@ -85,76 +59,24 @@ export type GuardWorld = World & {
 const r = (address: Address): { address: Address; role: AccountRole } => ({ address, role: AccountRole.READONLY });
 const wr = (address: Address) => ({ address, role: AccountRole.WRITABLE });
 const sr = (address: Address) => ({ address, role: AccountRole.READONLY_SIGNER });
-const ws = (address: Address) => ({ address, role: AccountRole.WRITABLE_SIGNER });
 
+/** The SDK's builders (sdk/src/instructions.ts), with the accounts of this world filled in. */
 export const ix = {
-  initPolicy: (g: GuardWorld, owner: Address, verifiers: Address[], programs: Address[], threshold = 1): Instruction => ({
-    programAddress: g.guard,
-    accounts: [ws(owner), wr(g.policy), r(SYSTEM_PROGRAM)],
-    data: bytes([0], keys(verifiers, 2), keys(programs, 4), [threshold]),
-  }),
-  updatePolicy: (g: GuardWorld, owner: Address, paused: boolean, verifiers: Address[], programs: Address[], threshold = 1): Instruction => ({
-    programAddress: g.guard,
-    accounts: [sr(owner), wr(g.policy)],
-    data: bytes([1, paused ? 1 : 0], keys(verifiers, 2), keys(programs, 4), [threshold]),
-  }),
-  setGrant: (g: GuardWorld, owner: Address, grant: Address, agent: Address, rules: GrantRules): Instruction => ({
-    programAddress: g.guard,
-    accounts: [ws(owner), r(g.policy), wr(grant), r(SYSTEM_PROGRAM)],
-    data: bytes(
-      [2], key(agent), [rules.status ?? STATUS.active], i64(rules.expiresAt ?? 0n),
-      ...Array.from({ length: 4 }, (_, i) => {
-        const l = rules.limits[i];
-        return l ? bytes(key(l.mint), u64(l.perSwap), u64(l.perDay)) : new Uint8Array(48);
-      }),
-      keys(rules.outputs, 4),
-      u16(rules.maxSlippageBps ?? 0), [rules.allowUnpriced ? 1 : 0],
-      ...Array.from({ length: 8 }, (_, i) => {
-        const f = rules.feeds?.[i];
-        return f ? bytes(key(f.mint), key(f.feed)) : new Uint8Array(64);
-      }),
-      u64(rules.maxLossPerDay ?? 0n), u64(rules.maxLossTotal ?? 0n),
-    ),
-  }),
-  pull: (g: GuardWorld, amount: bigint, minOut: bigint, o: Partial<PullAccounts> = {}): Instruction => {
-    const a = { ...pullAccounts(g), ...o };
-    return {
-      programAddress: g.guard,
-      accounts: [
-        ws(a.agent), a.verifierSigns ? sr(a.verifier) : r(a.verifier), wr(a.policy), wr(a.grant), r(a.authority),
-        wr(a.ownerIn), r(a.mintIn), wr(a.hopper), wr(a.treasuryIn), r(a.ownerOut), r(a.mintOut),
-        r(a.tokenIn), r(a.tokenOut), r(SYSVAR_INSTRUCTIONS), ...(a.second ? [sr(a.second)] : []),
-      ],
-      data: bytes([3], u64(amount), u64(minOut)),
-    };
-  },
-  settle: (g: GuardWorld, o: Partial<PullAccounts> = {}): Instruction => {
-    const a = { ...pullAccounts(g), ...o };
-    return {
-      programAddress: g.guard,
-      accounts: [
-        sr(a.agent), wr(a.policy), wr(a.hopper), wr(a.ownerIn), r(a.mintIn), r(a.tokenIn), r(a.ownerOut),
-        ...(a.prices ?? []).map(r), ...(a.lossBudget ? [wr(a.grant)] : []),
-      ],
-      data: Uint8Array.from([4]),
-    };
-  },
+  initPolicy: (g: GuardWorld, owner: Address, verifiers: Address[], programs: Address[], threshold = 1): Instruction =>
+    initPolicy({ program: g.guard, owner, policy: g.policy, verifiers, programs, threshold }),
+  updatePolicy: (g: GuardWorld, owner: Address, paused: boolean, verifiers: Address[], programs: Address[], threshold = 1): Instruction =>
+    updatePolicy({ program: g.guard, owner, policy: g.policy, verifiers, programs, threshold, paused }),
+  setGrant: (g: GuardWorld, owner: Address, grant: Address, agent: Address, rules: GrantRules): Instruction =>
+    setGrant({ program: g.guard, owner, policy: g.policy, grant, agent, rules }),
+  pull: (g: GuardWorld, amount: bigint, minOut: bigint, o: Partial<PullAccounts> = {}): Instruction =>
+    pull({ ...pullAccounts(g), ...o }, amount, minOut),
+  settle: (g: GuardWorld, o: Partial<PullAccounts> = {}): Instruction => settle({ ...pullAccounts(g), ...o }),
 };
 
-export type PullAccounts = {
-  agent: Address; verifier: Address; verifierSigns: boolean; policy: Address; grant: Address; authority: Address;
-  ownerIn: Address; mintIn: Address; hopper: Address; treasuryIn: Address; ownerOut: Address; mintOut: Address;
-  tokenIn: Address; tokenOut: Address;
-  /** A second verifier, signing, for a policy with threshold 2. */
-  second?: Address;
-  /** Pyth price updates of the input and output mints, for Settle. */
-  prices?: Address[];
-  /** Settle also takes the grant, whose loss budget it charges. */
-  lossBudget?: boolean;
-};
+export type PullAccounts = SwapAccounts;
 
 export const pullAccounts = (g: GuardWorld): PullAccounts => ({
-  agent: g.agent.address, verifier: g.verifier.address, verifierSigns: true, policy: g.policy, grant: g.grant,
+  program: g.guard, agent: g.agent.address, verifier: g.verifier.address, verifierSigns: true, policy: g.policy, grant: g.grant,
   authority: g.authority, ownerIn: g.wIn, mintIn: g.mintIn, hopper: g.hopper, treasuryIn: g.treasuryIn,
   ownerOut: g.wOut, mintOut: g.mintOut, tokenIn: g.tokenProgram, tokenOut: g.tokenProgram, prices: g.prices, lossBudget: g.lossBudget,
 });
@@ -181,7 +103,6 @@ export const honest = (g: GuardWorld, take: bigint, out: bigint) => route(g, [ta
 /** Pyth's Solana receiver, owner of every `PriceUpdateV2` account. */
 export const PYTH_RECEIVER = 'rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ' as Address;
 const PRICE_UPDATE = [34, 241, 35, 99, 157, 126, 244, 205];
-const u16 = (v: number) => Uint8Array.of(v & 0xff, v >> 8);
 
 export type PriceOptions = { conf?: bigint; expo?: number; publishTime?: bigint; owner?: Address; partial?: boolean; address?: Address };
 
@@ -205,7 +126,6 @@ export async function setPrice(g: GuardWorld, feed: Address, price: bigint, o: P
   return address;
 }
 
-export const feeOf = (amount: bigint) => (amount * FEE_BPS) / 10_000n;
 
 export type GuardOptions = {
   tokenProgram?: Address;
