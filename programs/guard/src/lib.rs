@@ -113,6 +113,7 @@ pub enum GuardError {
     PriceUncertain = 27,
     BelowOracle = 28,
     Unpriced = 29,
+    LossBudgetSpent = 30,
 }
 
 impl From<GuardError> for ProgramError {
@@ -213,9 +214,12 @@ pub struct Pending {
     pub decimals_out: u8,
     pub feed_in: Pubkey,
     pub feed_out: Pubkey,
+    /// I11: the grant whose loss budget Settle charges (default when the grant sets none), and the fee.
+    pub loss_grant: Pubkey,
+    pub fee: u64,
 }
 
-const PENDING_SIZE: usize = 1 + 32 * 6 + 8 * 3 + 2 + 8 + 2 + 32 * 2;
+const PENDING_SIZE: usize = 1 + 32 * 6 + 8 * 3 + 2 + 8 + 2 + 32 * 2 + 32 + 8;
 
 /// The owner's rules. PDA `["policy", owner]`.
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
@@ -264,6 +268,8 @@ impl Policy {
             decimals_out: r.u8()?,
             feed_in: r.key()?,
             feed_out: r.key()?,
+            loss_grant: r.key()?,
+            fee: r.u64()?,
         };
         Ok(p)
     }
@@ -299,6 +305,8 @@ impl Policy {
         w.u8(q.decimals_out);
         w.key(&q.feed_in);
         w.key(&q.feed_out);
+        w.key(&q.loss_grant);
+        w.u64(q.fee);
     }
 }
 
@@ -332,6 +340,19 @@ pub struct Grant {
     pub allow_unpriced: bool,
     /// The Pyth feed of each priced mint.
     pub feeds: [Feed; MAX_FEEDS],
+    /// I11: the most this agent may lose, by Pyth's prices, in micro-USD: per day and in all (0 = no cap).
+    /// Gains never offset losses, so churning many small losing swaps runs into the cap.
+    pub max_loss_per_day: u64,
+    pub max_loss_total: u64,
+    pub loss_day: i64,
+    pub loss_today: u64,
+    pub loss_total: u64,
+}
+
+impl Grant {
+    fn tracks_loss(&self) -> bool {
+        self.max_loss_per_day > 0 || self.max_loss_total > 0
+    }
 }
 
 /// A mint and its Pyth price feed id (the feed's 32 bytes, held as a `Pubkey`).
@@ -342,7 +363,7 @@ pub struct Feed {
 }
 
 const GRANT_TAG: u8 = 2;
-pub const GRANT_SIZE: usize = 1 + 2 + 8 + 32 * 2 + (32 + 8 * 4) * MAX_LIMITS + 32 * MAX_OUTPUTS + 2 + 1 + 64 * MAX_FEEDS;
+pub const GRANT_SIZE: usize = 1 + 2 + 8 + 32 * 2 + (32 + 8 * 4) * MAX_LIMITS + 32 * MAX_OUTPUTS + 2 + 1 + 64 * MAX_FEEDS + 8 * 5;
 
 impl Grant {
     fn read(data: &[u8]) -> Result<Self, ProgramError> {
@@ -362,6 +383,11 @@ impl Grant {
         for f in g.feeds.iter_mut() {
             *f = Feed { mint: r.key()?, feed: r.key()? };
         }
+        g.max_loss_per_day = r.u64()?;
+        g.max_loss_total = r.u64()?;
+        g.loss_day = r.i64()?;
+        g.loss_today = r.u64()?;
+        g.loss_total = r.u64()?;
         Ok(g)
     }
 
@@ -389,6 +415,11 @@ impl Grant {
             w.key(&f.mint);
             w.key(&f.feed);
         }
+        w.u64(self.max_loss_per_day);
+        w.u64(self.max_loss_total);
+        w.i64(self.loss_day);
+        w.u64(self.loss_today);
+        w.u64(self.loss_total);
     }
 }
 
@@ -453,6 +484,13 @@ fn oracle_floor(amount: u64, decimals_in: u8, decimals_out: u8, p_in: &Price, p_
         num / (p_out.price as u128).checked_mul(pow10((-k) as u32)?).ok_or(GuardError::Math)?
     };
     Ok(expected.checked_mul(10_000 - slippage_bps as u128).ok_or(GuardError::Math)? / 10_000)
+}
+
+/// What `amount` base units are worth in micro-USD at this price: amount × price × 10^(expo + 6 − decimals).
+fn usd_micro(amount: u64, decimals: u8, p: &Price) -> Result<u128, ProgramError> {
+    let k = (p.expo as i64) + 6 - (decimals as i64);
+    let v = (amount as u128).checked_mul(p.price as u128).ok_or(GuardError::Math)?;
+    Ok(if k >= 0 { v.checked_mul(pow10(k as u32)?).ok_or(GuardError::Math)? } else { v / pow10((-k) as u32)? })
 }
 
 // ---------------------------------------------------------------- token accounts and mints
@@ -696,7 +734,8 @@ fn update_policy(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> 
 
 /// `SetGrant`: [owner (signer, writable), policy, grant (writable), system program]
 /// data: agent [32], status u8, expires_at i64, 4 × (mint [32], max_per_swap u64, max_per_day u64), outputs [32; 4],
-/// max_slippage_bps u16, allow_unpriced u8, 8 × (mint [32], Pyth feed id [32])
+/// max_slippage_bps u16, allow_unpriced u8, 8 × (mint [32], Pyth feed id [32]),
+/// max_loss_per_day u64, max_loss_total u64 (micro-USD; 0 = no cap)
 fn set_grant(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     let owner = account(accounts, 0)?;
     let policy_info = account(accounts, 1)?;
@@ -725,6 +764,8 @@ fn set_grant(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Prog
     for f in feeds.iter_mut() {
         *f = Feed { mint: r.key()?, feed: r.key()? };
     }
+    let max_loss_per_day = r.u64()?;
+    let max_loss_total = r.u64()?;
     r.done()?;
     if max_slippage_bps > MAX_SLIPPAGE_BPS {
         return Err(fail(GuardError::BadGrant, "slippage above 50%"));
@@ -734,14 +775,17 @@ fn set_grant(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Prog
     if expected != *grant_info.key {
         return Err(fail(GuardError::BadGrant, "grant address"));
     }
+    let mut loss = (0i64, 0u64, 0u64);
     if grant_info.data_is_empty() {
         create_pda(owner, grant_info, system, program_id, GRANT_SIZE, &[GRANT_SEED, owner.key.as_ref(), agent.as_ref(), &[bump]])?;
     } else {
         if grant_info.owner != program_id {
             return Err(fail(GuardError::BadGrant, "grant not owned by this program"));
         }
-        // Keep today's count for a mint that stays, so that changing the rules never resets it.
+        // Keep today's count for a mint that stays, and the losses so far, so that changing the rules
+        // never resets them.
         let old = Grant::read(&grant_info.try_borrow_data()?)?;
+        loss = (old.loss_day, old.loss_today, old.loss_total);
         for l in limits.iter_mut() {
             if let Some(o) = old.limits.iter().find(|o| o.mint == l.mint && o.mint != Pubkey::default()) {
                 l.used_today = o.used_today;
@@ -749,7 +793,10 @@ fn set_grant(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Prog
             }
         }
     }
-    let grant = Grant { bump, status, expires_at, owner: *owner.key, agent, limits, outputs, max_slippage_bps, allow_unpriced, feeds };
+    let grant = Grant {
+        bump, status, expires_at, owner: *owner.key, agent, limits, outputs, max_slippage_bps, allow_unpriced, feeds,
+        max_loss_per_day, max_loss_total, loss_day: loss.0, loss_today: loss.1, loss_total: loss.2,
+    };
     grant.write(&mut grant_info.try_borrow_mut_data()?);
     Ok(())
 }
@@ -917,14 +964,22 @@ fn pull(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramRe
     }
     limit.used_today = used;
 
-    // I10: the oracle check Settle will make, if the owner set one.
+    // I10 and I11: the oracle checks Settle will make, if the owner set them. A loss budget needs
+    // prices: a pair without a feed is then refused even where unpriced pairs are otherwise allowed.
+    let tracks_loss = grant.tracks_loss();
     let feed_of = |m: &Pubkey| grant.feeds.iter().find(|f| f.mint == *m && f.mint != Pubkey::default()).map(|f| f.feed);
-    let (slippage_bps, feed_in, feed_out) = match (grant.max_slippage_bps, feed_of(mint_in.key), feed_of(mint_out.key)) {
-        (0, _, _) => (0, Pubkey::default(), Pubkey::default()),
-        (bps, Some(a), Some(b)) => (bps, a, b),
-        _ if grant.allow_unpriced => (0, Pubkey::default(), Pubkey::default()),
+    let (slippage_bps, feed_in, feed_out) = match (grant.max_slippage_bps > 0 || tracks_loss, feed_of(mint_in.key), feed_of(mint_out.key)) {
+        (false, _, _) => (0, Pubkey::default(), Pubkey::default()),
+        (true, Some(a), Some(b)) => (grant.max_slippage_bps, a, b),
+        _ if grant.allow_unpriced && !tracks_loss => (0, Pubkey::default(), Pubkey::default()),
         _ => return Err(fail(GuardError::Unpriced, "the owner requires a price for both mints, and one has no feed")),
     };
+    if tracks_loss {
+        let today = if grant.loss_day == day { grant.loss_today } else { 0 };
+        if (grant.max_loss_per_day > 0 && today >= grant.max_loss_per_day) || (grant.max_loss_total > 0 && grant.loss_total >= grant.max_loss_total) {
+            return Err(fail(GuardError::LossBudgetSpent, "the agent has spent its loss budget"));
+        }
+    }
 
     // Record, then move: the hopper's balance before, the output's balance before.
     policy.pending = Pending {
@@ -944,6 +999,8 @@ fn pull(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramRe
         decimals_out,
         feed_in,
         feed_out,
+        loss_grant: if tracks_loss { *grant_info.key } else { Pubkey::default() },
+        fee,
     };
     policy.write(&mut policy_info.try_borrow_mut_data()?);
     grant.write(&mut grant_info.try_borrow_mut_data()?);
@@ -961,7 +1018,8 @@ fn pull(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramRe
 /// `Settle`:
 /// 0 agent (signer), 1 policy (writable), 2 hopper (writable), 3 owner_in (writable), 4 mint_in,
 /// 5 token program of the input, 6 owner_out, and when the grant sets a slippage:
-/// 7 Pyth price update of the input mint, 8 Pyth price update of the output mint
+/// 7 Pyth price update of the input mint, 8 Pyth price update of the output mint, and when it sets a
+/// loss budget: 9 the grant (writable)
 fn settle(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     if get_stack_height() != TRANSACTION_LEVEL_STACK_HEIGHT {
         return Err(fail(GuardError::MustBeTopLevel, "settle must be a top-level instruction"));
@@ -998,11 +1056,14 @@ fn settle(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Program
     }
 
     // I10: by Pyth's prices, the output is worth at least the input less the owner's slippage.
-    if p.slippage_bps > 0 {
-        let now = Clock::get()?.unix_timestamp;
-        let price_in = read_price(account(accounts, 7)?, &p.feed_in, now)?;
-        let price_out = read_price(account(accounts, 8)?, &p.feed_out, now)?;
-        let floor = oracle_floor(p.amount, p.decimals_in, p.decimals_out, &price_in, &price_out, p.slippage_bps)?;
+    let now = Clock::get()?.unix_timestamp;
+    let prices = if p.feed_in != Pubkey::default() {
+        Some((read_price(account(accounts, 7)?, &p.feed_in, now)?, read_price(account(accounts, 8)?, &p.feed_out, now)?))
+    } else {
+        None
+    };
+    if let (Some((price_in, price_out)), true) = (&prices, p.slippage_bps > 0) {
+        let floor = oracle_floor(p.amount, p.decimals_in, p.decimals_out, price_in, price_out, p.slippage_bps)?;
         if (arrived as u128) < floor {
             msg!("guard: {} arrived, the oracle's floor is {}", arrived, floor);
             return Err(GuardError::BelowOracle.into());
@@ -1015,6 +1076,33 @@ fn settle(program_id: &Pubkey, accounts: &[AccountInfo], data: &[u8]) -> Program
         return Err(fail(GuardError::HopperShort, "the hopper lost more than the swap amount"));
     }
     let leftover = hop_now - p.hopper_before;
+
+    // I11: charge this swap's loss (what the owner paid less what arrived, by Pyth's prices) to the
+    // agent's budget; gains are not credited. Crossing the cap refuses the swap that crosses it.
+    if p.loss_grant != Pubkey::default() {
+        let (price_in, price_out) = prices.ok_or(GuardError::Unpriced)?;
+        let grant_info = account(accounts, 9)?;
+        if grant_info.owner != program_id || *grant_info.key != p.loss_grant || !grant_info.is_writable {
+            return Err(fail(GuardError::MismatchedSettle, "settle names another grant than pull"));
+        }
+        let mut grant = Grant::read(&grant_info.try_borrow_data()?)?;
+        let paid = p.amount.checked_sub(leftover).and_then(|x| x.checked_add(p.fee)).ok_or(GuardError::Math)?;
+        let value_in = usd_micro(paid, p.decimals_in, &price_in)?;
+        let value_out = usd_micro(arrived, p.decimals_out, &price_out)?;
+        let lost = u64::try_from(value_in.saturating_sub(value_out)).map_err(|_| GuardError::Math)?;
+        let day = now.div_euclid(SECONDS_PER_DAY);
+        if grant.loss_day != day {
+            grant.loss_day = day;
+            grant.loss_today = 0;
+        }
+        grant.loss_today = grant.loss_today.checked_add(lost).ok_or(GuardError::Math)?;
+        grant.loss_total = grant.loss_total.checked_add(lost).ok_or(GuardError::Math)?;
+        if (grant.max_loss_per_day > 0 && grant.loss_today > grant.max_loss_per_day) || (grant.max_loss_total > 0 && grant.loss_total > grant.max_loss_total) {
+            msg!("guard: this swap loses {} micro-USD; today {}, in all {}", lost, grant.loss_today, grant.loss_total);
+            return Err(GuardError::LossBudgetSpent.into());
+        }
+        grant.write(&mut grant_info.try_borrow_mut_data()?);
+    }
     if leftover > 0 {
         let decimals = checked_mint(mint_in, token_in.key)?;
         let ix = transfer_checked(token_in.key, hopper.key, mint_in.key, owner_in.key, agent.key, leftover, decimals);
@@ -1089,6 +1177,9 @@ mod tests {
         // and back: 150 USDC is 1 SOL.
         assert_eq!(oracle_floor(150_000_000, 6, 9, &usdc, &sol, 0).unwrap(), 1_000_000_000);
         assert!(oracle_floor(u64::MAX, 0, 30, &sol, &usdc, 0).is_err());
+        // 2 SOL at $150 = $300 = 300,000,000 micro-USD; 150 USDC = $150.
+        assert_eq!(usd_micro(2_000_000_000, 9, &sol).unwrap(), 300_000_000);
+        assert_eq!(usd_micro(150_000_000, 6, &usdc).unwrap(), 150_000_000);
     }
 
     #[test]

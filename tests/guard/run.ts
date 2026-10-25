@@ -13,7 +13,7 @@
  * CI: .github/workflows/guard.yml.
  */
 import { AccountRole, generateKeyPairSigner } from '@solana/kit';
-import type { Instruction, KeyPairSigner } from '@solana/kit';
+import type { Address, Instruction, KeyPairSigner } from '@solana/kit';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { TOKEN_2022_PROGRAM } from '@orientimhq/swap/core';
 import { deliver, IX, MIN_OUT, requireProgram, send, sign, takeFrom, transfer, transferChecked, u64 } from '../cpi/world.ts';
@@ -70,20 +70,47 @@ const twoOfTwo = async (g: GuardWorld) => {
  * allows 1% below that. `input`/`output` change one price update; `noOutputFeed` leaves the output
  * mint without a feed, refused unless `allowUnpriced`.
  */
-type Priced = { input?: PriceOptions; output?: PriceOptions; noOutputFeed?: boolean; allowUnpriced?: boolean; swapFeeds?: boolean };
+type Priced = {
+  input?: PriceOptions; output?: PriceOptions; noOutputFeed?: boolean; allowUnpriced?: boolean; swapFeeds?: boolean;
+  maxLossPerDay?: bigint; maxLossTotal?: bigint;
+};
 const priced = (o: Priced = {}) => async (g: GuardWorld) => {
   const [feedIn, feedOut] = await Promise.all([generateKeyPairSigner(), generateKeyPairSigner()]).then(k => k.map(x => x.address));
   const feeds = [{ mint: g.mintIn, feed: feedIn }, ...(o.noOutputFeed ? [] : [{ mint: g.mintOut, feed: feedOut }])];
   const r = send(g.svm, await sign(g.svm, [ix.setGrant(g, g.W.address, g.grant, g.agent.address, {
     limits: [{ mint: g.mintIn, perSwap: 200n * 1_000_000n, perDay: 500n * 1_000_000n }], outputs: [g.mintOut],
-    maxSlippageBps: 100, allowUnpriced: o.allowUnpriced, feeds,
+    maxSlippageBps: 100, allowUnpriced: o.allowUnpriced, feeds, maxLossPerDay: o.maxLossPerDay, maxLossTotal: o.maxLossTotal,
   })], g.W));
   if (!r.ok) throw new Error(r.error);
   const prices = [await setPrice(g, feedIn, 1_00000000n, o.input), await setPrice(g, feedOut, 10_00000000n, o.output)];
   g.prices = o.swapFeeds ? [prices[1], prices[0]] : prices;
+  g.lossBudget = o.maxLossPerDay !== undefined || o.maxLossTotal !== undefined;
+  priceFeeds.set(g, [feedIn, feedOut]);
 };
 const OUT_9 = 9_000_000_000n; // 9 OUT: above a minimum of 1, below the oracle's floor of 9.9
 
+/**
+ * I11, the sawtooth: each swap loses 0.9% (9.91 OUT for 100 IN, inside the 1% the oracle allows) plus the
+ * 0.25% fee, about $1.15 by Pyth's prices. With a budget of $2 a day the second such swap is refused.
+ */
+const priceFeeds = new WeakMap<GuardWorld, Address[]>();
+const OUT_SAW = 9_910_000_000n;
+const LOSS_DAY = 2_000_000n; // $2, micro-USD
+const sawtooth = (g: GuardWorld) => swap(g, honest(g, AMOUNT, OUT_SAW), AMOUNT, 1n);
+const sawtoothFirst = async (g: GuardWorld) => {
+  const r = send(g.svm, await sign(g.svm, sawtooth(g).ixs, g.agent, [g.verifier]));
+  if (!r.ok) throw new Error(`the first swap failed: ${r.error}\n${r.logs.join('\n')}`);
+  g.svm.expireBlockhash();
+};
+/** Moves the clock and posts fresh prices at the same accounts. */
+const later = async (g: GuardWorld, seconds: bigint) => {
+  const clock = g.svm.getClock();
+  clock.unixTimestamp += seconds;
+  g.svm.setClock(clock);
+  const [feedIn, feedOut] = priceFeeds.get(g)!;
+  await setPrice(g, feedIn, 1_00000000n, { address: g.prices![0] });
+  await setPrice(g, feedOut, 10_00000000n, { address: g.prices![1] });
+};
 /** Sends one complete honest swap of `amount` first, so that the case's own transaction is the second. */
 const oneSwapFirst = (amount: bigint) => async (g: GuardWorld) => {
   const r = send(g.svm, await sign(g.svm, swap(g, honest(g, amount, MIN), amount).ixs, g.agent, [g.verifier]));
@@ -411,6 +438,62 @@ const CASES: Case[] = [
       g.prices = undefined;
     },
     plan: g => swap(g, honest(g, AMOUNT, OUT_9), AMOUNT, 1n), expect: 'succeeds',
+  },
+
+  // ---- I11: the loss budget
+  {
+    id: 'G-T14a', name: 'loss budget: one swap losing 0.9% plus the fee fits the $2 a day',
+    before: priced({ maxLossPerDay: LOSS_DAY }), plan: sawtooth, expect: 'succeeds',
+  },
+  {
+    id: 'G-T14b', name: 'loss budget: the second losing swap of the day crosses $2 (the sawtooth)',
+    before: async g => {
+      await priced({ maxLossPerDay: LOSS_DAY })(g);
+      await sawtoothFirst(g);
+    },
+    plan: sawtooth, expect: 'fails', because: ERR.LossBudgetSpent,
+  },
+  {
+    id: 'G-T14c', name: 'loss budget: the next day starts again',
+    before: async g => {
+      await priced({ maxLossPerDay: LOSS_DAY })(g);
+      await sawtoothFirst(g);
+      await later(g, DAY);
+    },
+    plan: sawtooth, expect: 'succeeds',
+  },
+  {
+    id: 'G-T14d', name: 'loss budget: the total cap holds across days',
+    before: async g => {
+      await priced({ maxLossPerDay: LOSS_DAY, maxLossTotal: LOSS_DAY })(g);
+      await sawtoothFirst(g);
+      await later(g, DAY);
+    },
+    plan: sawtooth, expect: 'fails', because: ERR.LossBudgetSpent,
+  },
+  {
+    id: 'G-T14e', name: 'loss budget: a gain does not buy room for losses',
+    before: async g => {
+      await priced({ maxLossPerDay: LOSS_DAY })(g);
+      const r = send(g.svm, await sign(g.svm, swap(g, honest(g, AMOUNT, 12_000_000_000n), AMOUNT).ixs, g.agent, [g.verifier]));
+      if (!r.ok) throw new Error(r.error);
+      g.svm.expireBlockhash();
+      await sawtoothFirst(g);
+    },
+    plan: sawtooth, expect: 'fails', because: ERR.LossBudgetSpent,
+  },
+  {
+    id: 'G-T14f', name: 'loss budget: settle without the grant',
+    before: async g => {
+      await priced({ maxLossPerDay: LOSS_DAY })(g);
+      g.lossBudget = false;
+    },
+    plan: sawtooth, expect: 'fails', because: 'insufficient account keys',
+  },
+  {
+    id: 'G-T14g', name: 'loss budget: an unpriced pair is refused even when unpriced pairs are allowed',
+    before: priced({ maxLossPerDay: LOSS_DAY, noOutputFeed: true, allowUnpriced: true }),
+    plan: g => swap(g, honest(g, AMOUNT, MIN)), expect: 'fails', because: ERR.Unpriced,
   },
 
   // ---- GRD-10: Token-2022

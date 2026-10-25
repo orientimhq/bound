@@ -32,7 +32,7 @@ export const ERR = {
   BadShape: 8, ProgramNotAllowed: 9, MintNotAllowed: 10, OverSwapLimit: 11, OverDailyLimit: 12, BadTokenAccount: 13,
   NotDelegated: 14, BadTreasury: 15, UnsafeMint: 16, SwapInProgress: 17, NoSwapInProgress: 18, MismatchedSettle: 19,
   BelowMinimum: 20, HopperShort: 21, BadAmount: 22, Math: 23, SecondVerifierMissing: 24,
-  BadOracle: 25, StalePrice: 26, PriceUncertain: 27, BelowOracle: 28, Unpriced: 29,
+  BadOracle: 25, StalePrice: 26, PriceUncertain: 27, BelowOracle: 28, Unpriced: 29, LossBudgetSpent: 30,
 } as const;
 
 export const STATUS = { active: 0, paused: 1, revoked: 2 } as const;
@@ -61,6 +61,8 @@ export type GrantRules = {
   status?: number; expiresAt?: bigint; limits: Limit[]; outputs: Address[];
   /** Pyth: the least the output may be worth below the input (bps; 0 = no check), and each mint's feed. */
   maxSlippageBps?: number; allowUnpriced?: boolean; feeds?: Feed[];
+  /** The most the agent may lose by Pyth's prices, in micro-USD, per day and in all (0 = no cap). */
+  maxLossPerDay?: bigint; maxLossTotal?: bigint;
 };
 
 export type GuardWorld = World & {
@@ -71,6 +73,8 @@ export type GuardWorld = World & {
   ownerVerifier: KeyPairSigner;
   /** Pyth price updates every Settle passes (input, output), once a case sets them. */
   prices?: Address[];
+  /** Whether every Settle passes the grant (a loss budget is set). */
+  lossBudget?: boolean;
   policy: Address;
   grant: Address;
   authority: Address;
@@ -111,6 +115,7 @@ export const ix = {
         const f = rules.feeds?.[i];
         return f ? bytes(key(f.mint), key(f.feed)) : new Uint8Array(64);
       }),
+      u64(rules.maxLossPerDay ?? 0n), u64(rules.maxLossTotal ?? 0n),
     ),
   }),
   pull: (g: GuardWorld, amount: bigint, minOut: bigint, o: Partial<PullAccounts> = {}): Instruction => {
@@ -131,7 +136,7 @@ export const ix = {
       programAddress: g.guard,
       accounts: [
         sr(a.agent), wr(a.policy), wr(a.hopper), wr(a.ownerIn), r(a.mintIn), r(a.tokenIn), r(a.ownerOut),
-        ...(a.prices ?? []).map(r),
+        ...(a.prices ?? []).map(r), ...(a.lossBudget ? [wr(a.grant)] : []),
       ],
       data: Uint8Array.from([4]),
     };
@@ -146,12 +151,14 @@ export type PullAccounts = {
   second?: Address;
   /** Pyth price updates of the input and output mints, for Settle. */
   prices?: Address[];
+  /** Settle also takes the grant, whose loss budget it charges. */
+  lossBudget?: boolean;
 };
 
 export const pullAccounts = (g: GuardWorld): PullAccounts => ({
   agent: g.agent.address, verifier: g.verifier.address, verifierSigns: true, policy: g.policy, grant: g.grant,
   authority: g.authority, ownerIn: g.wIn, mintIn: g.mintIn, hopper: g.hopper, treasuryIn: g.treasuryIn,
-  ownerOut: g.wOut, mintOut: g.mintOut, tokenIn: g.tokenProgram, tokenOut: g.tokenProgram, prices: g.prices,
+  ownerOut: g.wOut, mintOut: g.mintOut, tokenIn: g.tokenProgram, tokenOut: g.tokenProgram, prices: g.prices, lossBudget: g.lossBudget,
 });
 
 /**
@@ -178,11 +185,11 @@ export const PYTH_RECEIVER = 'rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ' as Ad
 const PRICE_UPDATE = [34, 241, 35, 99, 157, 126, 244, 205];
 const u16 = (v: number) => Uint8Array.of(v & 0xff, v >> 8);
 
-export type PriceOptions = { conf?: bigint; expo?: number; publishTime?: bigint; owner?: Address; partial?: boolean };
+export type PriceOptions = { conf?: bigint; expo?: number; publishTime?: bigint; owner?: Address; partial?: boolean; address?: Address };
 
 /** Writes a Pyth `PriceUpdateV2` for `feed` into a fresh account and returns its address. */
 export async function setPrice(g: GuardWorld, feed: Address, price: bigint, o: PriceOptions = {}): Promise<Address> {
-  const address = (await generateKeyPairSigner()).address;
+  const address = o.address ?? (await generateKeyPairSigner()).address;
   const n64 = (v: bigint) => {
     const b = new Uint8Array(8);
     new DataView(b.buffer).setBigInt64(0, v, true);

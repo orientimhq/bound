@@ -42,6 +42,7 @@ slippage against Pyth with each mint's feed) and an SPL
 | I7 | The authority PDA signs only the two `TransferChecked` of `Pull`; its signature never reaches another program |
 | I8 | Nothing moves the owner's tokens elsewhere; only the owner changes the policy and grants |
 | I10 | When the grant sets a slippage, `Settle` reads Pyth's price of both mints (a fully verified `PriceUpdateV2` of the grant's feed, at most 60 s old, confidence within 2%) and refuses unless the output is worth at least the input less that slippage. A pair without a feed is refused, unless the owner allows unpriced pairs. Even a verifier and an agent that agree on a minimum of 1 cannot sell below the price |
+| I11 | When the grant sets a loss budget (micro-USD per day and in all), `Settle` charges each swap's loss by Pyth's prices (what the owner paid, fee included, less what arrived) to the grant; gains are never credited. The swap that would cross a cap is refused, and `Pull` refuses once a cap is spent. This stops an agent that churns many swaps each just inside the slippage (the sawtooth). A loss budget needs prices for both mints |
 | I9 | Token-2022 mints may carry only: transfer fee, mint close authority, default account state, a transfer hook with no program, metadata and group extensions. A permanent delegate, non-transferable, pausable and every other extension are refused |
 
 Error codes: `GuardError` in `programs/guard/src/lib.rs`. The numbers are part of the interface.
@@ -70,6 +71,7 @@ untouched.
 | G-T11a, G-T11b | The agent changes the policy; the agent raises its own limits |
 | G-T12a–e | Threshold 2: both sign; only Orientim; the same verifier twice; a second key not in the policy; threshold 2 with one verifier named |
 | G-T13a–j | Pyth: within 1%; minimum 1 but 10% below the price; stale; not Pyth's account; feeds swapped; partially verified; wide confidence; no prices passed; unpriced pair refused; unpriced pair allowed |
+| G-T14a–g | Loss budget: one losing swap fits; the second of the day crosses it (sawtooth); the next day; the total cap across days; a gain buys no room; settle without the grant; an unpriced pair refused |
 | G-T10a, G-T10b | Token-2022 honest swap; permanent delegate refused |
 
 `node tests/guard/fuzz.ts` sends random transactions through the Guard (1,000 per CI run, seeded by the
