@@ -1,6 +1,6 @@
 /**
- * Orientim Guard end to end on Solana's devnet: the program and a test swap program deployed for this
- * run (by .github/workflows/guard-devnet.yml), test tokens, the owner's one set-up transaction from the
+ * Orientim Guard end to end on Solana's devnet: the program and a test swap program deployed by hand
+ * (with a funded devnet key; no workflow runs this), test tokens, the owner's one set-up transaction from the
  * SDK, Orientim's verifier serving over HTTP and simulating against devnet, and the agent's swaps
  * through `swap()` and an RPC node, with real confirmations and blockhashes. Then the refusals, each
  * both ways: `swap()` refuses before sending, and the chain refuses the same swap sent anyway.
