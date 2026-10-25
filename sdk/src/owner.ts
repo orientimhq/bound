@@ -57,6 +57,22 @@ export type OwnerSetup = {
   budgets: { mint: Address; amount: bigint; tokenProgram?: Address }[];
   /** Whether the policy exists already (then only the grant and approvals are set). */
   policyExists?: boolean;
+  /** The token program of an output mint that is not the classic Token program's. */
+  outputTokenPrograms?: Record<Address, Address>;
+  /** SOL for the agent's network fees, sent with the set-up (e.g. 10_000_000n, 0.01 SOL). */
+  agentLamports?: bigint;
+};
+
+/** System transfer: `lamports` from `from` to `to`. */
+export const transferSol = (from: Address, to: Address, lamports: bigint): Instruction => {
+  const data = new Uint8Array(12);
+  data[0] = 2;
+  new DataView(data.buffer).setBigUint64(4, lamports, true);
+  return {
+    programAddress: SYSTEM_PROGRAM,
+    accounts: [{ address: from, role: AccountRole.WRITABLE_SIGNER }, { address: to, role: AccountRole.WRITABLE }],
+    data,
+  };
 };
 
 export async function ownerSetup(s: OwnerSetup): Promise<Instruction[]> {
@@ -73,5 +89,11 @@ export async function ownerSetup(s: OwnerSetup): Promise<Instruction[]> {
       approve(await ataOf(s.owner, b.mint, tokenProgram), authority, s.owner, b.amount, tokenProgram),
     );
   }
+  // Every output arrives in the owner's own account for its mint, which must exist before a swap.
+  for (const mint of s.rules.outputs) {
+    const tokenProgram = s.outputTokenPrograms?.[mint] ?? TOKEN_PROGRAM;
+    ixs.push(createAtaIdempotent(s.owner, await ataOf(s.owner, mint, tokenProgram), s.owner, mint, tokenProgram));
+  }
+  if (s.agentLamports) ixs.push(transferSol(s.owner, s.agent, s.agentLamports));
   return ixs;
 }

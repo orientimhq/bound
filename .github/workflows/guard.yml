@@ -70,6 +70,8 @@ jobs:
         run: node tests/guard/rules.ts
       - name: The verifier
         run: node tests/guard/verifier.ts
+      - name: The SDK's swap() in one call
+        run: node tests/guard/swap.ts
 
       # A fuzzer that passes on a broken program proves nothing. Each broken copy must make its fuzzer
       # fail (exit 1), with a fixed seed so the result is repeatable. fuzz.ts: M1 drops the minimum

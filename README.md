@@ -37,6 +37,7 @@ The full rules (I1–I11), the transaction's shape and every test case are in
 | `tests/guard/fuzz.ts` | The attack fuzzer; CI requires it to catch two broken copies of the program |
 | `tests/guard/rules.ts` | The owner's rules fuzzed against an independent model; CI requires it to catch three broken copies |
 | `tests/guard/verifier.ts` | The verifier against the Guard, and the agent's whole path through the SDK |
+| `tests/guard/swap.ts` | `swap()` in one call: honest swaps, the owner's rules read first, a verifier that cheats, `ownerSetup()` |
 | `tests/guard/jupiter.ts` | Real Jupiter routes from a copy of mainnet, with Pyth's real prices |
 | `tests/guard/attacker` | A malicious swap program the tests use as the route |
 
@@ -51,6 +52,7 @@ npm test             # the fixed cases
 npm run fuzz
 node tests/guard/rules.ts
 node tests/guard/verifier.ts
+node tests/guard/swap.ts
 RPC_URL=… JUPITER_API_KEY=… npm run jupiter
 ```
 
@@ -60,15 +62,21 @@ million cases each across 20 shards (`.github/workflows/guard-fuzz.yml`).
 ## The agent's swap, with the SDK
 
 ```ts
-import { accountsFor, compileGuardedSwap, guardedSwap, jupiterRoute, requestCosign } from '@orientimhq/guard';
+import { createGuardClient, rpcChain } from '@orientimhq/guard';
 
-const accounts = await accountsFor({ program, owner, agent: agent.address, verifier, mintIn, mintOut });
-const route = await jupiterRoute({ inputMint: mintIn, outputMint: mintOut, amount, taker: agent.address,
-  destination: accounts.ownerOut, slippageBps: 50, apiKey });
-const tx = compileGuardedSwap(guardedSwap({ accounts, amount, route }), agent.address, await latestBlockhash());
-const cosigned = await requestCosign('https://verifier.orientim…', tx);
-// the agent signs `cosigned` and sends it through its own RPC
+const guard = createGuardClient({
+  program, owner, agent,                       // agent: the agent's own KeyPairSigner
+  chain: rpcChain(HELIUS_URL),
+  verifiers: [{ address: ORIENTIM_VERIFIER, cosign: 'https://verifier.orientim…' }],
+  jupiterApiKey,
+});
+const r = await guard.swap({ mintIn: USDC, mintOut: SOL, amount: 100_000_000n });
+// r.ok: { signature, amount, fee, minOut, arrived }; otherwise { stage, reason }
 ```
+
+`swap()` reads the owner's rules first and refuses, with the reason, a swap the Guard would refuse;
+asks Jupiter for a route that fits one transaction; has the verifier co-sign; checks the verifier
+signed exactly the transaction it built; then signs with the agent's key and sends it.
 
 The owner's one set-up transaction comes from `ownerSetup(...)`; `revoke(...)` ends every approval.
 
