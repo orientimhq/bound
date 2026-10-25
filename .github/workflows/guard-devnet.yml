@@ -75,7 +75,7 @@ jobs:
       # printed: send it devnet SOL from https://faucet.solana.com and run the workflow again.
       - name: Devnet SOL
         run: |
-          need=5
+          need=3
           echo "deployer: $DEPLOYER"
           for i in 1 2 3 4 5 6; do
             have=$(solana balance -u "$RPC_URL" "$DEPLOYER" | awk '{print int($1)}')
