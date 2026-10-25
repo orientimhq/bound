@@ -291,7 +291,11 @@ for (let i = 0; i < RUNS; i++) {
 
   g.svm.expireBlockhash();
   const before = guardBalances(g);
-  const result = send(g.svm, await sign(g.svm, ixs, g.agent, signers));
+  // A key the transaction needs but nobody holds (the verifier stays silent): it cannot be sent at all.
+  const result = await sign(g.svm, ixs, g.agent, signers).then(
+    tx => send(g.svm, tx),
+    () => ({ ok: false, error: 'a required signature is missing', index: null, logs: [] }),
+  );
   const after = guardBalances(g);
   counts[result.ok ? 'allowed' : 'refused']++;
   reasons.set(verdict.why, (reasons.get(verdict.why) ?? 0) + 1);
